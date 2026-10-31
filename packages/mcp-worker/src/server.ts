@@ -6,6 +6,7 @@ import {
   getTerm,
   listTags,
   lookupRates,
+  reportIssue,
   resolveAlias,
   scoreCandidates,
 } from "./query.js";
@@ -31,8 +32,9 @@ export function buildServer(db: D1Database): McpServer {
       description: `Rates for a tag, card, or issuer. Compact page. ${SEED_NOTE}`,
       inputSchema: z.object({
         tag_id: z.string().optional(),
-        card_id: z.string().optional(),
+        card_ids: z.array(z.string()).optional(),
         issuer: z.string().optional(),
+        as_of: z.string().optional(),
         limit,
       }),
       annotations: { readOnlyHint: true },
@@ -87,7 +89,9 @@ export function buildServer(db: D1Database): McpServer {
       inputSchema: z.object({
         amount_hkd: z.number(),
         tag_ids: z.array(z.string()).optional(),
+        card_ids: z.array(z.string()).optional(),
         alias: z.string().optional(),
+        as_of: z.string().optional(),
         assumptions: z
           .object({
             month_to_date_rebate_hkd: z.number().nonnegative().optional(),
@@ -100,6 +104,23 @@ export function buildServer(db: D1Database): McpServer {
       annotations: { readOnlyHint: true },
     },
     async (args) => payload(await scoreCandidates(db, args)),
+  );
+
+  server.registerTool(
+    "report_issue",
+    {
+      description: `Report a wrong or stale fact for the maintenance queue. Exactly one of card_id, rate_id, term_id plus field and claimed_value. Evidence URL helps triage. Do not include personal data. ${SEED_NOTE}`,
+      inputSchema: z.object({
+        card_id: z.string().optional(),
+        rate_id: z.string().optional(),
+        term_id: z.string().optional(),
+        field: z.string(),
+        claimed_value: z.string(),
+        evidence_url: z.string().optional(),
+        note: z.string().optional(),
+      }),
+    },
+    async (args) => payload(await reportIssue(db, args)),
   );
 
   return server;

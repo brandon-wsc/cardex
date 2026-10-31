@@ -28,6 +28,8 @@ issuer ──< card ──< rate ──< term
 card ──< alias_card ── alias
 rate ──< rate_term >── term
 
+issuer/network aliases live in code (src/aliases.ts), not D1 — near-closed sets
+
 reports   (quarantine — written by report_issue, read only by the maintenance loop)
 ```
 

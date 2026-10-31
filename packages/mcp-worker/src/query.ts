@@ -1,3 +1,5 @@
+import { ISSUER_ALIASES, NETWORK_ALIASES } from "./aliases";
+
 const PROVENANCE = {
   kind: "synthetic-seed" as const,
   illustrative: true as const,
@@ -5,7 +7,9 @@ const PROVENANCE = {
 };
 
 const DEFAULT_LIMIT = 5;
-const MAX_LIMIT = 20;
+const MAX_LIMIT = 100;
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export interface Assumptions {
   month_to_date_rebate_hkd?: number;
@@ -13,7 +17,13 @@ export interface Assumptions {
   checked_exclusions?: string[];
 }
 
-type FailureCode = "not_found" | "invalid_limit" | "missing_spend" | "invalid_amount";
+type FailureCode =
+  | "not_found"
+  | "invalid_limit"
+  | "invalid_amount"
+  | "invalid_date"
+  | "invalid_report"
+  | "missing_spend";
 
 export interface Failure {
   ok: false;
@@ -38,16 +48,31 @@ interface CardRow {
 interface RateRow {
   id: string;
   card_id: string;
-  kind: "rebate_percent" | "points_per_hkd";
+  kind: "rebate_percent" | "points";
   value: number;
+  unit: string;
+  source_url: string | null;
+  last_verified_at: string | null;
+  effective_from: string | null;
+  effective_to: string | null;
 }
+
+type TermKind =
+  | "cap"
+  | "exclusion"
+  | "fx_fee"
+  | "min_spend"
+  | "registration_required"
+  | "channel"
+  | "mcc";
 
 interface TermRow {
   id: string;
   card_id: string;
-  kind: "cap" | "exclusion";
+  kind: TermKind;
   text: string;
   source_url: string | null;
+  last_verified_at: string | null;
   effective_from: string | null;
   effective_to: string | null;
   cap_hkd: number | null;
@@ -67,10 +92,22 @@ interface AliasRow {
   card_ids: string[];
 }
 
+interface AliasMatch extends AliasRow {
+  issuers: string[];
+  networks: string[];
+}
+
 function fail(error: FailureCode, detail?: string): Failure {
   return detail === undefined
     ? { ok: false, provenance: PROVENANCE, error }
     : { ok: false, provenance: PROVENANCE, error, detail };
+}
+
+async function seedAsOf(db: D1Database): Promise<string | null> {
+  const row = await db
+    .prepare("SELECT value FROM meta WHERE key = 'seed_as_of'")
+    .first<{ value: string }>();
+  return row?.value ?? null;
 }
 
 export function applyLimit(requested: number | undefined): LimitApplied | Failure {
@@ -84,6 +121,19 @@ export function applyLimit(requested: number | undefined): LimitApplied | Failur
     return { limit: MAX_LIMIT, limit_requested: requested, clamped: true };
   }
   return { limit: requested, limit_requested: requested, clamped: false };
+}
+
+function checkAsOf(asOf: string | undefined): string | Failure {
+  if (asOf === undefined) return new Date().toISOString().slice(0, 10);
+  if (!ISO_DATE.test(asOf)) {
+    return fail("invalid_date", "as_of must be an ISO date YYYY-MM-DD");
+  }
+  return asOf;
+}
+
+// A record is active when its window contains the date; NULL means open-ended.
+function activeAt(column: string): string {
+  return `(${column}_from IS NULL OR ${column}_from <= ?) AND (${column}_to IS NULL OR ${column}_to >= ?)`;
 }
 
 function norm(value: string): string {
@@ -143,6 +193,7 @@ function rateRow(
     issuer: rate.issuer,
     kind: rate.kind,
     value: rate.value,
+    unit: rate.unit,
     tag_ids: tagIds,
     term_ids: termIds,
   };
@@ -160,12 +211,24 @@ async function rateRowsWithRefs(
   return rows.map((row) => rateRow(row, tagIds.get(row.id) ?? [], termIds.get(row.id) ?? []));
 }
 
+const RATE_COLS =
+  "r.id, r.card_id, r.kind, r.value, r.unit, r.source_url, r.last_verified_at, " +
+  "r.effective_from, r.effective_to, c.name AS card_name, c.issuer";
+
 export async function lookupRates(
   db: D1Database,
-  input: { tag_id?: string; card_id?: string; issuer?: string; limit?: number },
+  input: {
+    tag_id?: string;
+    card_ids?: string[];
+    issuer?: string;
+    as_of?: string;
+    limit?: number;
+  },
 ) {
   const page = applyLimit(input.limit);
   if ("ok" in page) return page;
+  const asOf = checkAsOf(input.as_of);
+  if (typeof asOf !== "string") return asOf;
 
   if (input.tag_id) {
     const tag = await db.prepare("SELECT id FROM tags WHERE id = ?").bind(input.tag_id).first();
@@ -173,6 +236,7 @@ export async function lookupRates(
       return {
         ok: true as const,
         provenance: PROVENANCE,
+        seed_as_of: await seedAsOf(db),
         ...page,
         total: 0,
         unknown_tag_id: input.tag_id,
@@ -181,23 +245,23 @@ export async function lookupRates(
     }
   }
 
-  const where: string[] = [];
-  const params: unknown[] = [];
+  const where: string[] = [activeAt("r.effective")];
+  const params: unknown[] = [asOf, asOf];
   if (input.tag_id) {
     where.push(
       "EXISTS (SELECT 1 FROM rate_tags rt WHERE rt.rate_id = r.id AND rt.tag_id = ?)",
     );
     params.push(input.tag_id);
   }
-  if (input.card_id) {
-    where.push("r.card_id = ?");
-    params.push(input.card_id);
+  if (input.card_ids?.length) {
+    where.push(`r.card_id IN (${placeholders(input.card_ids.length)})`);
+    params.push(...input.card_ids);
   }
   if (input.issuer) {
     where.push("instr(lower(c.issuer), ?) > 0");
     params.push(norm(input.issuer));
   }
-  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const whereSql = `WHERE ${where.join(" AND ")}`;
 
   const totalRow = await db
     .prepare(`SELECT count(*) AS n FROM rates r JOIN cards c ON c.id = r.card_id ${whereSql}`)
@@ -206,8 +270,7 @@ export async function lookupRates(
 
   const { results } = await db
     .prepare(
-      `SELECT r.id, r.card_id, r.kind, r.value, c.name AS card_name, c.issuer ` +
-        `FROM rates r JOIN cards c ON c.id = r.card_id ${whereSql} ` +
+      `SELECT ${RATE_COLS} FROM rates r JOIN cards c ON c.id = r.card_id ${whereSql} ` +
         `ORDER BY r.card_id, r.id LIMIT ?`,
     )
     .bind(...params, page.limit)
@@ -216,6 +279,7 @@ export async function lookupRates(
   return {
     ok: true as const,
     provenance: PROVENANCE,
+    seed_as_of: await seedAsOf(db),
     ...page,
     total: totalRow?.n ?? 0,
     records: await rateRowsWithRefs(db, results),
@@ -231,7 +295,9 @@ export async function getCard(db: D1Database, id: string) {
 
   const { results } = await db
     .prepare(
-      `SELECT r.id, r.card_id, r.kind, r.value, ? AS card_name, ? AS issuer ` +
+      `SELECT r.id, r.card_id, r.kind, r.value, r.unit, r.source_url, ` +
+        `r.last_verified_at, r.effective_from, r.effective_to, ` +
+        `? AS card_name, ? AS issuer ` +
         `FROM rates r WHERE r.card_id = ? ORDER BY r.id`,
     )
     .bind(card.name, card.issuer, id)
@@ -241,6 +307,7 @@ export async function getCard(db: D1Database, id: string) {
   return {
     ok: true as const,
     provenance: PROVENANCE,
+    seed_as_of: await seedAsOf(db),
     card,
     rates,
     term_ids: [...new Set(rates.flatMap((rate) => rate.term_ids))],
@@ -250,7 +317,7 @@ export async function getCard(db: D1Database, id: string) {
 export async function getTerm(db: D1Database, id: string) {
   const term = await db.prepare("SELECT * FROM terms WHERE id = ?").bind(id).first<TermRow>();
   if (!term) return fail("not_found", id);
-  return { ok: true as const, provenance: PROVENANCE, term };
+  return { ok: true as const, provenance: PROVENANCE, seed_as_of: await seedAsOf(db), term };
 }
 
 export async function listTags(db: D1Database, input: { limit?: number } = {}) {
@@ -264,6 +331,7 @@ export async function listTags(db: D1Database, input: { limit?: number } = {}) {
   return {
     ok: true as const,
     provenance: PROVENANCE,
+    seed_as_of: await seedAsOf(db),
     ...page,
     total: totalRow?.n ?? 0,
     records: results,
@@ -286,6 +354,28 @@ async function allAliases(db: D1Database): Promise<AliasRow[]> {
   }));
 }
 
+// Issuer and network aliases come from the code-side maps in ./aliases, not D1.
+function staticAliasHits(query: string): AliasMatch[] {
+  const rows = new Map<string, AliasMatch>();
+  const merge = (map: Record<string, string>, field: "issuers" | "networks") => {
+    for (const [text, value] of Object.entries(map)) {
+      if (!aliasHits(query, text)) continue;
+      const row = rows.get(text) ?? {
+        text,
+        tag_ids: [],
+        card_ids: [],
+        issuers: [],
+        networks: [],
+      };
+      row[field].push(value);
+      rows.set(text, row);
+    }
+  };
+  merge(ISSUER_ALIASES, "issuers");
+  merge(NETWORK_ALIASES, "networks");
+  return [...rows.values()];
+}
+
 export async function matchingAliases(db: D1Database, query: string): Promise<AliasRow[]> {
   const aliases = await allAliases(db);
   return aliases.filter((alias) => aliasHits(query, alias.text));
@@ -297,17 +387,33 @@ export async function resolveAlias(
 ) {
   const page = applyLimit(input.limit);
   if ("ok" in page) return page;
-  const hits = await matchingAliases(db, input.query);
+  const hits = new Map<string, AliasMatch>();
+  for (const alias of await matchingAliases(db, input.query)) {
+    hits.set(alias.text, { ...alias, issuers: [], networks: [] });
+  }
+  for (const row of staticAliasHits(input.query)) {
+    const existing = hits.get(row.text);
+    if (existing) {
+      existing.issuers.push(...row.issuers);
+      existing.networks.push(...row.networks);
+    } else {
+      hits.set(row.text, row);
+    }
+  }
+  const merged = [...hits.values()];
   return {
     ok: true as const,
     provenance: PROVENANCE,
+    seed_as_of: await seedAsOf(db),
     query: input.query,
     ...page,
-    total: hits.length,
-    matches: hits.slice(0, page.limit).map((alias) => ({
+    total: merged.length,
+    matches: merged.slice(0, page.limit).map((alias) => ({
       text: alias.text,
       tag_ids: alias.tag_ids,
       card_ids: alias.card_ids,
+      issuers: alias.issuers,
+      networks: alias.networks,
     })),
   };
 }
@@ -317,19 +423,27 @@ export async function scoreCandidates(
   input: {
     amount_hkd: number;
     tag_ids?: string[];
+    card_ids?: string[];
     alias?: string;
     assumptions?: Assumptions;
+    as_of?: string;
     limit?: number;
   },
 ) {
   const page = applyLimit(input.limit);
   if ("ok" in page) return page;
   if (!(input.amount_hkd > 0)) return fail("invalid_amount", "amount_hkd must be > 0");
+  const asOf = checkAsOf(input.as_of);
+  if (typeof asOf !== "string") return asOf;
 
+  // Alias hits contribute spend tags and card scope together — resolving
+  // "hsbc red" narrows the scored set just like an explicit card_ids list.
   const spendTags = new Set(input.tag_ids ?? []);
+  const cardScope = new Set(input.card_ids ?? []);
   if (input.alias) {
     for (const alias of await matchingAliases(db, input.alias)) {
       for (const tagId of alias.tag_ids) spendTags.add(tagId);
+      for (const cardId of alias.card_ids) cardScope.add(cardId);
     }
   }
   if (spendTags.size === 0) {
@@ -337,23 +451,32 @@ export async function scoreCandidates(
   }
   const tagList = [...spendTags];
 
+  const where: string[] = [
+    `rt.tag_id IN (${placeholders(tagList.length)})`,
+    activeAt("r.effective"),
+  ];
+  const params: unknown[] = [...tagList, asOf, asOf];
+  if (cardScope.size > 0) {
+    where.push(`r.card_id IN (${placeholders(cardScope.size)})`);
+    params.push(...cardScope);
+  }
+  const whereSql = `WHERE ${where.join(" AND ")}`;
+
   const totalRow = await db
     .prepare(
-      `SELECT count(DISTINCT r.id) AS n FROM rates r JOIN rate_tags rt ON rt.rate_id = r.id ` +
-        `WHERE rt.tag_id IN (${placeholders(tagList.length)})`,
+      `SELECT count(DISTINCT r.id) AS n FROM rates r JOIN rate_tags rt ON rt.rate_id = r.id ${whereSql}`,
     )
-    .bind(...tagList)
+    .bind(...params)
     .first<{ n: number }>();
 
   const { results } = await db
     .prepare(
-      `SELECT DISTINCT r.id, r.card_id, r.kind, r.value, c.name AS card_name, c.issuer ` +
+      `SELECT DISTINCT ${RATE_COLS} ` +
         `FROM rates r JOIN cards c ON c.id = r.card_id ` +
-        `JOIN rate_tags rt ON rt.rate_id = r.id ` +
-        `WHERE rt.tag_id IN (${placeholders(tagList.length)}) ` +
+        `JOIN rate_tags rt ON rt.rate_id = r.id ${whereSql} ` +
         `ORDER BY r.card_id, r.id LIMIT ?`,
     )
-    .bind(...tagList, page.limit)
+    .bind(...params, page.limit)
     .all<RateRow & { card_name: string; issuer: string }>();
 
   const rateIds = results.map((row) => row.id);
@@ -371,6 +494,10 @@ export async function scoreCandidates(
   const assumptions = input.assumptions ?? {};
   const checked = new Set(assumptions.checked_exclusions ?? []);
 
+  const inWindow = (row: { effective_from: string | null; effective_to: string | null }) =>
+    (!row.effective_from || row.effective_from <= asOf) &&
+    (!row.effective_to || row.effective_to >= asOf);
+
   const candidates = results.map((rate) => {
     const unknown: string[] = [];
     let calculated: number | null = null;
@@ -379,26 +506,42 @@ export async function scoreCandidates(
       calculated = round2((input.amount_hkd * rate.value) / 100);
     } else if (assumptions.hkd_per_point === undefined) {
       unknown.push("points_value");
-    } else {
+    } else if (rate.unit === "points_per_hkd") {
       calculated = round2(input.amount_hkd * rate.value * assumptions.hkd_per_point);
+    } else if (rate.unit === "hkd_per_mile" || rate.unit === "hkd_per_point") {
+      calculated = round2((input.amount_hkd / rate.value) * assumptions.hkd_per_point);
+    } else {
+      unknown.push(`points_unit:${rate.unit}`);
     }
 
     for (const termId of termIdsByRate.get(rate.id) ?? []) {
       const term = termsById.get(termId);
       if (!term) continue;
+      if (!inWindow(term)) {
+        unknown.push(`term_outside_window:${term.id}`);
+        continue;
+      }
+      if (term.kind === "cap") {
+        if (assumptions.month_to_date_rebate_hkd === undefined) {
+          unknown.push(`cap_remaining:${term.id}`);
+          continue;
+        }
+        if (calculated === null || term.cap_hkd === null) continue;
+        const remaining = Math.max(0, term.cap_hkd - assumptions.month_to_date_rebate_hkd);
+        calculated = round2(Math.min(calculated, remaining));
+        continue;
+      }
       if (term.kind === "exclusion") {
         if (term.exclusion_key && !checked.has(term.exclusion_key)) {
           unknown.push(term.exclusion_key);
         }
         continue;
       }
-      if (assumptions.month_to_date_rebate_hkd === undefined) {
-        unknown.push(`cap_remaining:${term.id}`);
-        continue;
-      }
-      if (calculated === null || term.cap_hkd === null) continue;
-      const remaining = Math.max(0, term.cap_hkd - assumptions.month_to_date_rebate_hkd);
-      calculated = round2(Math.min(calculated, remaining));
+      // Any other kind (fx_fee, min_spend, registration_required, channel,
+      // mcc, and kinds added later) is a term the caller must settle: it is
+      // cleared by listing `<kind>:<term id>` in checked_exclusions.
+      const key = `${term.kind}:${term.id}`;
+      if (!checked.has(key)) unknown.push(key);
     }
 
     return {
@@ -407,6 +550,7 @@ export async function scoreCandidates(
       card_name: rate.card_name,
       kind: rate.kind,
       value: rate.value,
+      unit: rate.unit,
       calculated_rebate_hkd: calculated,
       unknown_exclusions: unknown,
       assumptions_used: {
@@ -420,10 +564,76 @@ export async function scoreCandidates(
   return {
     ok: true as const,
     provenance: PROVENANCE,
+    seed_as_of: await seedAsOf(db),
     amount_hkd: input.amount_hkd,
     tag_ids: tagList,
+    as_of: asOf,
     ...page,
     total: totalRow?.n ?? 0,
     candidates,
+  };
+}
+
+export async function reportIssue(
+  db: D1Database,
+  input: {
+    card_id?: string;
+    rate_id?: string;
+    term_id?: string;
+    field?: string;
+    claimed_value?: string;
+    evidence_url?: string;
+    note?: string;
+  },
+) {
+  const targets = (
+    [
+      ["card", input.card_id, "cards"],
+      ["rate", input.rate_id, "rates"],
+      ["term", input.term_id, "terms"],
+    ] as const
+  ).filter(([, id]) => id !== undefined);
+
+  if (
+    targets.length !== 1 ||
+    input.field === undefined ||
+    input.claimed_value === undefined
+  ) {
+    return fail(
+      "invalid_report",
+      "pass exactly one of card_id, rate_id, term_id, plus field and claimed_value",
+    );
+  }
+  const [targetKind, targetId, table] = targets[0];
+
+  const exists = await db
+    .prepare(`SELECT id FROM ${table} WHERE id = ?`)
+    .bind(targetId)
+    .first();
+  if (!exists) return fail("not_found", `${targetKind}:${targetId}`);
+
+  const reportId = `rpt_${crypto.randomUUID()}`;
+  await db
+    .prepare(
+      `INSERT INTO reports (id, target_kind, target_id, field, claimed_value, ` +
+        `evidence_url, note, reported_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      reportId,
+      targetKind,
+      targetId,
+      input.field,
+      input.claimed_value,
+      input.evidence_url ?? null,
+      input.note ?? null,
+      new Date().toISOString(),
+    )
+    .run();
+
+  return {
+    ok: true as const,
+    provenance: PROVENANCE,
+    seed_as_of: await seedAsOf(db),
+    report_id: reportId,
   };
 }

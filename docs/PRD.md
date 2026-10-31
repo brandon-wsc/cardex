@@ -54,7 +54,7 @@ Language is in [`CONTEXT.md`](../CONTEXT.md). This section is the v1 data model;
 | **Card** | `id`, `name`, `issuer`, `network` | A product, not someone's plastic |
 | **Rate** | `id`, `card_id`, `kind`, `value`, `unit`, `tag_ids`, `term_ids` | `kind` is `rebate_percent` or `points`. `value` + `unit` preserve the published figure and its unit (e.g. `4` + `hkd_per_mile`, `2` + `points_per_hkd`) — never a normalized bare float |
 | **Term** | `id`, `card_id`, `kind`, `text`, `source_url`, `last_verified_at`, `effective_from`, `effective_to` | v1 kinds: `cap`, `exclusion`. Planned, pending the term-kind audit: `fx_fee`, `min_spend`, `registration_required`, `channel`, `mcc` |
-| **Alias** | `text`, `tag_ids`, `card_ids` | Free text → those ids (`alias_tags`, `alias_cards`). Either side may be empty |
+| **Alias** | `text`, `tag_ids`, `card_ids`, `issuers`, `networks` | Free text → those refs. Tag/card mappings live in D1 (`alias_tags`, `alias_cards`); issuer/network mappings live in `src/aliases.ts` — both sets are near-closed, so one file keeps the whole map reviewable. Values are canonical strings matching `cards.issuer` / `cards.network`. Any side may be empty |
 | **Report** | `id`, `target_id`, `field`, `claimed_value`, `evidence_url`, `note`, `reported_at` | Quarantine table. Query tools never read it; only the maintenance loop does |
 
 ### 3.2 What a rate does not include
@@ -81,7 +81,7 @@ Shared envelope on every success and failure:
 | `get_card` | `id` | One card, its rate summaries, the term ids those rates cite. Unknown id → `not_found` |
 | `get_term` | `id` | One term. Unknown id → `not_found` |
 | `list_tags` | `limit?` | Tag id + label |
-| `resolve_alias` | `query`, `limit?` | Each hit: the alias text, tag ids, card ids. No hit → `matches: []`. Match is normalized (trim, lowercase, collapsed spaces): exact, or either string contains the other when both are at least 2 characters |
+| `resolve_alias` | `query`, `limit?` | Each hit: the alias text, tag ids, card ids, issuers, networks. DB aliases and the code-side issuer/network maps are merged by alias text. No hit → `matches: []`. Match is normalized (trim, lowercase, collapsed spaces): exact, or either string contains the other when both are at least 2 characters |
 | `score_candidates` | `amount_hkd`, `tag_ids?`, `card_ids?`, `alias?`, `assumptions?`, `as_of?`, `limit?` | One row per matching rate. See §5 |
 | `report_issue` | exactly one of `card_id` / `rate_id` / `term_id`, `field`, `claimed_value`, `evidence_url?`, `note?` | `{ ok: true, report_id }`. Writes only to the reports table. There is no public read-back tool |
 
@@ -94,7 +94,7 @@ Failures are `{ ok: false, error, detail? }` plus the same provenance. They are 
 Inputs:
 
 - `amount_hkd` — must be > 0, else `invalid_amount`.
-- `card_ids?` — restricts scoring to those cards. This is the held-set path after the user confirms their wallet; Cardex never learns why the set was chosen.
+- `card_ids?` — restricts scoring to those cards. This is the held-set path after the user confirms their wallet; Cardex never learns why the set was chosen. Alias hits contribute their `card_ids` to the same scope.
 - Tags come from `tag_ids` and from `alias` (via the same match as `resolve_alias`). No tags at all → `missing_spend`.
 - `as_of` — filters windowed terms. Default today.
 - `assumptions.month_to_date_rebate_hkd` — rebate already earned this period, used only to apply a cap.
