@@ -2,7 +2,35 @@
 
 Cardex is an MCP server that gives AI agents structured facts about Hong Kong credit cards: rebate rates, earning rules, caps, and terms. Agents call it and do their own reasoning.
 
-> **Status:** pre-alpha. This repo has scaffolding only. The MCP Worker is not built yet.
+> **Status:** pre-alpha. `packages/mcp-worker` is a Cloudflare Worker serving a remote MCP over D1. The seed is synthetic; no real issuer terms yet.
+
+## Docs
+
+| Doc | Purpose |
+| --- | --- |
+| [AGENTS.md](AGENTS.md) | Coding-agent entry: sources of truth, hard boundaries, commit rules |
+| [CONTEXT.md](CONTEXT.md) | Domain language |
+| [docs/PRD.md](docs/PRD.md) | Product spec |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Phases after v1 |
+| [docs/STATUS.md](docs/STATUS.md) | What exists today |
+| [docs/adr/](docs/adr/) | Architecture Decision Records |
+| [docs/TESTING.md](docs/TESTING.md) | Test policy (no runner yet) |
+| [docs/ai-workflow.md](docs/ai-workflow.md) | AI-assisted development notes |
+
+## Run it
+
+```bash
+pnpm install
+pnpm migrate   # apply D1 schema to the local database
+pnpm seed      # load seed/seed.sql (synthetic data)
+pnpm dev       # wrangler dev — MCP at http://localhost:8787/mcp
+```
+
+`pnpm demo` runs all three setup steps, boots `wrangler dev`, and prints eight scripted tool payloads (a real MCP client over HTTP). Rates in that output are invented fixtures, not issuer terms. The spec is [`docs/PRD.md`](docs/PRD.md).
+
+## Connect an agent
+
+The endpoint is `POST /mcp` (streamable HTTP). [`skills/cardex`](skills/cardex/SKILL.md) is the Agent Skill that teaches a caller how to connect and which tool to reach for; install it from this repo or a GitHub Release.
 
 ## What Cardex is
 
@@ -33,7 +61,7 @@ Cardex is an MCP server that gives AI agents structured facts about Hong Kong cr
 - **Tags** classify merchants and spend categories (for example `dining`, `online`, `overseas`). Tags and rates are many-to-many, and tags can overlap. One spend can match several tags.
 - **Aliases** map free-text names (merchant names, nicknames, abbreviations) to canonical tags or cards, also many-to-many.
 
-## Planned tools
+## Tools
 
 | Tool               | Purpose                                                                  |
 | ------------------ | ------------------------------------------------------------------------ |
@@ -50,13 +78,21 @@ Cardex is an MCP server that gives AI agents structured facts about Hong Kong cr
 
 ```
 .
+├── AGENTS.md             # Coding-agent entry
+├── CONTEXT.md            # Domain language
 ├── packages/
-│   └── mcp-worker/     # Cloudflare Worker serving the remote MCP endpoint (planned)
+│   └── mcp-worker/       # Cloudflare Worker: remote MCP over D1 (wrangler dev locally)
 ├── skills/
-│   └── cardex/         # Agent Skill that tells agents how to use the remote MCP (planned)
+│   └── cardex/           # Agent Skill: how to connect to the remote MCP
+├── seed/
+│   └── seed.sql          # Synthetic sample data (invented numbers, not issuer terms)
 ├── docs/
-│   └── ai-workflow.md  # Writeup of the AI-assisted development workflow
-├── LICENSE
+│   ├── ROADMAP.md
+│   ├── STATUS.md
+│   ├── TESTING.md
+│   ├── adr/
+│   └── ai-workflow.md    # AI-assisted development notes
+├── LICENSE               # Named MIT; file not added yet
 └── README.md
 ```
 
@@ -65,12 +101,12 @@ Cardex is an MCP server that gives AI agents structured facts about Hong Kong cr
 - **Remote MCP** runs on Cloudflare Workers.
 - **Agent Skill** is published through GitHub Releases. Agents install it to learn how to connect to and query the remote MCP.
 
-This repo is also a public demo of an AI-assisted development workflow (Pinnacle). See [`docs/ai-workflow.md`](docs/ai-workflow.md).
+This repo is also a public demo of an AI-assisted development workflow (Pinnacle). The writeup is planned at `docs/ai-workflow.md` and is not written yet.
 
 ## Data policy
 
 - No card numbers (PANs), personal data, or secrets are stored in this repo.
-- No scraped dumps are committed. Seed data is curated and traceable to public sources.
+- No scraped dumps are committed. Seed data is curated; the v1 seed is synthetic (placeholder `source_url`s) until the cited seed lands.
 - Card terms change often, so always confirm against the issuer before relying on a value.
 
 ## License

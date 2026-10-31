@@ -24,9 +24,9 @@ Remote MCP server of structured Hong Kong credit-card facts. Callers are other a
 
 ## Hard boundaries
 
-1. **Facts only** — Tools return cards, rates, terms, tags, and aliases. Cardex does not name a best card. `score_candidates`, if built, calculates under the caller's `assumptions` and lists `unknown_exclusions` ([ADR 0001](docs/adr/0001-facts-only.md)).
-2. **Curated seed** — Query data is loaded from an offline seed into D1. Lookups are structured. Request-time scraping and embedding search stay out ([ADR 0002](docs/adr/0002-curated-seed.md)).
-3. **No personal data** — No PANs, saved user cards, transactions, or other personal data ([ADR 0003](docs/adr/0003-remote-mcp-workers-d1.md)).
+1. **Facts only** — Tools return cards, rates, terms, tags, and aliases. Cardex does not name a best card. `score_candidates`, if built, calculates under the caller's `assumptions` and lists `unknown_exclusions` ([ADR 0001](docs/adr/0001-product-shape.md)).
+2. **Curated seed** — Query data is loaded from an offline seed into D1. Lookups are structured. Request-time scraping and embedding search stay out ([ADR 0001](docs/adr/0001-product-shape.md)).
+3. **No personal data** — No PANs, saved user cards, transactions, or other personal data ([ADR 0001](docs/adr/0001-product-shape.md)).
 4. **Compact results** — Every list tool takes filters and `limit`. Callers follow up with `get_card` / `get_term` by `id`. A tool does not return the whole catalog.
 
 ## Before changing behavior
