@@ -185,8 +185,7 @@ A consumer "which card" app, a wallet, an admin panel (pull requests are the app
 2. Do rates themselves carry effective windows, or does a promo rate model as rate + dated term?
 3. The cited-seed card list — which ~15–20 most-held cards? Owner picks; the maintenance agent researches.
 4. Does `score_candidates` still ship to real callers only once the cited seed lands?
-5. `resolve_alias`: keep exact-or-contains, or tighten short tokens like `red`?
-6. `period` on caps — statement month, calendar month, or promo window? The audit answers which forms exist; `period` stays a field on the term.
-7. Maintenance cadence — weekly or biweekly scheduled passes, and what reactive triggers exist beyond the owner asking?
-8. `report_issue` at scale — when does rate limiting move from P3?
-9. `unit` vocabulary on rates — a fixed enum or an open string?
+5. `period` on caps — statement month, calendar month, or promo window? The audit answers which forms exist; `period` stays a field on the term.
+6. Maintenance cadence — weekly or biweekly scheduled passes, and what reactive triggers exist beyond the owner asking?
+7. `report_issue` at scale — when does rate limiting move from P3?
+8. `unit` vocabulary on rates — a fixed enum or an open string?

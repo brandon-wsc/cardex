@@ -54,6 +54,15 @@ Typical flow: `resolve_alias` the spend → `lookup_rates` the tag → `get_term
 }
 ```
 
+## Resolving names
+
+`resolve_alias` returns every hit as a list — it never picks for you.
+
+- **Confirm card hits with the user.** A card id from an alias is a candidate, not an identification — unless the user's words match the alias text exactly. "My HSBC card" resolving to `hsbc red` does not mean they hold the Red card; ask which card they mean.
+- **Issuer-only queries are ambiguous by nature.** If the query is an issuer name and hits land on a specific card, treat the hits as suggestions to confirm, not answers.
+- **Multiple hits are good news,** not noise — they expose the ambiguity. Offer them to the user rather than choosing one.
+- **`matches: []` means Cardex does not know the name.** Fall back to asking the user for a spend description or the card's full name; do not guess a tag.
+
 ## Contract
 
 - **Facts only.** No `winner`, no ranking, no best-card language. `score_candidates` echoes `assumptions_used` and lists `unknown_exclusions` — terms it could not check. Read those before quoting a number.
