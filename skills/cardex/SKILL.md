@@ -1,17 +1,17 @@
 ---
 name: cardex
-description: Query the Cardex remote MCP for Hong Kong credit-card rebate facts — rates, caps, exclusions, spend tags, and merchant-name aliases. Use when an agent needs to look up what a HK credit card earns on a spend, check a cap or exclusion, or resolve a merchant name to a spend category. Facts only — Cardex never names a best card.
+description: Query the Cardex remote MCP for Hong Kong credit-card rebate facts — rates, caps, exclusions, spend tags, merchant aliases, and promo conditions. Use when an agent needs to look up what a HK credit card earns on a spend, check a cap or exclusion, verify whether a promo applies, or report a stale figure. Facts only — Cardex never names a best card.
 ---
 
 # Cardex
 
-Remote MCP of structured Hong Kong credit-card facts. You connect, ask narrow questions, and do your own ranking. Cardex returns records; it never recommends a card.
+Remote MCP of structured Hong Kong credit-card facts. You connect, ask narrow questions, and do your own ranking. Cardex returns records; it never recommends a card — **you** own the judgment and the user conversation.
 
 ## Connect
 
-- **Endpoint:** `POST {BASE_URL}/mcp` — streamable HTTP transport.
+- **Endpoint:** `POST {BASE_URL}/mcp` — streamable HTTP transport, stateless, no auth.
 - **Local dev:** `http://localhost:8787/mcp` after `pnpm migrate && pnpm seed && pnpm dev` in the cardex repo.
-- **Hosted:** use the `workers.dev` URL the repo owner publishes; there is no auth on the prototype endpoint.
+- **Hosted:** use the `workers.dev` URL the repo owner publishes.
 
 Example client config:
 
@@ -21,38 +21,58 @@ Example client config:
 
 ## Tools
 
-Every list tool takes filters and `limit` (default 5, max 20 — higher is clamped). Follow up with `get_card` / `get_term` by `id`; tools never return the whole catalog.
+Every list tool takes filters and `limit` (default 5, max 100 — higher is clamped and the payload echoes `limit_requested` + `clamped`). Every filter takes `as_of` (default: today, `YYYY-MM-DD`); records outside their effective window are dropped from lists and scores but stay fetchable by `id`. Follow up with `get_card` / `get_term` by `id`; tools never return the whole catalog. Each payload echoes `seed_as_of` — the date the underlying data was last refreshed.
 
 | Tool | Call it when | Key args |
 | --- | --- | --- |
 | `resolve_alias` | You have a merchant name, nickname, or free text (`茶餐廳`, `hsbc red`, `淘寶`) and need tag or card ids | `query`, `limit` |
-| `lookup_rates` | You need the rates for a tag, card, or issuer | `tag_id`, `card_id`, `issuer`, `limit` |
+| `lookup_rates` | You need the rates for a tag, set of cards, or issuer | `tag_id`, `card_ids`, `issuer`, `as_of`, `limit` |
 | `get_card` | You need one card's details and its rate summaries | `id` |
 | `get_term` | A rate cites `term_ids` you cannot evaluate | `id` |
 | `list_tags` | You need the canonical spend tags | `limit` |
-| `score_candidates` | You want the rebate math for a spend under your own assumptions | `amount_hkd`, `tag_ids`, `alias`, `assumptions`, `limit` |
+| `score_candidates` | You want the rebate math for a spend under your own assumptions | `amount_hkd`, `tag_ids`, `card_ids`, `alias`, `merchant`, `assumptions`, `as_of`, `limit` |
+| `report_issue` | The user (or you) believes a fact is wrong or stale | one of `card_id`/`rate_id`/`term_id`, `field`, `claimed_value`, `evidence_url`, `note` |
 
-Typical flow: `resolve_alias` the spend → `lookup_rates` the tag → `get_term` any `term_ids` you can't check → optionally `score_candidates` with explicit `assumptions`.
+Typical flow: `resolve_alias` the spend → `lookup_rates` (scoped to the user's confirmed `card_ids` if comparing held cards) → `get_term` any `term_ids` you can't check → `score_candidates` with explicit `assumptions`.
 
-## Example calls
+## Suggest, then confirm the wallet
 
-```json
-{ "name": "resolve_alias", "arguments": { "query": "茶餐廳" } }
-{ "name": "lookup_rates", "arguments": { "tag_id": "dining", "limit": 10 } }
-{ "name": "get_term", "arguments": { "id": "term_hsbc_dining_cap" } }
-{
-  "name": "score_candidates",
-  "arguments": {
-    "amount_hkd": 800,
-    "alias": "茶餐廳",
-    "assumptions": {
-      "month_to_date_rebate_hkd": 250,
-      "hkd_per_point": 0.05,
-      "checked_exclusions": ["octopus_topup"]
-    }
-  }
-}
-```
+Cardex never learns which cards the user holds — there is no wallet endpoint.
+
+1. To **compare held cards**: ask the user which cards they have, map each name through `resolve_alias`, and confirm any ambiguous hit (below). Then pass the confirmed ids as `card_ids` to `lookup_rates` / `score_candidates`.
+2. To **suggest cards they don't hold**: call without `card_ids`, rank the results yourself, and present candidates. A suggestion is not a claim the user owns the card — phrase it as "cards that earn well here include…".
+
+Never infer holdings from alias hits alone.
+
+## Reading a score row
+
+Each `score_candidates` row has three lists-worth of signals. Read all of them before quoting a number:
+
+- `calculated_rebate_hkd` — the math, or `null`. Null is not "zero"; check why.
+- `failed_terms` — **dead** conditions: the spend deterministically fails (e.g. `min_spend_unmet:<term id>`). Do not present that rate as available. Distinct from unknowns — failed means settled-and-false.
+- `unknown_exclusions` — conditions Cardex **cannot verify**: `<kind>:<term id>` entries, `cap_remaining:<id>`, `points_value`, `term_outside_window:<id>`. These mean "verify before you quote," not "the rate fails."
+- `exclusive_group` + `priority` — rows sharing an `exclusive_group` cannot stack. Keep the best `priority` per group before ranking; do not add competing rates together.
+- `merchant_checked` — echoes the `merchant` you passed, so the user can see what was checked.
+
+## Settling terms
+
+`assumptions.checked_exclusions` clears a term by its `exclusion_key` or by `<kind>:<term id>`. Every other kind needs a different input — the kind tells you what to check:
+
+| Kind | What it is | What settles it |
+| --- | --- | --- |
+| `cap` | Rebate ceiling per period | `month_to_date_rebate_hkd` — Cardex clamps automatically when provided |
+| `min_spend` | Spend floor before the rate applies | Per-transaction floors auto-check against `amount_hkd` (fail → `min_spend_unmet`). Cumulative floors need `month_to_date_spend_hkd`; without it the term stays unknown |
+| `merchant_list` | Named-merchant whitelist | Pass `merchant`. A hit clears it; **a miss keeps it unknown** — fuzzy matching can prove membership, never non-membership. Check `merchant_checked` and consider asking the user for the receipt name |
+| `exclusion` | A condition that kills the rate | `checked_exclusions` with the `exclusion_key` — only when the user confirms it does not apply |
+| `fx_fee` | Foreign-currency fee | `checked_exclusions` with `fx_fee:<term id>` to settle, or net the fee from the rebate yourself |
+| `registration_required` | Opt-in / promo code needed | Ask the user if they registered; settle via `checked_exclusions` |
+| `channel` / `mcc` | Booking channel / merchant category | You judge from the spend context and the term `text` |
+| `quota` | First-N registrants (FCFS) | Cannot be verified — quota usage is not public. Warn the user it may be full |
+| `geo` | Issuer's "overseas" definition | Definitions differ per issuer — read the term `text`/`source_url`, don't assume |
+| `targeted` | Selected-cardholders-only promo | Ask the user whether they received the invite |
+| `eligibility` | Who may hold/get the rate (principal-only, new-customer, account gate) | Check against what you know about the user |
+
+A term stays in `unknown_exclusions` until you settle it. Quoting a number with unresolved unknowns is fine — quoting it *without mentioning* them is not.
 
 ## Resolving names
 
@@ -63,9 +83,13 @@ Typical flow: `resolve_alias` the spend → `lookup_rates` the tag → `get_term
 - **Multiple hits are good news,** not noise — they expose the ambiguity. Offer them to the user rather than choosing one.
 - **`matches: []` means Cardex does not know the name.** Fall back to asking the user for a spend description or the card's full name; do not guess a tag.
 
+## Reporting a bad fact
+
+`report_issue` writes to a quarantine table that feeds the maintenance loop — it never mutates facts directly. File it when the user spots a wrong figure or you find fresher issuer terms. Always include `evidence_url` (the issuer page). Never put personal data in `note`.
+
 ## Contract
 
-- **Facts only.** No `winner`, no ranking, no best-card language. `score_candidates` echoes `assumptions_used` and lists `unknown_exclusions` — terms it could not check. Read those before quoting a number.
-- **`provenance.illustrative: true`.** Every number in the seed is invented. Do not present a Cardex figure as an issuer's real terms; confirm with the issuer.
-- **Term freshness.** `get_term` returns `text`, `source_url`, and `effective_from`/`effective_to`. Check dates before relying on a term.
-- **Not found is a payload,** not an exception: `{ "ok": false, "error": "not_found" }`. Same for `invalid_limit`, `invalid_amount`, and `missing_spend`.
+- **Facts only.** No `winner`, no ranking, no best-card language. `score_candidates` echoes `assumptions_used` — check it before quoting a number.
+- **`provenance.illustrative: true`.** Until the cited seed lands, every figure is invented. Do not present a Cardex number as an issuer's real terms; confirm with the issuer.
+- **Freshness.** Terms carry `source_url`, `last_verified_at`, `effective_from`/`effective_to`. An old `last_verified_at` or a promo `as_of` past `effective_to` means treat the fact as stale.
+- **Not found is a payload,** not an exception: `{ "ok": false, "error": "not_found" }`. Same for `invalid_date`, `invalid_limit`, `invalid_amount`, and `missing_spend`.
