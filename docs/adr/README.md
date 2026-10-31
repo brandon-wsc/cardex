@@ -4,7 +4,8 @@ Product and architecture decisions. STATUS may point here; **ADRs are the record
 
 | ID | Title | Status |
 |----|-------|--------|
-| [0001](./0001-product-shape.md) | Product shape: playbook over a public, human-maintained facts backend | Accepted |
+| [0001](./0001-product-shape.md) | Product shape: playbook over a public, human-maintained facts backend | Accepted — parts superseded by 0002 |
+| [0002](./0002-maintenance-surface.md) | Maintenance surface: D1 as truth, proposals + portal, agent at capability distance | Accepted |
 
 ## Format
 

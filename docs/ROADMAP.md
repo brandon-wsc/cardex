@@ -15,9 +15,9 @@ Any personal agent can answer "which card" well. Cardex is the pair that makes t
 |-----------|----------|
 | Facts only | Records in, judgment stays with the caller ([ADR 0001](adr/0001-product-shape.md)) |
 | Playbook surface | The skill is the product; the Worker is its backend ([ADR 0001](adr/0001-product-shape.md)) |
-| Curated seed | Offline seed loaded into D1. Structured lookup ([ADR 0001](adr/0001-product-shape.md)) |
-| Human-approved maintenance | Agent proposes via PR; the owner's merge is the only write path ([ADR 0001](adr/0001-product-shape.md)) |
-| Public read | Remote MCP on Workers, no auth on reads; auth lives at the merge layer ([ADR 0001](adr/0001-product-shape.md)) |
+| Curated facts | Facts live in D1; `seed.sql` is a generated dev snapshot. Structured lookup ([ADR 0002](adr/0002-maintenance-surface.md)) |
+| Human-approved maintenance | Agent proposes via `/maintainer` into `proposals`; the owner's portal approve is the only write path ([ADR 0002](adr/0002-maintenance-surface.md)) |
+| Public read | Remote MCP on Workers, no auth on reads; auth lives on `/maintainer` and `/admin` ([ADR 0002](adr/0002-maintenance-surface.md)) |
 | Compact tools | Filters + `limit`. Follow-up reads are by `id` |
 
 ## Data relations (v1)
@@ -48,8 +48,8 @@ Tool behavior is specified in [`docs/PRD.md`](PRD.md) and implemented in `packag
 2. **v1 Worker + synthetic seed** — done. D1 schema, `seed/seed.sql`, remote MCP via `createMcpHandler`, `wrangler dev` + `pnpm demo`. Current phase.
 3. **Contract deltas + tests** — `card_ids`, `as_of`, `limit` → 100, rate `unit`, `last_verified_at`, `seed_as_of`, `reports` + `report_issue`, term-kind audit → expanded term kinds; vitest + CI job.
 4. **Cited seed + deploy** — popular-cards-first coverage (~15–20 most-held HK cards), real `source_url`s + `last_verified_at`, real `database_id`, workers.dev route.
-5. **Playbook + maintenance live** — publish `skills/cardex` through GitHub Releases, stand up `skills/cardex-maintainer` and the propose→approve→apply loop.
+5. **Playbook + maintenance live** — publish `skills/cardex`, write `skills/cardex-maintainer`, stand up the maintenance surface: `/maintainer` endpoint, `proposals` table, `/admin` portal behind Access, nightly seed export ([ADR 0002](adr/0002-maintenance-surface.md)).
 
 ## Out of scope
 
-A consumer "which card" app, a wallet, an admin panel (PRs are the approval surface), auth on the read path, request-time scraping, embedding search, and any store of personal data. See the ADRs.
+A consumer "which card" app, a wallet, a second approver on the portal, auth on the read path, request-time scraping, embedding search, and any store of personal data. See the ADRs.

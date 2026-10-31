@@ -25,7 +25,7 @@ Remote MCP server of structured Hong Kong credit-card facts. Callers are other a
 ## Hard boundaries
 
 1. **Facts only** — Tools return cards, rates, terms, tags, and aliases. Cardex does not name a best card. `score_candidates`, if built, calculates under the caller's `assumptions` and lists `unknown_exclusions` ([ADR 0001](docs/adr/0001-product-shape.md)).
-2. **Curated seed** — Query data is loaded from an offline seed into D1. Lookups are structured. Request-time scraping and embedding search stay out ([ADR 0001](docs/adr/0001-product-shape.md)).
+2. **Curated facts** — Query data lives in D1 and changes only through the propose→approve→apply loop; `seed.sql` is a generated dev snapshot, not the truth. Lookups are structured. Request-time scraping and embedding search stay out ([ADR 0002](docs/adr/0002-maintenance-surface.md)).
 3. **No personal data** — No PANs, saved user cards, transactions, or other personal data ([ADR 0001](docs/adr/0001-product-shape.md)).
 4. **Compact results** — Every list tool takes filters and `limit`. Callers follow up with `get_card` / `get_term` by `id`. A tool does not return the whole catalog.
 
@@ -37,13 +37,13 @@ Remote MCP server of structured Hong Kong credit-card facts. Callers are other a
 
 ## Working agreements
 
-- **Test first.** A change to tool behavior (`query.ts`, migrations, scoring) lands with its failing test first: write the vitest spec, watch it fail, implement, go green. Spec names state behavior in BDD style — one test per PRD §5/§6 table row. The vitest runner is the first P1 task; until it lands, `pnpm demo` is the check. No gherkin layer — the PRD tables are the spec.
-- **Owner review gates.** D1 schema (`migrations/`, wrangler DB config) and any UI surface require the owner's explicit review before merge — an agent may draft them, never self-approve. No UI exists today; the approval surface is pull requests.
+- **Test first.** A change to tool behavior (`query.ts`, migrations, scoring) lands with its failing test first: write the vitest spec, watch it fail, implement, go green. Spec names state behavior in BDD style — one test per PRD §5/§6 table row. No gherkin layer — the PRD tables are the spec.
+- **Owner review gates.** D1 schema (`migrations/`, wrangler DB config) and any UI surface require the owner's explicit review before merge — an agent may draft them, never self-approve. Fact changes are approved in the `/admin` portal over structured proposals ([ADR 0002](docs/adr/0002-maintenance-surface.md)); until the portal ships the owner applies them manually.
 - **MCP surface.** Streamable HTTP at `POST /mcp` only, stateless — whatever the pinned `@modelcontextprotocol/server` 2.x implements. No legacy SSE transport, no stdio variant in v1. The supported standard moves by dependency update, never by ad-hoc contract edits.
 
 ## Worker
 
-`packages/mcp-worker` is the v1 Worker: a remote MCP endpoint (`/mcp`, streamable HTTP via `createMcpHandler` from the agents SDK — not deprecated `McpAgent`) backed by D1. Query data is `seed/seed.sql` loaded into D1 — synthetic numbers; every payload marks `provenance.illustrative`. Runtime rules live in `wrangler.jsonc` and the Cloudflare Workers guidance; this file does not copy them. The compatibility date is the day the Worker was created (or the newest date the pinned workerd supports), and logs and traces are on (`observability.enabled`, `observability.traces.enabled`). `pnpm types` regenerates `worker-configuration.d.ts` after config changes.
+`packages/mcp-worker` is the v1 Worker: a remote MCP endpoint (`/mcp`, streamable HTTP via `createMcpHandler` from the agents SDK — not deprecated `McpAgent`) backed by D1. Query data lives in D1 — `seed/seed.sql` loads it locally and becomes a generated export snapshot in prod ([ADR 0002](docs/adr/0002-maintenance-surface.md)); numbers are synthetic for now and every payload marks `provenance.illustrative`. Runtime rules live in `wrangler.jsonc` and the Cloudflare Workers guidance; this file does not copy them. The compatibility date is the day the Worker was created (or the newest date the pinned workerd supports), and logs and traces are on (`observability.enabled`, `observability.traces.enabled`). `pnpm types` regenerates `worker-configuration.d.ts` after config changes.
 
 ## Quick commands
 

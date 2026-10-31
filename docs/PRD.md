@@ -24,7 +24,7 @@ Callers are **anyone's** personal agents. One playbook, three ways in:
 | **Web chatbot** | Claude / ChatGPT / Gemini / Grok — user adds a connector or custom app | Remote MCP — public, unauthenticated ([ADR 0001](adr/0001-product-shape.md)) |
 | **Anything else** | Can read the playbook but connect nothing | Pasteable playbook text — degraded but still useful |
 
-The endpoint is public read-only: no accounts, no tokens. All write authority sits at the repo merge layer ([ADR 0001](adr/0001-product-shape.md)).
+The endpoint is public read-only: no accounts, no tokens. Writes live on two authenticated surfaces — `/maintainer` for the maintenance agent (proposals only) and `/admin` for the owner (approvals) — never on the public path ([ADR 0002](adr/0002-maintenance-surface.md)).
 
 ### Suggest → confirm
 
@@ -149,18 +149,20 @@ A cleared exclusion is the caller saying "this does not apply", not Cardex decid
 
 Current seed is **synthetic**: four cards, a handful of rates, every number invented for the shape, `provenance.illustrative: true`, `source_url` placeholder. Do not cite these figures.
 
-The **cited seed** is the next milestone and follows a different rule: cover the cards most people actually hold — roughly the 15–20 most-held HK cards (the power-law head), not the whole market. Every value carries a real `source_url` and `last_verified_at`. The owner signs off each figure by merging the PR that carries it ([ADR 0001](adr/0001-product-shape.md)).
+The **cited seed** is the next milestone and follows a different rule: cover the cards most people actually hold — roughly the 15–20 most-held HK cards (the power-law head), not the whole market. Every value carries a real `source_url` and `last_verified_at`. The owner signs off each figure by approving the proposal that carries it ([ADR 0002](adr/0002-maintenance-surface.md)).
 
 `pnpm demo` migrates and seeds local D1, boots `wrangler dev`, and prints payloads from a real MCP client.
 
 ## 8. Maintenance Loop
 
-The seed stays true through a loop, not a crawl ([ADR 0001](adr/0001-product-shape.md)):
+Facts stay true through a loop, not a crawl ([ADR 0002](adr/0002-maintenance-surface.md)):
 
-1. **Triage** — the maintenance agent (grokbot) runs scheduled passes: re-check terms whose `effective_to` is near or `last_verified_at` is oldest, plus whatever the owner points it at.
-2. **Propose** — it opens a PR against `seed/seed.sql` with evidence: term id, old → new value, `source_url`, fetch date, excerpt.
-3. **Approve** — the owner reviews and merges. The merge is the only write path to facts.
-4. **Apply** — the merged seed is loaded into D1.
+1. **Triage** — the maintenance agent (grokbot) runs scheduled passes: re-check terms whose `effective_to` is near or `last_verified_at` is oldest, read the `reports` quarantine, plus whatever the owner points it at.
+2. **Propose** — it calls `propose_change` on the `/maintainer` endpoint with evidence: target id, old → new value, `source_url`, excerpt. The proposal lands as a `pending` row carrying structured patches — never raw SQL.
+3. **Approve** — the owner reviews the proposal in the `/admin` portal and approves or rejects it. The approve is the only write path to facts.
+4. **Apply** — on approval the Worker applies the whitelisted patches in a transaction and marks the proposal `applied`.
+
+Until the portal ships, steps 3–4 collapse into the owner applying approved changes with `wrangler d1 execute --remote` — the manual path that exists today.
 
 `report_issue` submissions join the same triage queue. `skills/cardex-maintainer` is the agent's runbook — a separate artifact from the caller-facing playbook.
 
@@ -184,12 +186,12 @@ Dependencies are pinned. `.npmrc` refuses a release younger than 7 days.
 |---|---|
 | **P0** (done) | D1 schema + synthetic seed, the six tools, provenance on every payload, `limit` cap, `wrangler dev` + `pnpm demo` |
 | **P1** | Contract deltas — `card_ids`, `as_of`, `limit` → 100, rate `unit`, `last_verified_at`, `seed_as_of`, `reports` table + `report_issue`, expanded term kinds (post-audit); vitest + CI test job |
-| **P2** | Cited seed (popular-cards-first), real `database_id` + workers.dev route, playbook content in `skills/cardex`, `skills/cardex-maintainer` + the live maintenance loop |
+| **P2** | Cited seed (popular-cards-first), real `database_id` + workers.dev route, playbook content in `skills/cardex`, `skills/cardex-maintainer` + the live maintenance loop — `/maintainer` endpoint, `proposals` table, `/admin` portal, nightly seed export ([ADR 0002](adr/0002-maintenance-surface.md)) |
 | **P3** | Rate limiting if abuse shows up, pasteable packaging for non-MCP clients, freshness cadence tuning |
 
 ## 11. Out of Scope
 
-A consumer "which card" app, a wallet, an admin panel (pull requests are the approval surface), auth on the read path, request-time scraping, embedding search, personal data of any kind, and any copy that names a best card.
+A consumer "which card" app, a wallet, a second approver on the portal (one owner, per ADR 0002), auth on the read path, request-time scraping, embedding search, personal data of any kind, and any copy that names a best card.
 
 ## 12. Open Questions
 

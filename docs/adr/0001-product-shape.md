@@ -1,6 +1,6 @@
 # ADR 0001 — Product shape: playbook over a public, human-maintained facts backend
 
-- **Status:** Accepted
+- **Status:** Accepted — §"Curated seed, human-approved maintenance" items 3–4 and §"Public remote MCP" item 4 superseded by [0002](0002-maintenance-surface.md)
 - **Date:** 2026-10-31
 - **Supersedes:** —
 

@@ -42,7 +42,7 @@ The endpoint is `POST /mcp` (streamable HTTP). [`skills/cardex`](skills/cardex/S
 
 - Not a consumer "which card should I use" app. It does not compete with SwipeWhich, 小斯, or similar products.
 - Not a wallet or card-management product. It stores no user cards, transactions, or personal data.
-- Not a live scraper. Data comes from a curated offline seed. Nothing is scraped at request time.
+- Not a live scraper. Data is curated facts in D1 — nothing is scraped at request time.
 - Not a RAG system. Lookups are structured queries, not embedding search over documents.
 
 ## Architecture (v1)
@@ -52,7 +52,7 @@ The endpoint is `POST /mcp` (streamable HTTP). [`skills/cardex`](skills/cardex/S
 | Runtime  | Cloudflare Workers                        |
 | Language | JavaScript / TypeScript                   |
 | Storage  | Cloudflare D1 (SQLite)                    |
-| Data     | Curated offline seed, loaded into D1      |
+| Data     | Curated facts in D1; `seed.sql` is the dev snapshot |
 | Protocol | MCP (remote server)                       |
 
 ### Data model
