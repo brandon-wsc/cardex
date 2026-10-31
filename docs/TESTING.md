@@ -1,11 +1,13 @@
 # Testing policy
 
-> **Status:** no test runner yet — vitest is the decided runner (P1, alongside the PRD contract deltas). Today's check is `pnpm demo` from the repo root — it migrates and seeds local D1, boots `wrangler dev`, and runs scripted calls through a real MCP client.
+> **Status:** `pnpm test` — vitest + `@cloudflare/vitest-plugin`, running inside workerd against real D1 (migrations + `seed/seed.sql` as the committed fixture). `pnpm demo` remains the end-to-end check.
 > **Principle:** gate on tool behavior. No repo-wide coverage percentage. No live issuer HTTP in CI.
+
+Specs live next to `query.ts` and are sourced from the PRD tables — one row, one `it()`. Held contract deltas are `it.fails` (expected red; when the delta lands the flip forces you to unmark) or `it.todo` when the schema/function does not exist yet.
 
 Add commands to the root [`AGENTS.md`](../AGENTS.md) when they actually run.
 
-## When the runner lands
+## Tiers
 
 | Tier | What | Gate |
 |------|------|------|

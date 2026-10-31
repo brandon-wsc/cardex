@@ -7,6 +7,7 @@
     "migrate": "pnpm --dir packages/mcp-worker migrate",
     "seed": "pnpm --dir packages/mcp-worker seed",
     "demo": "pnpm migrate && pnpm seed && pnpm --dir packages/mcp-worker demo",
-    "typecheck": "pnpm --dir packages/mcp-worker typecheck"
+    "typecheck": "pnpm --dir packages/mcp-worker typecheck",
+    "test": "pnpm --dir packages/mcp-worker test"
   }
 }

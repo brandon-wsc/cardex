@@ -53,6 +53,7 @@ pnpm migrate    # apply D1 migrations to the local database
 pnpm seed       # load seed/seed.sql into local D1
 pnpm dev        # wrangler dev — MCP at http://localhost:8787/mcp
 pnpm demo       # migrate + seed + scripted MCP calls over wrangler dev
+pnpm test       # vitest — specs from the PRD tables, inside workerd + real D1
 pnpm typecheck
 ```
 
