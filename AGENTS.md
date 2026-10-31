@@ -35,6 +35,12 @@ Remote MCP server of structured Hong Kong credit-card facts. Callers are other a
 2. If changing a product contract, **update the PRD first** (and add or supersede an ADR when the change is hard to reverse), then code.
 3. Tool payloads live in `packages/mcp-worker/src/query.ts`. Do not invent a parallel shape written only in prose.
 
+## Working agreements
+
+- **Test first.** A change to tool behavior (`query.ts`, migrations, scoring) lands with its failing test first: write the vitest spec, watch it fail, implement, go green. Spec names state behavior in BDD style — one test per PRD §5/§6 table row. The vitest runner is the first P1 task; until it lands, `pnpm demo` is the check. No gherkin layer — the PRD tables are the spec.
+- **Owner review gates.** D1 schema (`migrations/`, wrangler DB config) and any UI surface require the owner's explicit review before merge — an agent may draft them, never self-approve. No UI exists today; the approval surface is pull requests.
+- **MCP surface.** Streamable HTTP at `POST /mcp` only, stateless — whatever the pinned `@modelcontextprotocol/server` 2.x implements. No legacy SSE transport, no stdio variant in v1. The supported standard moves by dependency update, never by ad-hoc contract edits.
+
 ## Worker
 
 `packages/mcp-worker` is the v1 Worker: a remote MCP endpoint (`/mcp`, streamable HTTP via `createMcpHandler` from the agents SDK — not deprecated `McpAgent`) backed by D1. Query data is `seed/seed.sql` loaded into D1 — synthetic numbers; every payload marks `provenance.illustrative`. Runtime rules live in `wrangler.jsonc` and the Cloudflare Workers guidance; this file does not copy them. The compatibility date is the day the Worker was created (or the newest date the pinned workerd supports), and logs and traces are on (`observability.enabled`, `observability.traces.enabled`). `pnpm types` regenerates `worker-configuration.d.ts` after config changes.
