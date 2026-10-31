@@ -34,7 +34,7 @@ describe("lookup_rates", () => {
     const ids = res.records.map((r) => r.rate_id);
     expect(ids).toContain("rate_hsbc_dining");
     expect(ids).toContain("rate_aeon_dining");
-    expect(res.total).toBe(2);
+    expect(res.total).toBe(4);
   });
 
   it("ANDs tag, card and issuer filters", async () => {
@@ -92,7 +92,7 @@ describe("lookup_rates", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.records).toHaveLength(1);
-    expect(res.total).toBe(2);
+    expect(res.total).toBe(4);
   });
 });
 
@@ -321,6 +321,8 @@ describe("score_candidates", () => {
     if (!res.ok) return;
     expect(res.candidates.map((c) => c.card_id)).toEqual([
       "card_aeon",
+      "card_dbs",
+      "card_dbs",
       "card_hsbc_red",
     ]);
   });
@@ -517,5 +519,180 @@ describe("contract deltas — PRD v0.3", () => {
     });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error).toBe("not_found");
+  });
+});
+
+// Term-kind audit kinds — docs/term-kind-audit.md. Surface-only kinds ride the
+// generic settle-me path; min_spend, merchant_list and exclusive_group get
+// real behaviour because the caller supplies enough input to check them.
+describe("audit-driven term kinds", () => {
+  const SURFACE_CASES = [
+    ["quota", "term_dbs_quota", "rate_dbs_dining_high", "dining"],
+    ["targeted", "term_scb_targeted", "rate_scb_overseas", "overseas"],
+    ["eligibility", "term_scb_eligibility", "rate_scb_overseas", "overseas"],
+    ["geo", "term_citi_geo", "rate_citi_overseas", "overseas"],
+    ["registration_required", "term_hsbc_register", "rate_hsbc_online", "online"],
+  ] as const;
+
+  it.each(SURFACE_CASES)(
+    "surfaces %s:%s in unknown_exclusions until the caller settles it",
+    async (kind, termId, rateId, tag) => {
+      const res = await scoreCandidates(tenv.DB, {
+        amount_hkd: 800,
+        tag_ids: [tag],
+      });
+      expect(res.ok).toBe(true);
+      if (!res.ok) return;
+      const row = res.candidates.find((c) => c.rate_id === rateId);
+      expect(row?.unknown_exclusions).toContain(`${kind}:${termId}`);
+
+      const settled = await scoreCandidates(tenv.DB, {
+        amount_hkd: 800,
+        tag_ids: [tag],
+        assumptions: { checked_exclusions: [`${kind}:${termId}`] },
+      });
+      const row2 = settled.ok
+        ? settled.candidates.find((c) => c.rate_id === rateId)
+        : undefined;
+      expect(row2?.unknown_exclusions).not.toContain(`${kind}:${termId}`);
+    },
+  );
+
+  it("clears per-transaction min_spend when the amount meets the threshold", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+    });
+    const row = res.ok
+      ? res.candidates.find((c) => c.rate_id === "rate_dbs_dining_high")
+      : undefined;
+    expect(row?.failed_terms).not.toContain("min_spend_unmet:term_dbs_min_spend");
+    expect(row?.unknown_exclusions).not.toContain("min_spend:term_dbs_min_spend");
+  });
+
+  it("returns null and flags min_spend_unmet when amount is below the per-transaction threshold", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 100,
+      tag_ids: ["dining"],
+    });
+    const row = res.ok
+      ? res.candidates.find((c) => c.rate_id === "rate_dbs_dining_high")
+      : undefined;
+    expect(row?.calculated_rebate_hkd).toBeNull();
+    expect(row?.failed_terms).toContain("min_spend_unmet:term_dbs_min_spend");
+  });
+
+  it("surfaces cumulative min_spend when month_to_date_spend_hkd is absent", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["supermarket"],
+    });
+    const row = res.ok
+      ? res.candidates.find((c) => c.rate_id === "rate_citi_super")
+      : undefined;
+    expect(row?.unknown_exclusions).toContain("min_spend:term_citi_min_cum");
+  });
+
+  it("flags min_spend_unmet when cumulative spend stays below the threshold", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["supermarket"],
+      assumptions: { month_to_date_spend_hkd: 1000 },
+    });
+    const row = res.ok
+      ? res.candidates.find((c) => c.rate_id === "rate_citi_super")
+      : undefined;
+    expect(row?.calculated_rebate_hkd).toBeNull();
+    expect(row?.failed_terms).toContain("min_spend_unmet:term_citi_min_cum");
+  });
+
+  it("clears cumulative min_spend when month_to_date + amount meets the threshold", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["supermarket"],
+      assumptions: { month_to_date_spend_hkd: 1500 },
+    });
+    const row = res.ok
+      ? res.candidates.find((c) => c.rate_id === "rate_citi_super")
+      : undefined;
+    expect(row?.calculated_rebate_hkd).toBe(48);
+    expect(row?.failed_terms).not.toContain("min_spend_unmet:term_citi_min_cum");
+    expect(row?.unknown_exclusions).not.toContain("min_spend:term_citi_min_cum");
+  });
+
+  it("clears merchant_list when merchant matches a whitelist member", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+      merchant: "sushiro",
+    });
+    const row = res.ok
+      ? res.candidates.find((c) => c.rate_id === "rate_hsbc_dining")
+      : undefined;
+    expect(row?.unknown_exclusions).not.toContain(
+      "merchant_list:term_hsbc_merchant_list",
+    );
+    if (res.ok) expect(res.merchant_checked).toBe("sushiro");
+  });
+
+  it("echoes merchant_checked and keeps merchant_list unknown when no member matches", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+      merchant: "random shop",
+    });
+    expect(res.ok && res.merchant_checked).toBe("random shop");
+    const row = res.ok
+      ? res.candidates.find((c) => c.rate_id === "rate_hsbc_dining")
+      : undefined;
+    // A fuzzy miss is not proof of non-membership — the row stays unknown,
+    // never failed, and the number still computes.
+    expect(row?.unknown_exclusions).toContain(
+      "merchant_list:term_hsbc_merchant_list",
+    );
+    expect(row?.failed_terms).not.toContain(
+      "merchant_not_listed:term_hsbc_merchant_list",
+    );
+    expect(row?.calculated_rebate_hkd).toBe(64);
+  });
+
+  it("surfaces merchant_list when merchant is not supplied", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+    });
+    const row = res.ok
+      ? res.candidates.find((c) => c.rate_id === "rate_hsbc_dining")
+      : undefined;
+    expect(row?.unknown_exclusions).toContain(
+      "merchant_list:term_hsbc_merchant_list",
+    );
+  });
+
+  it("echoes exclusive_group and priority on competing rate rows", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const high = res.candidates.find((c) => c.rate_id === "rate_dbs_dining_high");
+    const base = res.candidates.find((c) => c.rate_id === "rate_dbs_dining_base");
+    expect(high?.exclusive_group).toBe("eminent_cat");
+    expect(high?.priority).toBe(1);
+    expect(base?.exclusive_group).toBe("eminent_cat");
+    expect(base?.priority).toBe(2);
+  });
+
+  it("returns the new term fields from get_term", async () => {
+    const min = await getTerm(tenv.DB, "term_dbs_min_spend");
+    expect(min.ok && min.term.threshold_hkd).toBe(300);
+    expect(min.ok && min.term.period).toBe("per_transaction");
+
+    const quota = await getTerm(tenv.DB, "term_dbs_quota");
+    expect(quota.ok && quota.term.quota_n).toBe(10000);
+
+    const reg = await getTerm(tenv.DB, "term_hsbc_register");
+    expect(reg.ok && reg.term.register_by).toBe("2026-10-31");
   });
 });
