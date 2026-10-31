@@ -13,6 +13,7 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export interface Assumptions {
   month_to_date_rebate_hkd?: number;
+  month_to_date_spend_hkd?: number;
   hkd_per_point?: number;
   checked_exclusions?: string[];
 }
@@ -55,6 +56,8 @@ interface RateRow {
   last_verified_at: string | null;
   effective_from: string | null;
   effective_to: string | null;
+  exclusive_group: string | null;
+  priority: number | null;
 }
 
 type TermKind =
@@ -64,7 +67,12 @@ type TermKind =
   | "min_spend"
   | "registration_required"
   | "channel"
-  | "mcc";
+  | "mcc"
+  | "quota"
+  | "merchant_list"
+  | "geo"
+  | "targeted"
+  | "eligibility";
 
 interface TermRow {
   id: string;
@@ -76,6 +84,12 @@ interface TermRow {
   effective_from: string | null;
   effective_to: string | null;
   cap_hkd: number | null;
+  threshold_hkd: number | null;
+  quota_n: number | null;
+  register_by: string | null;
+  post_within_days: number | null;
+  anchor: string | null;
+  anchor_days: number | null;
   period: string | null;
   exclusion_key: string | null;
 }
@@ -159,7 +173,7 @@ function placeholders(count: number): string {
 
 async function refsByOwner(
   db: D1Database,
-  table: "rate_tags" | "rate_terms" | "alias_tags" | "alias_cards",
+  table: "rate_tags" | "rate_terms" | "alias_tags" | "alias_cards" | "term_merchants",
   ownerColumn: string,
   refColumn: string,
   ownerIds: string[],
@@ -196,6 +210,8 @@ function rateRow(
     unit: rate.unit,
     tag_ids: tagIds,
     term_ids: termIds,
+    exclusive_group: rate.exclusive_group,
+    priority: rate.priority,
   };
 }
 
@@ -213,7 +229,8 @@ async function rateRowsWithRefs(
 
 const RATE_COLS =
   "r.id, r.card_id, r.kind, r.value, r.unit, r.source_url, r.last_verified_at, " +
-  "r.effective_from, r.effective_to, c.name AS card_name, c.issuer";
+  "r.effective_from, r.effective_to, r.exclusive_group, r.priority, " +
+  "c.name AS card_name, c.issuer";
 
 export async function lookupRates(
   db: D1Database,
@@ -297,7 +314,7 @@ export async function getCard(db: D1Database, id: string) {
     .prepare(
       `SELECT r.id, r.card_id, r.kind, r.value, r.unit, r.source_url, ` +
         `r.last_verified_at, r.effective_from, r.effective_to, ` +
-        `? AS card_name, ? AS issuer ` +
+        `r.exclusive_group, r.priority, ? AS card_name, ? AS issuer ` +
         `FROM rates r WHERE r.card_id = ? ORDER BY r.id`,
     )
     .bind(card.name, card.issuer, id)
@@ -425,6 +442,7 @@ export async function scoreCandidates(
     tag_ids?: string[];
     card_ids?: string[];
     alias?: string;
+    merchant?: string;
     assumptions?: Assumptions;
     as_of?: string;
     limit?: number;
@@ -491,6 +509,18 @@ export async function scoreCandidates(
     for (const term of termRows) termsById.set(term.id, term);
   }
 
+  // Merchant whitelists are fetched only for terms that need them.
+  const merchantTermIds = allTermIds.filter(
+    (id) => termsById.get(id)?.kind === "merchant_list",
+  );
+  const merchantsByTerm = await refsByOwner(
+    db,
+    "term_merchants",
+    "term_id",
+    "merchant",
+    merchantTermIds,
+  );
+
   const assumptions = input.assumptions ?? {};
   const checked = new Set(assumptions.checked_exclusions ?? []);
 
@@ -500,6 +530,7 @@ export async function scoreCandidates(
 
   const candidates = results.map((rate) => {
     const unknown: string[] = [];
+    const failed: string[] = [];
     let calculated: number | null = null;
 
     if (rate.kind === "rebate_percent") {
@@ -537,9 +568,54 @@ export async function scoreCandidates(
         }
         continue;
       }
-      // Any other kind (fx_fee, min_spend, registration_required, channel,
-      // mcc, and kinds added later) is a term the caller must settle: it is
-      // cleared by listing `<kind>:<term id>` in checked_exclusions.
+      // min_spend is checkable: per-transaction gates compare with the amount;
+      // cumulative gates compare with the caller's month_to_date_spend_hkd.
+      if (term.kind === "min_spend") {
+        const key = `min_spend:${term.id}`;
+        if (checked.has(key)) continue;
+        if (term.threshold_hkd === null) {
+          unknown.push(key);
+          continue;
+        }
+        if (term.period === "per_transaction") {
+          if (input.amount_hkd < term.threshold_hkd) {
+            failed.push(`min_spend_unmet:${term.id}`);
+            calculated = null;
+          }
+          continue;
+        }
+        const mtdSpend = assumptions.month_to_date_spend_hkd;
+        if (mtdSpend === undefined) {
+          unknown.push(key);
+          continue;
+        }
+        if (mtdSpend + input.amount_hkd < term.threshold_hkd) {
+          failed.push(`min_spend_unmet:${term.id}`);
+          calculated = null;
+        }
+        continue;
+      }
+      // merchant_list is a named whitelist. A fuzzy match can prove membership
+      // but never non-membership: a hit clears the term, a miss keeps it
+      // unknown, and the payload echoes merchant_checked.
+      if (term.kind === "merchant_list") {
+        const key = `merchant_list:${term.id}`;
+        if (checked.has(key)) continue;
+        const merchant = input.merchant;
+        if (merchant === undefined) {
+          unknown.push(key);
+          continue;
+        }
+        const members = merchantsByTerm.get(term.id) ?? [];
+        if (!members.some((member) => aliasHits(merchant, member))) {
+          unknown.push(key);
+        }
+        continue;
+      }
+      // Any other kind (fx_fee, registration_required, channel, mcc, quota,
+      // geo, targeted, eligibility, and kinds added later) is a term the
+      // caller must settle: it is cleared by listing `<kind>:<term id>` in
+      // checked_exclusions.
       const key = `${term.kind}:${term.id}`;
       if (!checked.has(key)) unknown.push(key);
     }
@@ -553,8 +629,12 @@ export async function scoreCandidates(
       unit: rate.unit,
       calculated_rebate_hkd: calculated,
       unknown_exclusions: unknown,
+      failed_terms: failed,
+      exclusive_group: rate.exclusive_group,
+      priority: rate.priority,
       assumptions_used: {
         month_to_date_rebate_hkd: assumptions.month_to_date_rebate_hkd ?? null,
+        month_to_date_spend_hkd: assumptions.month_to_date_spend_hkd ?? null,
         hkd_per_point: assumptions.hkd_per_point ?? null,
         checked_exclusions: [...checked],
       },
@@ -568,6 +648,7 @@ export async function scoreCandidates(
     amount_hkd: input.amount_hkd,
     tag_ids: tagList,
     as_of: asOf,
+    merchant_checked: input.merchant ?? null,
     ...page,
     total: totalRow?.n ?? 0,
     candidates,

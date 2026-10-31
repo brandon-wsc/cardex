@@ -52,10 +52,12 @@ Language is in [`CONTEXT.md`](../CONTEXT.md). This section is the v1 data model;
 |---|---|---|
 | **Tag** | `id`, `label`, `kind` | Canonical spend class. `kind` is `channel` or `category`. Tags overlap |
 | **Card** | `id`, `name`, `issuer`, `network` | A product, not someone's plastic |
-| **Rate** | `id`, `card_id`, `kind`, `value`, `unit`, `tag_ids`, `term_ids` | `kind` is `rebate_percent` or `points`. `value` + `unit` preserve the published figure and its unit (e.g. `4` + `hkd_per_mile`, `2` + `points_per_hkd`) — never a normalized bare float |
-| **Term** | `id`, `card_id`, `kind`, `text`, `source_url`, `last_verified_at`, `effective_from`, `effective_to` | v1 kinds: `cap`, `exclusion`. Planned, pending the term-kind audit: `fx_fee`, `min_spend`, `registration_required`, `channel`, `mcc` |
+| **Rate** | `id`, `card_id`, `kind`, `value`, `unit`, `tag_ids`, `term_ids`, `exclusive_group`, `priority` | `kind` is `rebate_percent` or `points`. `value` + `unit` preserve the published figure and its unit (e.g. `4` + `hkd_per_mile`, `2` + `points_per_hkd`) — never a normalized bare float. Rates sharing an `exclusive_group` cannot stack; the caller keeps the best `priority` per group |
+| **Term** | `id`, `card_id`, `kind`, `text`, `source_url`, `last_verified_at`, `effective_from`, `effective_to`, kind fields | Kinds are audited against real issuer mechanics ([term-kind-audit.md](term-kind-audit.md)): `cap`, `exclusion`, `fx_fee`, `min_spend`, `registration_required`, `channel`, `mcc`, `quota`, `merchant_list`, `geo`, `targeted`, `eligibility`. Kind fields are sparse: `cap_hkd`, `threshold_hkd` (min_spend), `quota_n`, `register_by`, `post_within_days`, `anchor` + `anchor_days` (rolling windows), `period`, `exclusion_key`. `merchant_list` members live in `term_merchants` |
 | **Alias** | `text`, `tag_ids`, `card_ids`, `issuers`, `networks` | Free text → those refs. Tag/card mappings live in D1 (`alias_tags`, `alias_cards`); issuer/network mappings live in `src/aliases.ts` — both sets are near-closed, so one file keeps the whole map reviewable. Values are canonical strings matching `cards.issuer` / `cards.network`. Any side may be empty |
 | **Report** | `id`, `target_id`, `field`, `claimed_value`, `evidence_url`, `note`, `reported_at` | Quarantine table. Query tools never read it; only the maintenance loop does |
+
+`period` vocabulary observed in the wild (open string, not an enum): `statement_month`, `statement_cycle`, `calendar_month`, `promo_period`, `promo_phase`, `event_date`, `rolling_window`, `per_transaction`, `none`.
 
 ### 3.2 What a rate does not include
 
@@ -63,7 +65,7 @@ The rate row does not embed the term body. The caller follows `term_ids` with `g
 
 ### 3.3 Effective windows
 
-Records carrying `effective_from`/`effective_to` — terms today; rates too, if the audit shows promos expire at rate level — are filtered by `as_of` (default: today) in list and score tools. `effective_to` NULL is open-ended. `get_card` and `get_term` by id return the record regardless — an explicit fetch is for auditing, not filtering. A stale seed degrades to fewer answers, not wrong ones ([ADR 0001](adr/0001-product-shape.md)).
+Rates and terms both carry `effective_from`/`effective_to` — promo uplifts expire at rate level in the wild ([audit §c](term-kind-audit.md)). They are filtered by `as_of` (default: today) in list and score tools. `effective_to` NULL is open-ended. `get_card` and `get_term` by id return the record regardless — an explicit fetch is for auditing, not filtering. A stale seed degrades to fewer answers, not wrong ones ([ADR 0001](adr/0001-product-shape.md)).
 
 ## 4. Tools
 
@@ -82,7 +84,7 @@ Shared envelope on every success and failure:
 | `get_term` | `id` | One term. Unknown id → `not_found` |
 | `list_tags` | `limit?` | Tag id + label |
 | `resolve_alias` | `query`, `limit?` | Each hit: the alias text, tag ids, card ids, issuers, networks. DB aliases and the code-side issuer/network maps are merged by alias text. No hit → `matches: []`. Match is normalized (trim, lowercase, collapsed spaces): exact, or either string contains the other when both are at least 2 characters |
-| `score_candidates` | `amount_hkd`, `tag_ids?`, `card_ids?`, `alias?`, `assumptions?`, `as_of?`, `limit?` | One row per matching rate. See §5 |
+| `score_candidates` | `amount_hkd`, `tag_ids?`, `card_ids?`, `alias?`, `merchant?`, `assumptions?`, `as_of?`, `limit?` | One row per matching rate. See §5 |
 | `report_issue` | exactly one of `card_id` / `rate_id` / `term_id`, `field`, `claimed_value`, `evidence_url?`, `note?` | `{ ok: true, report_id }`. Writes only to the reports table. There is no public read-back tool |
 
 Failures are `{ ok: false, error, detail? }` plus the same provenance. They are not a thrown stack.
@@ -97,9 +99,11 @@ Inputs:
 - `card_ids?` — restricts scoring to those cards. This is the held-set path after the user confirms their wallet; Cardex never learns why the set was chosen. Alias hits contribute their `card_ids` to the same scope.
 - Tags come from `tag_ids` and from `alias` (via the same match as `resolve_alias`). No tags at all → `missing_spend`.
 - `as_of` — filters windowed terms. Default today.
+- `merchant?` — a merchant name to check `merchant_list` whitelists against. A hit clears the term; a miss keeps it unknown (a fuzzy match can prove membership, never non-membership). The payload echoes `merchant_checked`.
 - `assumptions.month_to_date_rebate_hkd` — rebate already earned this period, used only to apply a cap.
+- `assumptions.month_to_date_spend_hkd` — eligible spend already made this period, used only to check cumulative `min_spend` gates.
 - `assumptions.hkd_per_point` — how the caller values one unit (point or mile) of a `points` rate's `unit`.
-- `assumptions.checked_exclusions` — exclusion keys the caller asserts do **not** apply. May also carry `fx_fee:<term id>` to settle a foreign-currency fee.
+- `assumptions.checked_exclusions` — keys the caller asserts do **not** apply. Clears any term by `<kind>:<term id>` (and plain `exclusion_key` for exclusions).
 
 For each matching rate:
 
@@ -110,12 +114,20 @@ For each matching rate:
 | `points` and `hkd_per_point` is absent | `calculated_rebate_hkd: null`. `unknown_exclusions` includes `points_value` |
 | Cap term, month-to-date **absent** | Do not clamp. `unknown_exclusions` includes `cap_remaining:<term id>` |
 | Cap term, month-to-date **present** | Clamp to `max(0, cap_hkd − month_to_date)` |
-| `fx_fee` term not settled | Rebate stands; `unknown_exclusions` includes `fx_fee:<term id>` — the caller nets it |
+| `min_spend`, `per_transaction`, amount **below** `threshold_hkd` | `calculated_rebate_hkd: null`. `failed_terms` includes `min_spend_unmet:<term id>` |
+| `min_spend`, `per_transaction`, amount meets threshold | Cleared silently |
+| `min_spend`, cumulative, `month_to_date_spend_hkd` **absent** | `unknown_exclusions` includes `min_spend:<term id>` |
+| `min_spend`, cumulative, spend + amount **below** threshold | `calculated_rebate_hkd: null`. `failed_terms` includes `min_spend_unmet:<term id>` |
+| `min_spend`, cumulative, spend + amount meets threshold | Cleared silently |
+| `merchant_list`, `merchant` **absent** | `unknown_exclusions` includes `merchant_list:<term id>` |
+| `merchant_list`, `merchant` hits a whitelist member | Cleared silently |
+| `merchant_list`, `merchant` misses all members | Still `unknown_exclusions` — a miss proves nothing. `merchant_checked` echoes the input |
+| `fx_fee` or any other kind not settled | `unknown_exclusions` includes `<kind>:<term id>` |
 | Term outside its effective window at `as_of` | Not applied. `unknown_exclusions` includes `term_outside_window:<term id>` |
 | Exclusion key **not** in `checked_exclusions` | Leave the number. List the key in `unknown_exclusions` |
 | Exclusion key **in** `checked_exclusions` | Treat it as cleared. Do not list it |
 
-Rows are ordered by `card_id`, then `rate_id`. There is no `winner`, no rank, and no "best" field. The caller sorts if it wants to.
+Every row echoes `failed_terms` (deterministic failures — distinct from `unknown_exclusions`, which means "the caller must verify"), `exclusive_group`, and `priority`. Rows are ordered by `card_id`, then `rate_id`. There is no `winner`, no rank, and no "best" field. The caller sorts if it wants to.
 
 A cleared exclusion is the caller saying "this does not apply", not Cardex deciding the spend is eligible.
 
@@ -181,11 +193,12 @@ A consumer "which card" app, a wallet, an admin panel (pull requests are the app
 
 ## 12. Open Questions
 
-1. Which term kinds survive the audit — do `fx_fee`, `min_spend`, `registration_required`, `channel`, `mcc` cover what real HK offers actually need, or are there more?
-2. Do rates themselves carry effective windows, or does a promo rate model as rate + dated term?
-3. The cited-seed card list — which ~15–20 most-held cards? Owner picks; the maintenance agent researches.
-4. Does `score_candidates` still ship to real callers only once the cited seed lands?
-5. `period` on caps — statement month, calendar month, or promo window? The audit answers which forms exist; `period` stays a field on the term.
-6. Maintenance cadence — weekly or biweekly scheduled passes, and what reactive triggers exist beyond the owner asking?
-7. `report_issue` at scale — when does rate limiting move from P3?
-8. `unit` vocabulary on rates — a fixed enum or an open string?
+Resolved by the [term-kind audit](term-kind-audit.md): the term-kind enum (12 kinds), effective windows on rates, and the `period` vocabulary.
+
+1. The cited-seed card list — which ~15–20 most-held cards? Owner picks; the maintenance agent researches.
+2. Does `score_candidates` still ship to real callers only once the cited seed lands?
+3. `resolve_alias`: keep exact-or-contains, or tighten short tokens like `red`?
+4. Maintenance cadence — weekly or biweekly scheduled passes, and what reactive triggers exist beyond the owner asking?
+5. `report_issue` at scale — when does rate limiting move from P3?
+6. `unit` vocabulary on rates — a fixed enum or an open string?
+7. Watchlist mechanics deferred to `text`: `mission` (nth-transaction rewards), banded/marginal rebate, recurring day-of-month schedules — revisit if the cited seed shows them often.

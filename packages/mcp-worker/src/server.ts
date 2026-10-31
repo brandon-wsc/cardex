@@ -55,7 +55,7 @@ export function buildServer(db: D1Database): McpServer {
   server.registerTool(
     "get_term",
     {
-      description: `One term by id: a cap or an exclusion, with its text, source URL, and effective dates. ${SEED_NOTE}`,
+      description: `One term by id: a condition on a card or rate (cap, exclusion, or another kind), with its text, source URL, and effective dates. ${SEED_NOTE}`,
       inputSchema: z.object({ id: z.string() }),
       annotations: { readOnlyHint: true },
     },
@@ -91,10 +91,12 @@ export function buildServer(db: D1Database): McpServer {
         tag_ids: z.array(z.string()).optional(),
         card_ids: z.array(z.string()).optional(),
         alias: z.string().optional(),
+        merchant: z.string().optional(),
         as_of: z.string().optional(),
         assumptions: z
           .object({
             month_to_date_rebate_hkd: z.number().nonnegative().optional(),
+            month_to_date_spend_hkd: z.number().nonnegative().optional(),
             hkd_per_point: z.number().nonnegative().optional(),
             checked_exclusions: z.array(z.string()).optional(),
           })
