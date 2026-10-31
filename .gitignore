@@ -1,0 +1,7 @@
+node_modules
+.pnpm-store
+.wrangler
+dist
+*.tsbuildinfo
+.DS_Store
+worker-configuration.d.ts
