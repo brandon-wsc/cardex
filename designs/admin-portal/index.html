@@ -9,21 +9,22 @@
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 <style>
   :root {
-    --bg: #f6f8fa;
-    --surface: #ffffff;
-    --border: #d0d7de;
-    --border-soft: #e5e9ee;
-    --text: #1f2328;
-    --text-dim: #59636e;
-    --text-faint: #8b949e;
-    --accent: #0969da;
-    --accent-bg: #ddf4ff;
-    --success: #1a7f37;
-    --success-bg: #dafbe1;
-    --danger: #d1242f;
-    --danger-bg: #ffebe9;
-    --pending: #9a6700;
-    --pending-bg: #fff8c5;
+    --bg: hsl(210, 16%, 96%);
+    --surface: hsl(0, 0%, 100%);
+    --border: hsl(213, 14%, 84%);
+    --border-soft: hsl(213, 14%, 91%);
+    --text: hsl(215, 14%, 15%);
+    --text-dim: hsl(215, 10%, 42%);
+    --text-faint: hsl(215, 9%, 58%);
+    /* semantic hues — desaturated, unified lightness: fg ~30-42%, bg ~93-95% */
+    --accent: hsl(212, 45%, 40%);
+    --accent-bg: hsl(212, 38%, 94%);
+    --success: hsl(148, 40%, 30%);
+    --success-bg: hsl(148, 30%, 93%);
+    --danger: hsl(4, 48%, 42%);
+    --danger-bg: hsl(6, 40%, 95%);
+    --pending: hsl(36, 45%, 32%);
+    --pending-bg: hsl(42, 45%, 93%);
     --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
     --radius: 8px;
   }
@@ -237,7 +238,7 @@
   }
   .btn:disabled { opacity: 0.45; cursor: not-allowed; }
   .btn.approve { background: var(--success); border-color: var(--success); color: #fff; }
-  .btn.approve:hover:not(:disabled) { background: #146c2e; }
+  .btn.approve:hover:not(:disabled) { background: hsl(148, 40%, 25%); }
   .btn.reject { color: var(--danger); border-color: var(--danger); }
   .btn.reject:hover:not(:disabled) { background: var(--danger-bg); }
 
