@@ -1,0 +1,23 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "cardex",
+  "main": "src/index.ts",
+  // Set on the day this Worker was created (AGENTS.md); 2026-10-26 is the
+  // newest date the pinned workerd binary supports.
+  "compatibility_date": "2026-10-26",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "traces": { "enabled": true }
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "cardex-db",
+      // Placeholder for local dev. For a real deploy, create the database with
+      // `wrangler d1 create cardex-db` and paste the id here.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ]
+}
