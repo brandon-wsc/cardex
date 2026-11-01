@@ -4,6 +4,44 @@
       "firstFile": {
         "end": 30,
         "endLoc": {
+          "column": 4,
+          "line": 30,
+          "position": 875
+        },
+        "name": "access.test.ts",
+        "start": 20,
+        "startLoc": {
+          "column": 10,
+          "line": 20,
+          "position": 630
+        }
+      },
+      "format": "typescript",
+      "fragment": "beforeAll(async () => {\n  const pair = await crypto.subtle.generateKey(\n    {\n      name: \"RSASSA-PKCS1-v1_5\",\n      modulusLength: 2048,\n      publicExponent: new Uint8Array([1, 0, 1]),\n      hash: \"SHA-256\",\n    },\n    true,\n    [\"sign\", \"verify\"],\n  );",
+      "isNew": false,
+      "kind": "exact",
+      "lines": 11,
+      "secondFile": {
+        "end": 97,
+        "endLoc": {
+          "column": 6,
+          "line": 97,
+          "position": 3060
+        },
+        "name": "access.test.ts",
+        "start": 87,
+        "startLoc": {
+          "column": 50,
+          "line": 87,
+          "position": 2795
+        }
+      },
+      "tokens": 54
+    },
+    {
+      "firstFile": {
+        "end": 30,
+        "endLoc": {
           "column": 9,
           "line": 30,
           "position": 830
@@ -78,18 +116,18 @@
     },
     {
       "firstFile": {
-        "end": 216,
+        "end": 263,
         "endLoc": {
           "column": 21,
-          "line": 216,
-          "position": 6550
+          "line": 263,
+          "position": 8256
         },
         "name": "maintain.test.ts",
-        "start": 200,
+        "start": 247,
         "startLoc": {
           "column": 68,
-          "line": 200,
-          "position": 6104
+          "line": 247,
+          "position": 7810
         }
       },
       "format": "typescript",
@@ -98,36 +136,36 @@
       "kind": "exact",
       "lines": 17,
       "secondFile": {
-        "end": 305,
+        "end": 352,
         "endLoc": {
           "column": 21,
-          "line": 305,
-          "position": 9357
+          "line": 352,
+          "position": 11063
         },
         "name": "maintain.test.ts",
-        "start": 289,
+        "start": 336,
         "startLoc": {
           "column": 57,
-          "line": 289,
-          "position": 8911
+          "line": 336,
+          "position": 10617
         }
       },
       "tokens": 87
     },
     {
       "firstFile": {
-        "end": 313,
+        "end": 360,
         "endLoc": {
           "column": 33,
-          "line": 313,
-          "position": 9690
+          "line": 360,
+          "position": 11396
         },
         "name": "maintain.test.ts",
-        "start": 298,
+        "start": 345,
         "startLoc": {
           "column": 32,
-          "line": 298,
-          "position": 9219
+          "line": 345,
+          "position": 10925
         }
       },
       "format": "typescript",
@@ -136,36 +174,36 @@
       "kind": "exact",
       "lines": 16,
       "secondFile": {
-        "end": 349,
+        "end": 396,
         "endLoc": {
           "column": 33,
-          "line": 349,
-          "position": 10815
+          "line": 396,
+          "position": 12521
         },
         "name": "maintain.test.ts",
-        "start": 335,
+        "start": 382,
         "startLoc": {
           "column": 37,
-          "line": 335,
-          "position": 10421
+          "line": 382,
+          "position": 12127
         }
       },
       "tokens": 101
     },
     {
       "firstFile": {
-        "end": 309,
+        "end": 356,
         "endLoc": {
           "column": 24,
-          "line": 309,
-          "position": 9503
+          "line": 356,
+          "position": 11209
         },
         "name": "maintain.test.ts",
-        "start": 298,
+        "start": 345,
         "startLoc": {
           "column": 51,
-          "line": 298,
-          "position": 9238
+          "line": 345,
+          "position": 10944
         }
       },
       "format": "typescript",
@@ -174,36 +212,36 @@
       "kind": "exact",
       "lines": 12,
       "secondFile": {
-        "end": 378,
+        "end": 425,
         "endLoc": {
           "column": 24,
-          "line": 378,
-          "position": 11775
+          "line": 425,
+          "position": 13481
         },
         "name": "maintain.test.ts",
-        "start": 367,
+        "start": 414,
         "startLoc": {
           "column": 76,
-          "line": 367,
-          "position": 11510
+          "line": 414,
+          "position": 13216
         }
       },
       "tokens": 65
     },
     {
       "firstFile": {
-        "end": 311,
+        "end": 358,
         "endLoc": {
           "column": 27,
-          "line": 311,
-          "position": 9562
+          "line": 358,
+          "position": 11268
         },
         "name": "maintain.test.ts",
-        "start": 298,
+        "start": 345,
         "startLoc": {
           "column": 51,
-          "line": 298,
-          "position": 9238
+          "line": 345,
+          "position": 10944
         }
       },
       "format": "typescript",
@@ -212,36 +250,36 @@
       "kind": "exact",
       "lines": 14,
       "secondFile": {
-        "end": 417,
+        "end": 464,
         "endLoc": {
           "column": 27,
-          "line": 417,
-          "position": 12846
+          "line": 464,
+          "position": 14552
         },
         "name": "maintain.test.ts",
-        "start": 404,
+        "start": 451,
         "startLoc": {
           "column": 10,
-          "line": 404,
-          "position": 12522
+          "line": 451,
+          "position": 14228
         }
       },
       "tokens": 85
     },
     {
       "firstFile": {
-        "end": 320,
+        "end": 367,
         "endLoc": {
           "column": 4,
-          "line": 320,
-          "position": 9889
+          "line": 367,
+          "position": 11595
         },
         "name": "maintain.test.ts",
-        "start": 315,
+        "start": 362,
         "startLoc": {
           "column": 4,
-          "line": 315,
-          "position": 9706
+          "line": 362,
+          "position": 11412
         }
       },
       "format": "typescript",
@@ -250,18 +288,18 @@
       "kind": "exact",
       "lines": 6,
       "secondFile": {
-        "end": 430,
+        "end": 477,
         "endLoc": {
           "column": 1,
-          "line": 430,
-          "position": 13321
+          "line": 477,
+          "position": 15027
         },
         "name": "maintain.test.ts",
-        "start": 426,
+        "start": 473,
         "startLoc": {
           "column": 4,
-          "line": 426,
-          "position": 13142
+          "line": 473,
+          "position": 14848
         }
       },
       "tokens": 52
@@ -402,18 +440,18 @@
       "kind": "exact",
       "lines": 7,
       "secondFile": {
-        "end": 661,
+        "end": 723,
         "endLoc": {
           "column": 24,
-          "line": 661,
-          "position": 23080
+          "line": 723,
+          "position": 25008
         },
         "name": "query.test.ts",
-        "start": 655,
+        "start": 717,
         "startLoc": {
           "column": 52,
-          "line": 655,
-          "position": 22902
+          "line": 717,
+          "position": 24830
         }
       },
       "tokens": 51
@@ -440,18 +478,18 @@
       "kind": "exact",
       "lines": 8,
       "secondFile": {
-        "end": 835,
+        "end": 897,
         "endLoc": {
           "column": 9,
-          "line": 835,
-          "position": 29583
+          "line": 897,
+          "position": 31511
         },
         "name": "query.test.ts",
-        "start": 828,
+        "start": 890,
         "startLoc": {
           "column": 65,
-          "line": 828,
-          "position": 29395
+          "line": 890,
+          "position": 31323
         }
       },
       "tokens": 52
@@ -554,18 +592,18 @@
       "kind": "exact",
       "lines": 8,
       "secondFile": {
-        "end": 662,
+        "end": 724,
         "endLoc": {
           "column": 14,
-          "line": 662,
-          "position": 23095
+          "line": 724,
+          "position": 25023
         },
         "name": "query.test.ts",
-        "start": 655,
+        "start": 717,
         "startLoc": {
           "column": 60,
-          "line": 655,
-          "position": 22910
+          "line": 717,
+          "position": 24838
         }
       },
       "tokens": 52
@@ -610,18 +648,18 @@
     },
     {
       "firstFile": {
-        "end": 708,
+        "end": 770,
         "endLoc": {
           "column": 48,
-          "line": 708,
-          "position": 24931
+          "line": 770,
+          "position": 26859
         },
         "name": "query.test.ts",
-        "start": 702,
+        "start": 764,
         "startLoc": {
           "column": 75,
-          "line": 702,
-          "position": 24737
+          "line": 764,
+          "position": 26665
         }
       },
       "format": "typescript",
@@ -630,36 +668,36 @@
       "kind": "exact",
       "lines": 7,
       "secondFile": {
-        "end": 806,
+        "end": 868,
         "endLoc": {
           "column": 48,
-          "line": 806,
-          "position": 28677
+          "line": 868,
+          "position": 30605
         },
         "name": "query.test.ts",
-        "start": 800,
+        "start": 862,
         "startLoc": {
           "column": 59,
-          "line": 800,
-          "position": 28483
+          "line": 862,
+          "position": 30411
         }
       },
       "tokens": 51
     },
     {
       "firstFile": {
-        "end": 776,
+        "end": 838,
         "endLoc": {
           "column": 50,
-          "line": 776,
-          "position": 27599
+          "line": 838,
+          "position": 29527
         },
         "name": "query.test.ts",
-        "start": 768,
+        "start": 830,
         "startLoc": {
           "column": 25,
-          "line": 768,
-          "position": 27323
+          "line": 830,
+          "position": 29251
         }
       },
       "format": "typescript",
@@ -668,18 +706,18 @@
       "kind": "exact",
       "lines": 9,
       "secondFile": {
-        "end": 825,
+        "end": 887,
         "endLoc": {
           "column": 50,
-          "line": 825,
-          "position": 29309
+          "line": 887,
+          "position": 31237
         },
         "name": "query.test.ts",
-        "start": 817,
+        "start": 879,
         "startLoc": {
           "column": 27,
-          "line": 817,
-          "position": 29033
+          "line": 879,
+          "position": 30961
         }
       },
       "tokens": 60
@@ -688,29 +726,29 @@
   "statistics": {
     "formats": {
       "typescript": {
-        "clones": 18,
-        "duplicatedLines": 190,
-        "duplicatedTokens": 1214,
-        "lines": 3164,
+        "clones": 19,
+        "duplicatedLines": 201,
+        "duplicatedTokens": 1268,
+        "lines": 3693,
         "newClones": 0,
         "newDuplicatedLines": 0,
-        "percentage": 6.005056890012642,
-        "percentageTokens": 5.781503000285741,
-        "sources": 10,
-        "tokens": 20998
+        "percentage": 5.442729488220959,
+        "percentageTokens": 5.241835469202149,
+        "sources": 12,
+        "tokens": 24190
       }
     },
     "total": {
-      "clones": 18,
-      "duplicatedLines": 190,
-      "duplicatedTokens": 1214,
-      "lines": 3164,
+      "clones": 19,
+      "duplicatedLines": 201,
+      "duplicatedTokens": 1268,
+      "lines": 3693,
       "newClones": 0,
       "newDuplicatedLines": 0,
-      "percentage": 6.005056890012642,
-      "percentageTokens": 5.781503000285741,
-      "sources": 10,
-      "tokens": 20998
+      "percentage": 5.442729488220959,
+      "percentageTokens": 5.241835469202149,
+      "sources": 12,
+      "tokens": 24190
     }
   }
 }

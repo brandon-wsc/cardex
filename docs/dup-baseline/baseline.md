@@ -8,7 +8,7 @@ live beside them. Defaults: min-tokens 50, min-lines 5.
 
 | Files scanned | Lines | Tokens | Clones | Duplicated lines | Duplicated tokens |
 |---------------|-------|--------|--------|------------------|-------------------|
-| 10 | 3164 | 20998 | 18 | 190 (6.01%) | 1214 (5.78%) |
+| 12 | 3693 | 24190 | 19 | 201 (5.44%) | 1268 (5.24%) |
 
 ## Production clones
 
@@ -26,23 +26,24 @@ production duplication.
 
 | # | First fragment | Second fragment | Lines | Tokens | Kind |
 |---|----------------|-----------------|-------|--------|------|
-| 1 | `packages/mcp-worker/src/maintain.test.ts:12-30` | `packages/mcp-worker/src/query.test.ts:13-30` | 19 | 108 | exact |
-| 2 | `packages/mcp-worker/src/maintain.test.ts:12-28` | `packages/mcp-worker/src/server.test.ts:5-23` | 17 | 103 | exact |
-| 3 | `packages/mcp-worker/src/maintain.test.ts:200-216` | `packages/mcp-worker/src/maintain.test.ts:289-305` | 17 | 87 | exact |
-| 4 | `packages/mcp-worker/src/maintain.test.ts:298-313` | `packages/mcp-worker/src/maintain.test.ts:335-349` | 16 | 101 | exact |
-| 5 | `packages/mcp-worker/src/maintain.test.ts:298-309` | `packages/mcp-worker/src/maintain.test.ts:367-378` | 12 | 65 | exact |
-| 6 | `packages/mcp-worker/src/maintain.test.ts:298-311` | `packages/mcp-worker/src/maintain.test.ts:404-417` | 14 | 85 | exact |
-| 7 | `packages/mcp-worker/src/maintain.test.ts:315-320` | `packages/mcp-worker/src/maintain.test.ts:426-430` | 6 | 52 | exact |
-| 8 | `packages/mcp-worker/src/query.test.ts:243-250` | `packages/mcp-worker/src/query.test.ts:281-288` | 8 | 71 | exact |
-| 9 | `packages/mcp-worker/src/query.test.ts:243-249` | `packages/mcp-worker/src/query.test.ts:331-337` | 7 | 51 | exact |
-| 10 | `packages/mcp-worker/src/query.test.ts:243-249` | `packages/mcp-worker/src/query.test.ts:655-661` | 7 | 51 | exact |
-| 11 | `packages/mcp-worker/src/query.test.ts:243-250` | `packages/mcp-worker/src/query.test.ts:828-835` | 8 | 52 | exact |
-| 12 | `packages/mcp-worker/src/query.test.ts:256-263` | `packages/mcp-worker/src/query.test.ts:473-480` | 8 | 52 | exact |
-| 13 | `packages/mcp-worker/src/query.test.ts:259-264` | `packages/mcp-worker/src/query.test.ts:272-277` | 6 | 52 | exact |
-| 14 | `packages/mcp-worker/src/query.test.ts:331-338` | `packages/mcp-worker/src/query.test.ts:655-662` | 8 | 52 | exact |
-| 15 | `packages/mcp-worker/src/query.test.ts:401-411` | `packages/mcp-worker/src/query.test.ts:434-444` | 11 | 70 | exact |
-| 16 | `packages/mcp-worker/src/query.test.ts:702-708` | `packages/mcp-worker/src/query.test.ts:800-806` | 7 | 51 | exact |
-| 17 | `packages/mcp-worker/src/query.test.ts:768-776` | `packages/mcp-worker/src/query.test.ts:817-825` | 9 | 60 | exact |
+| 1 | `packages/mcp-worker/src/access.test.ts:20-30` | `packages/mcp-worker/src/access.test.ts:87-97` | 11 | 54 | exact |
+| 2 | `packages/mcp-worker/src/maintain.test.ts:12-30` | `packages/mcp-worker/src/query.test.ts:13-30` | 19 | 108 | exact |
+| 3 | `packages/mcp-worker/src/maintain.test.ts:12-28` | `packages/mcp-worker/src/server.test.ts:5-23` | 17 | 103 | exact |
+| 4 | `packages/mcp-worker/src/maintain.test.ts:247-263` | `packages/mcp-worker/src/maintain.test.ts:336-352` | 17 | 87 | exact |
+| 5 | `packages/mcp-worker/src/maintain.test.ts:345-360` | `packages/mcp-worker/src/maintain.test.ts:382-396` | 16 | 101 | exact |
+| 6 | `packages/mcp-worker/src/maintain.test.ts:345-356` | `packages/mcp-worker/src/maintain.test.ts:414-425` | 12 | 65 | exact |
+| 7 | `packages/mcp-worker/src/maintain.test.ts:345-358` | `packages/mcp-worker/src/maintain.test.ts:451-464` | 14 | 85 | exact |
+| 8 | `packages/mcp-worker/src/maintain.test.ts:362-367` | `packages/mcp-worker/src/maintain.test.ts:473-477` | 6 | 52 | exact |
+| 9 | `packages/mcp-worker/src/query.test.ts:243-250` | `packages/mcp-worker/src/query.test.ts:281-288` | 8 | 71 | exact |
+| 10 | `packages/mcp-worker/src/query.test.ts:243-249` | `packages/mcp-worker/src/query.test.ts:331-337` | 7 | 51 | exact |
+| 11 | `packages/mcp-worker/src/query.test.ts:243-249` | `packages/mcp-worker/src/query.test.ts:717-723` | 7 | 51 | exact |
+| 12 | `packages/mcp-worker/src/query.test.ts:243-250` | `packages/mcp-worker/src/query.test.ts:890-897` | 8 | 52 | exact |
+| 13 | `packages/mcp-worker/src/query.test.ts:256-263` | `packages/mcp-worker/src/query.test.ts:473-480` | 8 | 52 | exact |
+| 14 | `packages/mcp-worker/src/query.test.ts:259-264` | `packages/mcp-worker/src/query.test.ts:272-277` | 6 | 52 | exact |
+| 15 | `packages/mcp-worker/src/query.test.ts:331-338` | `packages/mcp-worker/src/query.test.ts:717-724` | 8 | 52 | exact |
+| 16 | `packages/mcp-worker/src/query.test.ts:401-411` | `packages/mcp-worker/src/query.test.ts:434-444` | 11 | 70 | exact |
+| 17 | `packages/mcp-worker/src/query.test.ts:764-770` | `packages/mcp-worker/src/query.test.ts:862-868` | 7 | 51 | exact |
+| 18 | `packages/mcp-worker/src/query.test.ts:830-838` | `packages/mcp-worker/src/query.test.ts:879-887` | 9 | 60 | exact |
 
 ---
 Advisory only — nothing in this report gates CI. See `README.md` in this
