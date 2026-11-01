@@ -20,7 +20,7 @@ This file is what exists in the tree today. Architecture and phases live in [ROA
 | Maintenance surface | Built — `proposals` table, `/maintainer` bearer-token MCP (`list_reports` + `propose_change`, patch whitelist validated), `/admin` portal + API (Access header + `ADMIN_EMAIL` check, optional `ADMIN_PIN`). Ops not done: real secrets, Access policy, deploy |
 | `docs/ai-workflow.md` | Stub |
 | `LICENSE` | Named in the README as MIT. File not in the tree |
-| Deploy | Live — `cardex.brandonhk.com` (custom domain, workers.dev disabled), prod D1 `d0616cb0…` migrated+seeded, `MAINTAINER_TOKEN`/`ADMIN_PIN` secrets set, Cloudflare Access fronts `/admin` (email OTP, owner only) |
+| Deploy | Live — `cardex.brandonhk.com` (custom domain, workers.dev disabled), prod D1 `d0616cb0…` migrated+seeded, `MAINTAINER_TOKEN` secret set (`ADMIN_PIN` unset — approve relies on Access alone), Cloudflare Access fronts `/admin` (email OTP, owner only) |
 | CI | Pull requests only. [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) checks branch name, PR title, commit subjects — and runs vitest + typecheck |
 | Tests | vitest in workerd + real D1 — 55 specs on the PRD tables + 18 on the proposal lifecycle (`maintain.ts`). Policy is [TESTING.md](./TESTING.md) |
 
