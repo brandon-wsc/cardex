@@ -1,6 +1,7 @@
 import { createMcpHandler } from "agents/mcp/server";
 
 import { accessIdentity } from "./access.js";
+import { overLimit, rateLimited } from "./ratelimit.js";
 import {
   decideProposal,
   getProposal,
@@ -16,6 +17,14 @@ import { buildServer } from "./server.js";
 // identical whether or not wrangler emitted them; runtime guards below
 // handle actual absence.
 declare global {
+  // workerd implements timingSafeEqual but the shared SubtleCrypto lib type
+  // lacks it — merge the extension here so the secret compares typecheck.
+  interface SubtleCrypto {
+    timingSafeEqual(
+      a: ArrayBuffer | ArrayBufferView,
+      b: ArrayBuffer | ArrayBufferView,
+    ): boolean;
+  }
   interface Env {
     MAINTAINER_TOKEN: string;
     ADMIN_EMAIL: string;
@@ -37,6 +46,36 @@ function secretEqual(a: string | null, b: string): boolean {
   const y = new TextEncoder().encode(b);
   if (x.byteLength !== y.byteLength) return false;
   return crypto.subtle.timingSafeEqual(x, y);
+}
+
+const clientIp = (request: Request) =>
+  request.headers.get("CF-Connecting-IP") ?? "anonymous";
+
+const RATE = {
+  mcp: { limit: 120, windowMs: 60_000 },
+  maintainerAuth: { limit: 10, windowMs: 3_600_000 },
+  adminApi: { limit: 120, windowMs: 60_000 },
+  pin: { limit: 20, windowMs: 3_600_000 },
+};
+
+// Non-GET admin API calls must come from the portal itself: fetch metadata
+// and Origin both name a same-origin caller (non-browser clients send
+// neither and stay allowed — auth still applies). Per-IP budget on top.
+function adminApiRequestGuard(
+  request: Request,
+  url: URL,
+  ip: string,
+): Response | null {
+  if (rateLimited(`admin:${ip}`, RATE.adminApi.limit, RATE.adminApi.windowMs))
+    return new Response("Too many requests", { status: 429 });
+  if (request.method === "GET" || request.method === "HEAD") return null;
+  const site = request.headers.get("Sec-Fetch-Site");
+  if (site && site !== "same-origin" && site !== "same-site")
+    return json({ error: "forbidden" }, 403);
+  const origin = request.headers.get("Origin");
+  if (origin && origin !== url.origin)
+    return json({ error: "forbidden" }, 403);
+  return null;
 }
 
 // The real boundary is the Cloudflare Access app in front of /admin (email
@@ -72,7 +111,12 @@ async function handleProposalDecide(
     note?: string;
     pin?: string;
   };
+  const pinKey = `pin:${clientIp(request)}`;
+  if (env.ADMIN_PIN && overLimit(pinKey, RATE.pin.limit)) {
+    return json({ ok: false, error: "rate_limited" }, 429);
+  }
   if (env.ADMIN_PIN && !secretEqual(body.pin ?? null, env.ADMIN_PIN)) {
+    rateLimited(pinKey, RATE.pin.limit, RATE.pin.windowMs);
     return json({ ok: false, error: "bad_pin" }, 403);
   }
   if (body.decision !== "approve" && body.decision !== "reject") {
@@ -145,6 +189,11 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/mcp") {
+      if (
+        rateLimited(`mcp:${clientIp(request)}`, RATE.mcp.limit, RATE.mcp.windowMs)
+      ) {
+        return new Response("Too many requests", { status: 429 });
+      }
       const mcp = createMcpHandler(() => buildServer(env.DB), {
         route: "/mcp",
       });
@@ -155,12 +204,21 @@ export default {
       if (!env.MAINTAINER_TOKEN) {
         return new Response("Not found", { status: 404 });
       }
+      const authKey = `maint-auth:${clientIp(request)}`;
+      if (overLimit(authKey, RATE.maintainerAuth.limit)) {
+        return new Response("Too many requests", { status: 429 });
+      }
       if (
         !secretEqual(
           request.headers.get("Authorization"),
           `Bearer ${env.MAINTAINER_TOKEN}`,
         )
       ) {
+        rateLimited(
+          authKey,
+          RATE.maintainerAuth.limit,
+          RATE.maintainerAuth.windowMs,
+        );
         return json({ error: "unauthorized" }, 401);
       }
       const mcp = createMcpHandler(() => buildMaintainerServer(env.DB), {
@@ -181,6 +239,12 @@ export default {
       if (!email) {
         return json({ error: "unauthorized" }, 401);
       }
+      const guard = adminApiRequestGuard(
+        request,
+        url,
+        clientIp(request),
+      );
+      if (guard) return guard;
       return handleAdminApi(request, env, url, email);
     }
 

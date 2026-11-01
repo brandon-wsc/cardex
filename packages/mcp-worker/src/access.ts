@@ -34,11 +34,12 @@ async function fetchJwks(
   return jwks;
 }
 
-const b64url = (s: string): Uint8Array =>
-  Uint8Array.from(
-    atob(s.replaceAll("-", "+").replaceAll("_", "/")),
-    (c) => c.charCodeAt(0),
-  );
+const b64url = (s: string): Uint8Array<ArrayBuffer> => {
+  const bin = atob(s.replaceAll("-", "+").replaceAll("_", "/"));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+};
 
 function decodeJson<T>(s: string): T | null {
   try {
