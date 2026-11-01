@@ -253,6 +253,7 @@ function resolveIssuers(query: string): { params: string[]; canonical: string[] 
   };
 }
 
+// eslint-disable-next-line complexity -- WHERE/filter composition stays linear: each active filter appends one clause
 export async function lookupRates(
   db: D1Database,
   input: {
@@ -479,6 +480,7 @@ export async function resolveAlias(
   };
 }
 
+// eslint-disable-next-line complexity -- scoring pipeline: resolve scope, load terms, evaluate each rate
 export async function scoreCandidates(
   db: D1Database,
   input: {
@@ -580,6 +582,7 @@ export async function scoreCandidates(
     (!row.effective_from || row.effective_from <= asOf) &&
     (!row.effective_to || row.effective_to >= asOf);
 
+  // eslint-disable-next-line complexity -- per-term-kind evaluation state machine
   const candidates = results.map((rate) => {
     const unknown: string[] = [];
     const failed: string[] = [];

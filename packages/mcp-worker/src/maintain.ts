@@ -134,6 +134,74 @@ function rowKey(patch: Patch, spec: TableSpec): Record<string, Scalar> | null {
     : patchKey(patch, spec);
 }
 
+function validateInsert(
+  patch: Patch,
+  spec: TableSpec,
+  errors: string[],
+): void {
+  if (!patch.set || Object.keys(patch.set).length === 0) {
+    errors.push("insert requires a non-empty set");
+  } else {
+    const merged = { ...patch.set };
+    if (spec.pk.length === 1 && !(spec.pk[0] in merged)) {
+      merged[spec.pk[0]] = patch.id;
+    }
+    for (const col of spec.required) {
+      if (!(col in merged)) errors.push(`insert missing required '${col}'`);
+    }
+    for (const col of Object.keys(patch.set)) {
+      if (!spec.columns.includes(col)) {
+        errors.push(`'${col}' is not a column of ${patch.table}`);
+      }
+    }
+  }
+  if (patch.key && patchKey(patch, spec) === null) {
+    errors.push("key does not match id");
+  }
+}
+
+function validateUpdate(
+  patch: Patch,
+  spec: TableSpec,
+  errors: string[],
+): void {
+  if (!patch.set || Object.keys(patch.set).length === 0) {
+    errors.push("update requires a non-empty set");
+  } else {
+    for (const col of Object.keys(patch.set)) {
+      if (spec.pk.includes(col)) {
+        errors.push(`cannot update primary key '${col}'`);
+      } else if (!spec.columns.includes(col)) {
+        errors.push(`'${col}' is not a column of ${patch.table}`);
+      }
+    }
+  }
+  if (patchKey(patch, spec) === null) {
+    errors.push(
+      spec.pk.length > 1
+        ? `update on ${patch.table} must name {${spec.pk.join(", ")}} to find the row`
+        : "key does not match id",
+    );
+  }
+}
+
+function validateDelete(
+  patch: Patch,
+  spec: TableSpec,
+  errors: string[],
+): void {
+  if (patch.set && Object.keys(patch.set).length > 0) {
+    errors.push("delete must not carry set");
+  }
+  if (patchKey(patch, spec) === null) {
+    errors.push(
+      spec.pk.length > 1
+        ? `delete on ${patch.table} must name {${spec.pk.join(", ")}} to find the row`
+        : "key does not match id",
+    );
+  }
+}
+
 export async function validatePatch(
   db: D1Database,
   raw: unknown,
@@ -145,63 +213,9 @@ export async function validatePatch(
   if (!spec) return [`'${patch.table}' is outside the patchable facts whitelist`];
 
   const errors: string[] = [];
-
-  if (patch.op === "insert") {
-    if (!patch.set || Object.keys(patch.set).length === 0) {
-      errors.push("insert requires a non-empty set");
-    } else {
-      const merged = { ...patch.set };
-      if (spec.pk.length === 1 && !(spec.pk[0] in merged)) {
-        merged[spec.pk[0]] = patch.id;
-      }
-      for (const col of spec.required) {
-        if (!(col in merged)) errors.push(`insert missing required '${col}'`);
-      }
-      for (const col of Object.keys(patch.set)) {
-        if (!spec.columns.includes(col)) {
-          errors.push(`'${col}' is not a column of ${patch.table}`);
-        }
-      }
-    }
-    if (patch.key && patchKey(patch, spec) === null) {
-      errors.push("key does not match id");
-    }
-  }
-
-  if (patch.op === "update") {
-    if (!patch.set || Object.keys(patch.set).length === 0) {
-      errors.push("update requires a non-empty set");
-    } else {
-      for (const col of Object.keys(patch.set)) {
-        if (spec.pk.includes(col)) {
-          errors.push(`cannot update primary key '${col}'`);
-        } else if (!spec.columns.includes(col)) {
-          errors.push(`'${col}' is not a column of ${patch.table}`);
-        }
-      }
-    }
-    if (patchKey(patch, spec) === null) {
-      errors.push(
-        spec.pk.length > 1
-          ? `update on ${patch.table} must name {${spec.pk.join(", ")}} to find the row`
-          : "key does not match id",
-      );
-    }
-  }
-
-  if (patch.op === "delete") {
-    if (patch.set && Object.keys(patch.set).length > 0) {
-      errors.push("delete must not carry set");
-    }
-    if (patchKey(patch, spec) === null) {
-      errors.push(
-        spec.pk.length > 1
-          ? `delete on ${patch.table} must name {${spec.pk.join(", ")}} to find the row`
-          : "key does not match id",
-      );
-    }
-  }
-
+  if (patch.op === "insert") validateInsert(patch, spec, errors);
+  if (patch.op === "update") validateUpdate(patch, spec, errors);
+  if (patch.op === "delete") validateDelete(patch, spec, errors);
   return errors;
 }
 
@@ -396,6 +410,7 @@ function patchStatements(
   ];
 }
 
+// eslint-disable-next-line complexity -- sequential patch-apply state machine: ordered insert/delete preflight, then one batch
 export async function decideProposal(
   db: D1Database,
   id: string,

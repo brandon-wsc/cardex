@@ -41,6 +41,60 @@ function adminIdentity(request: Request, env: Env): string | null {
   return email;
 }
 
+async function handleProposalDecide(
+  request: Request,
+  env: Env,
+  email: string,
+  proposalId: string,
+): Promise<Response> {
+  const body = (await request.json().catch(() => ({}))) as {
+    decision?: string;
+    note?: string;
+    pin?: string;
+  };
+  if (env.ADMIN_PIN && body.pin !== env.ADMIN_PIN) {
+    return json({ ok: false, error: "bad_pin" }, 403);
+  }
+  if (body.decision !== "approve" && body.decision !== "reject") {
+    return json({ ok: false, error: "invalid_decision" }, 400);
+  }
+  const res = await decideProposal(env.DB, proposalId, {
+    decision: body.decision,
+    decided_by: email,
+    note: body.note,
+  });
+  return json(res, res.ok ? 200 : 400);
+}
+
+async function handleProposalRoutes(
+  request: Request,
+  env: Env,
+  url: URL,
+  email: string,
+  path: string,
+): Promise<Response> {
+  if (path === "/proposals" && request.method === "GET") {
+    return json(
+      await listProposals(env.DB, {
+        status: url.searchParams.get("status") ?? undefined,
+      }),
+    );
+  }
+
+  const decideMatch = path.match(/^\/proposals\/([^/]+)\/decide$/);
+  if (decideMatch && request.method === "POST") {
+    return handleProposalDecide(request, env, email, decideMatch[1]);
+  }
+
+  const getMatch = path.match(/^\/proposals\/([^/]+)$/);
+  if (getMatch && request.method === "GET") {
+    const res = await getProposal(env.DB, getMatch[1]);
+    return json(res, res.ok ? 200 : 404);
+  }
+
+  return json({ ok: false, error: "not_found" }, 404);
+}
+
 async function handleAdminApi(
   request: Request,
   env: Env,
@@ -55,39 +109,8 @@ async function handleAdminApi(
   if (path === "/reports" && request.method === "GET") {
     return json(await listReports(env.DB, {}));
   }
-  if (path === "/proposals" && request.method === "GET") {
-    return json(
-      await listProposals(env.DB, {
-        status: url.searchParams.get("status") ?? undefined,
-      }),
-    );
-  }
-
-  const decideMatch = path.match(/^\/proposals\/([^/]+)\/decide$/);
-  if (decideMatch && request.method === "POST") {
-    const body = (await request.json().catch(() => ({}))) as {
-      decision?: string;
-      note?: string;
-      pin?: string;
-    };
-    if (env.ADMIN_PIN && body.pin !== env.ADMIN_PIN) {
-      return json({ ok: false, error: "bad_pin" }, 403);
-    }
-    if (body.decision !== "approve" && body.decision !== "reject") {
-      return json({ ok: false, error: "invalid_decision" }, 400);
-    }
-    const res = await decideProposal(env.DB, decideMatch[1], {
-      decision: body.decision,
-      decided_by: email,
-      note: body.note,
-    });
-    return json(res, res.ok ? 200 : 400);
-  }
-
-  const getMatch = path.match(/^\/proposals\/([^/]+)$/);
-  if (getMatch && request.method === "GET") {
-    const res = await getProposal(env.DB, getMatch[1]);
-    return json(res, res.ok ? 200 : 404);
+  if (path.startsWith("/proposals")) {
+    return handleProposalRoutes(request, env, url, email, path);
   }
 
   return json({ ok: false, error: "not_found" }, 404);
