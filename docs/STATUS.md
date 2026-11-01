@@ -16,7 +16,7 @@ This file is what exists in the tree today. Architecture and phases live in [ROA
 | Seed | `seed/seed.sql` — synthetic. Cited seed (popular-cards-first, real `source_url`s) is a P2 milestone |
 | Contract deltas | Shipped — `card_ids`, `as_of`, `limit` 100, rate `unit`, `last_verified_at`, `seed_as_of`, `reports` + `report_issue`, audited term kinds |
 | `skills/cardex` | Written — connect + tool guide + per-kind settle checklist at the v0.3 contract |
-| `skills/cardex-maintainer` | Not started — maintenance runbook for the proposal loop ([ADR 0002](./adr/0002-maintenance-surface.md)) |
+| `skills/cardex-maintainer` | Written — connect, patch grammar, triage loop, evidence rules for the proposal loop ([ADR 0002](./adr/0002-maintenance-surface.md)) |
 | Maintenance surface | Built — `proposals` table, `/maintainer` bearer-token MCP (`list_reports` + `propose_change`, patch whitelist validated), `/admin` portal + API (Access header + `ADMIN_EMAIL` check, optional `ADMIN_PIN`). Ops not done: real secrets, Access policy, deploy |
 | `docs/ai-workflow.md` | Stub |
 | `LICENSE` | Named in the README as MIT. File not in the tree |

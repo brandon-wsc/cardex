@@ -6,3 +6,4 @@ dist
 .DS_Store
 worker-configuration.d.ts
 .dev.vars
+.playwright-mcp/
