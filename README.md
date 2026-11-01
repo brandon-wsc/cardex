@@ -9,7 +9,7 @@ Cardex gives personal agents structured facts about Hong Kong credit cards — r
 The skill is the product surface — your agent installs it and learns how to connect, which tool to reach for, and how to settle terms it cannot check.
 
 - **From this repo** — copy [`skills/cardex/`](skills/cardex/) into your agent's skills directory.
-- **From a GitHub Release** — packaged skill (first release pending).
+- **From a GitHub Release** — packaged skill: [`v0.3.0`](https://github.com/brandon-wsc/cardex/releases/latest).
 - **No skill support?** Connect any MCP client to the endpoint directly — `POST https://cardex.brandonhk.com/mcp`, streamable HTTP, no auth:
 
 ```json
