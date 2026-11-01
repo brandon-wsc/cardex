@@ -8,6 +8,10 @@
   "compatibility_flags": ["nodejs_compat"],
   // Preview hostnames would bypass the Access app fronting /admin — off.
   "preview_urls": false,
+  // Custom domain on the brandonhk.com zone; Access fronts /admin on it.
+  "routes": [
+    { "pattern": "cardex.brandonhk.com", "custom_domain": true }
+  ],
   "observability": {
     "enabled": true,
     "traces": { "enabled": true }
