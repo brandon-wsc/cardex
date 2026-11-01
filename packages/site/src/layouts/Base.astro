@@ -1,0 +1,58 @@
+---
+import "@fontsource/ibm-plex-sans/400.css";
+import "@fontsource/ibm-plex-sans/500.css";
+import "@fontsource/ibm-plex-sans/600.css";
+import "@fontsource/ibm-plex-mono/400.css";
+import "@fontsource/ibm-plex-mono/500.css";
+import "@fontsource/ibm-plex-mono/600.css";
+import "@fontsource/newsreader/400.css";
+import "@fontsource/newsreader/600.css";
+import "@fontsource/noto-sans-hk/400.css";
+import "@fontsource/noto-sans-hk/600.css";
+import "@fontsource/noto-serif-hk/600.css";
+import "../styles/global.css";
+import { SITE } from "../data/links";
+import { type Locale, locales, localePath, ogLocale, t } from "../i18n";
+
+interface Props {
+  locale: Locale;
+  path?: string;
+  title?: string;
+  description?: string;
+  jsonLd?: object[];
+  noindex?: boolean;
+}
+
+const { locale, path = "/", jsonLd = [], noindex = false } = Astro.props;
+const ui = t(locale);
+const title = Astro.props.title ?? ui.meta.title;
+const description = Astro.props.description ?? ui.meta.description;
+const canonical = `${SITE}${localePath(locale, path)}`;
+---
+
+<!doctype html>
+<html lang={locale}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    {noindex ? <meta name="robots" content="noindex" /> : <link rel="canonical" href={canonical} />}
+    {!noindex && locales.map((l) => <link rel="alternate" hreflang={l} href={`${SITE}${localePath(l, path)}`} />)}
+    {!noindex && <link rel="alternate" hreflang="x-default" href={`${SITE}${localePath("zh-HK", path)}`} />}
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="alternate" type="text/plain" title="llms.txt" href="/llms.txt" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Cardex" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:locale" content={ogLocale[locale]} />
+    {locales.filter((l) => l !== locale).map((l) => <meta property="og:locale:alternate" content={ogLocale[l]} />)}
+    <meta name="twitter:card" content="summary" />
+    {jsonLd.map((data) => <script type="application/ld+json" set:html={JSON.stringify(data)} />)}
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>

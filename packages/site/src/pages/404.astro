@@ -1,0 +1,24 @@
+---
+import SiteFooter from "../components/SiteFooter.astro";
+import SiteHeader from "../components/SiteHeader.astro";
+import { localePath, t } from "../i18n";
+import Base from "../layouts/Base.astro";
+
+const zh = t("zh-HK");
+const en = t("en");
+---
+
+<Base locale="zh-HK" title={`${zh.notFound.title} — Cardex`} noindex>
+  <SiteHeader locale="zh-HK" />
+  <main id="main" class="lost">
+    <div class="wrap">
+      <h1>{zh.notFound.title}</h1>
+      <p>{zh.notFound.body}</p>
+      <p><a href={localePath("zh-HK")}>{zh.notFound.home}</a></p>
+      <div class="alt" lang="en">
+        <strong>{en.notFound.title}.</strong> {en.notFound.body} <a href={localePath("en")}>{en.notFound.home}</a>
+      </div>
+    </div>
+  </main>
+  <SiteFooter locale="zh-HK" />
+</Base>
