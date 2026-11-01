@@ -341,7 +341,6 @@ const state = {
   detail: null,
   detailBusy: false,
   confirm: null,
-  toast: null,
 };
 
 const $root = document.getElementById("root");
@@ -400,9 +399,12 @@ async function openDetail(id) {
 }
 
 function toast(msg) {
-  state.toast = msg;
-  render();
-  setTimeout(() => { state.toast = null; render(); }, 2600);
+  document.querySelector(".toast")?.remove();
+  const el = document.createElement("div");
+  el.className = "toast";
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2600);
 }
 
 async function decide(decision, note, pin) {
@@ -551,8 +553,7 @@ function render() {
         '<div class="pin-row"><label>Approval PIN (if configured)</label><input id="pin" type="password" autocomplete="off"></div>' +
         '<div class="modal-btns"><button class="btn" id="cancel">Cancel</button>' +
         '<button class="btn approve" id="confirm">Confirm apply</button></div></div></div>'
-      : "") +
-    (state.toast ? '<div class="toast">' + esc(state.toast) + "</div>" : "");
+      : "");
 
   document.querySelectorAll("[data-tab]").forEach((b) =>
     b.addEventListener("click", () => { state.tab = b.dataset.tab; state.detail = null; render(); }));
