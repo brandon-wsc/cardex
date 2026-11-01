@@ -37,7 +37,7 @@ Both `accept` entries are required. The response is a single SSE frame: take the
 
 Every list tool takes filters and `limit` (default 5, max 100 — higher is clamped and the payload echoes `limit_requested` + `clamped`). Every filter takes `as_of` (default: today, `YYYY-MM-DD`); records outside their effective window are dropped from lists and scores but stay fetchable by `id`. Follow up with `get_card` / `get_term` by `id`; tools never return the whole catalog. Each payload echoes `seed_as_of` — the date the underlying data was last refreshed.
 
-Inputs are strict: an unrecognized argument key is a protocol `InvalidParams` error, never a silently dropped filter. A typo like `tag` for `tag_id` fails the call — it does not quietly widen your query.
+Inputs are strict: an unrecognized argument key is a protocol `InvalidParams` error, never a silently dropped filter. A typo like `tag` for `tag_id` fails the call — it does not quietly widen your query. The error names the rejected keys and lists the valid ones.
 
 | Tool | Call it when | Key args |
 | --- | --- | --- |
