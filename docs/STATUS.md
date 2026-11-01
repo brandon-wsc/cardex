@@ -21,7 +21,7 @@ This file is what exists in the tree today. Architecture and phases live in [ROA
 | `docs/ai-workflow.md` | Stub |
 | `LICENSE` | Named in the README as MIT. File not in the tree |
 | Deploy | Live — `cardex.brandonhk.com` (custom domain, workers.dev disabled), prod D1 `d0616cb0…` migrated+seeded, `MAINTAINER_TOKEN` secret set (`ADMIN_PIN` unset — approve relies on Access alone), Cloudflare Access fronts `/admin` (email OTP, owner only) |
-| CI | Pull requests only. [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) checks branch name, PR title, commit subjects — and runs vitest + typecheck |
+| CI/CD | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) on PRs: branch/title/commit conventions + vitest + typecheck. [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) on merges touching `packages/mcp-worker`: applies prod D1 migrations then `wrangler deploy`; also `workflow_dispatch` |
 | Tests | vitest in workerd + real D1 — 55 specs on the PRD tables + 18 on the proposal lifecycle (`maintain.ts`). Policy is [TESTING.md](./TESTING.md) |
 
 ## Decisions
