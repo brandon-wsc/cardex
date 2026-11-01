@@ -50,8 +50,8 @@ jobs:
             exit 0
           fi
           branch='chore/seed-refresh'
-          git config user.name 'cardex-bot'
-          git config user.email 'cardex-bot@users.noreply.github.com'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git checkout -B "$branch"
           git add seed/seed.sql
           git commit -m "chore(seed): refresh facts snapshot from prod"
