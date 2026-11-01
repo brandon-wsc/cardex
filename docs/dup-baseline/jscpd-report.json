@@ -1,0 +1,716 @@
+{
+  "duplicates": [
+    {
+      "firstFile": {
+        "end": 30,
+        "endLoc": {
+          "column": 9,
+          "line": 30,
+          "position": 830
+        },
+        "name": "maintain.test.ts",
+        "start": 12,
+        "startLoc": {
+          "column": 17,
+          "line": 12,
+          "position": 325
+        }
+      },
+      "format": "typescript",
+      "fragment": "import { getTerm } from \"./query\";\n\n// Specs for the maintenance surface in ADR 0002: structured patches only,\n// propose ≠ apply, approve is atomic.\nconst tenv = env as unknown as {\n  DB: D1Database;\n  TEST_MIGRATIONS: D1Migration[];\n  SEED_SQL: string;\n};\n\nbeforeEach(async () => {\n  await applyD1Migrations(tenv.DB, tenv.TEST_MIGRATIONS);\n  const statements = tenv.SEED_SQL.split(\";\")\n    .map((s) => s.trim())\n    .filter(Boolean);\n  await tenv.DB.batch(statements.map((sql) => tenv.DB.prepare(sql)));\n});\n\ndescribe(\"validatePatch\", () => {",
+      "isNew": false,
+      "kind": "exact",
+      "lines": 19,
+      "secondFile": {
+        "end": 30,
+        "endLoc": {
+          "column": 9,
+          "line": 30,
+          "position": 784
+        },
+        "name": "query.test.ts",
+        "start": 13,
+        "startLoc": {
+          "column": 0,
+          "line": 13,
+          "position": 329
+        }
+      },
+      "tokens": 108
+    },
+    {
+      "firstFile": {
+        "end": 28,
+        "endLoc": {
+          "column": 3,
+          "line": 28,
+          "position": 819
+        },
+        "name": "maintain.test.ts",
+        "start": 12,
+        "startLoc": {
+          "column": 33,
+          "line": 12,
+          "position": 341
+        }
+      },
+      "format": "typescript",
+      "fragment": "import { getTerm } from \"./query\";\n\n// Specs for the maintenance surface in ADR 0002: structured patches only,\n// propose ≠ apply, approve is atomic.\nconst tenv = env as unknown as {\n  DB: D1Database;\n  TEST_MIGRATIONS: D1Migration[];\n  SEED_SQL: string;\n};\n\nbeforeEach(async () => {\n  await applyD1Migrations(tenv.DB, tenv.TEST_MIGRATIONS);\n  const statements = tenv.SEED_SQL.split(\";\")\n    .map((s) => s.trim())\n    .filter(Boolean);\n  await tenv.DB.batch(statements.map((sql) => tenv.DB.prepare(sql)));\n});",
+      "isNew": false,
+      "kind": "exact",
+      "lines": 17,
+      "secondFile": {
+        "end": 23,
+        "endLoc": {
+          "column": 3,
+          "line": 23,
+          "position": 931
+        },
+        "name": "server.test.ts",
+        "start": 5,
+        "startLoc": {
+          "column": 38,
+          "line": 5,
+          "position": 291
+        }
+      },
+      "tokens": 103
+    },
+    {
+      "firstFile": {
+        "end": 216,
+        "endLoc": {
+          "column": 21,
+          "line": 216,
+          "position": 6550
+        },
+        "name": "maintain.test.ts",
+        "start": 200,
+        "startLoc": {
+          "column": 68,
+          "line": 200,
+          "position": 6104
+        }
+      },
+      "format": "typescript",
+      "fragment": "  it(\"shows the existing row as old on an insert that would collide\", async () => {\n    const proposed = await proposeChange(tenv.DB, {\n      summary: \"re-insert the dining tag\",\n      evidence_url: \"https://example.invalid/evidence\",\n      patches: [\n        {\n          op: \"insert\" as const,\n          table: \"tags\",\n          id: \"dining\",\n          set: { label: \"Dining\", kind: \"category\" },\n        },\n      ],\n    });\n    expect(proposed.ok).toBe(true);\n    if (!proposed.ok) return;\n\n    const res = await getProposal(tenv.DB, proposed.proposal_id);",
+      "isNew": false,
+      "kind": "exact",
+      "lines": 17,
+      "secondFile": {
+        "end": 305,
+        "endLoc": {
+          "column": 21,
+          "line": 305,
+          "position": 9357
+        },
+        "name": "maintain.test.ts",
+        "start": 289,
+        "startLoc": {
+          "column": 57,
+          "line": 289,
+          "position": 8911
+        }
+      },
+      "tokens": 87
+    },
+    {
+      "firstFile": {
+        "end": 313,
+        "endLoc": {
+          "column": 33,
+          "line": 313,
+          "position": 9690
+        },
+        "name": "maintain.test.ts",
+        "start": 298,
+        "startLoc": {
+          "column": 32,
+          "line": 298,
+          "position": 9219
+        }
+      },
+      "format": "typescript",
+      "fragment": "          set: { label: \"Dining\", kind: \"category\" },\n        },\n      ],\n    });\n    expect(proposed.ok).toBe(true);\n    if (!proposed.ok) return;\n\n    const res = await decideProposal(tenv.DB, proposed.proposal_id, {\n      decision: \"approve\",\n      decided_by: \"owner@cardex.dev\",\n    });\n    expect(res.ok).toBe(false);\n    if (res.ok) return;\n    expect(res.error).toBe(\"invalid_patch\");\n    // Contract: the failure names the colliding row, not a raw SQLITE dump.\n    expect(res.detail).toContain(\"dining\");",
+      "isNew": false,
+      "kind": "exact",
+      "lines": 16,
+      "secondFile": {
+        "end": 349,
+        "endLoc": {
+          "column": 33,
+          "line": 349,
+          "position": 10815
+        },
+        "name": "maintain.test.ts",
+        "start": 335,
+        "startLoc": {
+          "column": 37,
+          "line": 335,
+          "position": 10421
+        }
+      },
+      "tokens": 101
+    },
+    {
+      "firstFile": {
+        "end": 309,
+        "endLoc": {
+          "column": 24,
+          "line": 309,
+          "position": 9503
+        },
+        "name": "maintain.test.ts",
+        "start": 298,
+        "startLoc": {
+          "column": 51,
+          "line": 298,
+          "position": 9238
+        }
+      },
+      "format": "typescript",
+      "fragment": "          set: { label: \"Dining\", kind: \"category\" },\n        },\n      ],\n    });\n    expect(proposed.ok).toBe(true);\n    if (!proposed.ok) return;\n\n    const res = await decideProposal(tenv.DB, proposed.proposal_id, {\n      decision: \"approve\",\n      decided_by: \"owner@cardex.dev\",\n    });\n    expect(res.ok).toBe(false);",
+      "isNew": false,
+      "kind": "exact",
+      "lines": 12,
+      "secondFile": {
+        "end": 378,
+        "endLoc": {
+          "column": 24,
+          "line": 378,
+          "position": 11775
+        },
+        "name": "maintain.test.ts",
+        "start": 367,
+        "startLoc": {
+          "column": 76,
+          "line": 367,
+          "position": 11510
+        }
+      },
+      "tokens": 65
+    },
+    {
+      "firstFile": {
+        "end": 311,
+        "endLoc": {
+          "column": 27,
+          "line": 311,
+          "position": 9562
+        },
+        "name": "maintain.test.ts",
+        "start": 298,
+        "startLoc": {
+          "column": 51,
+          "line": 298,
+          "position": 9238
+        }
+      },
+      "format": "typescript",
+      "fragment": "          set: { label: \"Dining\", kind: \"category\" },\n        },\n      ],\n    });\n    expect(proposed.ok).toBe(true);\n    if (!proposed.ok) return;\n\n    const res = await decideProposal(tenv.DB, proposed.proposal_id, {\n      decision: \"approve\",\n      decided_by: \"owner@cardex.dev\",\n    });\n    expect(res.ok).toBe(false);\n    if (res.ok) return;\n    expect(res.error).toBe(\"invalid_patch\");",
+      "isNew": false,
+      "kind": "exact",
+      "lines": 14,
+      "secondFile": {
+        "end": 417,
+        "endLoc": {
+          "column": 27,
+          "line": 417,
+          "position": 12846
+        },
+        "name": "maintain.test.ts",
+        "start": 404,
+        "startLoc": {
+          "column": 10,
+          "line": 404,
+          "position": 12522
+        }
+      },
+      "tokens": 85
+    },
+    {
+      "firstFile": {
+        "end": 320,
+        "endLoc": {
+          "column": 4,
+          "line": 320,
+          "position": 9889
+        },
+        "name": "maintain.test.ts",
+        "start": 315,
+        "startLoc": {
+          "column": 4,
+          "line": 315,
+          "position": 9706
+        }
+      },
+      "format": "typescript",
+      "fragment": "    const prop = await getProposal(tenv.DB, proposed.proposal_id);\n    expect(prop.ok).toBe(true);\n    if (prop.ok) expect(prop.proposal).toMatchObject({ status: \"pending\" });\n  });\n\n  it(\"fails cleanly on a duplicate insert inside one proposal\", async () => {",
+      "isNew": false,
+      "kind": "exact",
+      "lines": 6,
+      "secondFile": {
+        "end": 430,
+        "endLoc": {
+          "column": 1,
+          "line": 430,
+          "position": 13321
+        },
+        "name": "maintain.test.ts",
+        "start": 426,
+        "startLoc": {
+          "column": 4,
+          "line": 426,
+          "position": 13142
+        }
+      },
+      "tokens": 52
+    },
+    {
+      "firstFile": {
+        "end": 14,
+        "endLoc": {
+          "column": 5,
+          "line": 14,
+          "position": 389
+        },
+        "name": "maintainer-server.ts",
+        "start": 5,
+        "startLoc": {
+          "column": 47,
+          "line": 5,
+          "position": 191
+        }
+      },
+      "format": "typescript",
+      "fragment": "import { registerReadTools } from \"./server.js\";\n\nfunction payload(value: object) {\n  return {\n    content: [{ type: \"text\" as const, text: JSON.stringify(value, null, 2) }],\n    structuredContent: value as Record<string, unknown>,\n  };\n}\n\nconst patch = z.strictObject({",
+      "isNew": false,
+      "kind": "exact",
+      "lines": 10,
+      "secondFile": {
+        "end": 24,
+        "endLoc": {
+          "column": 5,
+          "line": 24,
+          "position": 541
+        },
+        "name": "server.ts",
+        "start": 15,
+        "startLoc": {
+          "column": 111,
+          "line": 15,
+          "position": 343
+        }
+      },
+      "tokens": 51
+    },
+    {
+      "firstFile": {
+        "end": 250,
+        "endLoc": {
+          "column": 78,
+          "line": 250,
+          "position": 8959
+        },
+        "name": "query.test.ts",
+        "start": 243,
+        "startLoc": {
+          "column": 49,
+          "line": 243,
+          "position": 8702
+        }
+      },
+      "format": "typescript",
+      "fragment": "  it(\"calculates rebate as amount × value / 100\", async () => {\n    const res = await scoreCandidates(tenv.DB, {\n      amount_hkd: 800,\n      tag_ids: [\"dining\"],\n    });\n    expect(res.ok).toBe(true);\n    if (!res.ok) return;\n    const hsbc = res.candidates.find((c) => c.rate_id === \"rate_hsbc_dining\");",
+      "isNew": false,
+      "kind": "exact",
+      "lines": 8,
+      "secondFile": {
+        "end": 288,
+        "endLoc": {
+          "column": 78,
+          "line": 288,
+          "position": 10410
+        },
+        "name": "query.test.ts",
+        "start": 281,
+        "startLoc": {
+          "column": 55,
+          "line": 281,
+          "position": 10153
+        }
+      },
+      "tokens": 71
+    },
+    {
+      "firstFile": {
+        "end": 249,
+        "endLoc": {
+          "column": 24,
+          "line": 249,
+          "position": 8880
+        },
+        "name": "query.test.ts",
+        "start": 243,
+        "startLoc": {
+          "column": 49,
+          "line": 243,
+          "position": 8702
+        }
+      },
+      "format": "typescript",
+      "fragment": "  it(\"calculates rebate as amount × value / 100\", async () => {\n    const res = await scoreCandidates(tenv.DB, {\n      amount_hkd: 800,\n      tag_ids: [\"dining\"],\n    });\n    expect(res.ok).toBe(true);\n    if (!res.ok) return;",
+      "isNew": false,
+      "kind": "exact",
+      "lines": 7,
+      "secondFile": {
+        "end": 337,
+        "endLoc": {
+          "column": 24,
+          "line": 337,
+          "position": 12071
+        },
+        "name": "query.test.ts",
+        "start": 331,
+        "startLoc": {
+          "column": 42,
+          "line": 331,
+          "position": 11893
+        }
+      },
+      "tokens": 51
+    },
+    {
+      "firstFile": {
+        "end": 249,
+        "endLoc": {
+          "column": 24,
+          "line": 249,
+          "position": 8880
+        },
+        "name": "query.test.ts",
+        "start": 243,
+        "startLoc": {
+          "column": 49,
+          "line": 243,
+          "position": 8702
+        }
+      },
+      "format": "typescript",
+      "fragment": "  it(\"calculates rebate as amount × value / 100\", async () => {\n    const res = await scoreCandidates(tenv.DB, {\n      amount_hkd: 800,\n      tag_ids: [\"dining\"],\n    });\n    expect(res.ok).toBe(true);\n    if (!res.ok) return;",
+      "isNew": false,
+      "kind": "exact",
+      "lines": 7,
+      "secondFile": {
+        "end": 661,
+        "endLoc": {
+          "column": 24,
+          "line": 661,
+          "position": 23080
+        },
+        "name": "query.test.ts",
+        "start": 655,
+        "startLoc": {
+          "column": 52,
+          "line": 655,
+          "position": 22902
+        }
+      },
+      "tokens": 51
+    },
+    {
+      "firstFile": {
+        "end": 250,
+        "endLoc": {
+          "column": 9,
+          "line": 250,
+          "position": 8890
+        },
+        "name": "query.test.ts",
+        "start": 243,
+        "startLoc": {
+          "column": 49,
+          "line": 243,
+          "position": 8702
+        }
+      },
+      "format": "typescript",
+      "fragment": "  it(\"calculates rebate as amount × value / 100\", async () => {\n    const res = await scoreCandidates(tenv.DB, {\n      amount_hkd: 800,\n      tag_ids: [\"dining\"],\n    });\n    expect(res.ok).toBe(true);\n    if (!res.ok) return;\n    const hsbc = res.candidates.find((c) => c.rate_id === \"rate_hsbc_dining\");",
+      "isNew": false,
+      "kind": "exact",
+      "lines": 8,
+      "secondFile": {
+        "end": 835,
+        "endLoc": {
+          "column": 9,
+          "line": 835,
+          "position": 29583
+        },
+        "name": "query.test.ts",
+        "start": 828,
+        "startLoc": {
+          "column": 65,
+          "line": 828,
+          "position": 29395
+        }
+      },
+      "tokens": 52
+    },
+    {
+      "firstFile": {
+        "end": 263,
+        "endLoc": {
+          "column": 9,
+          "line": 263,
+          "position": 9408
+        },
+        "name": "query.test.ts",
+        "start": 256,
+        "startLoc": {
+          "column": 71,
+          "line": 256,
+          "position": 9217
+        }
+      },
+      "format": "typescript",
+      "fragment": "  it(\"returns null and flags points_value when hkd_per_point is absent\", async () => {\n    const res = await scoreCandidates(tenv.DB, {\n      amount_hkd: 1000,\n      tag_ids: [\"overseas\"],\n    });\n    expect(res.ok).toBe(true);\n    if (!res.ok) return;\n    const points = res.candidates.find((c) => c.rate_id === \"rate_scb_overseas\");",
+      "isNew": false,
+      "kind": "exact",
+      "lines": 8,
+      "secondFile": {
+        "end": 480,
+        "endLoc": {
+          "column": 9,
+          "line": 480,
+          "position": 16907
+        },
+        "name": "query.test.ts",
+        "start": 473,
+        "startLoc": {
+          "column": 58,
+          "line": 473,
+          "position": 16716
+        }
+      },
+      "tokens": 52
+    },
+    {
+      "firstFile": {
+        "end": 264,
+        "endLoc": {
+          "column": 42,
+          "line": 264,
+          "position": 9523
+        },
+        "name": "query.test.ts",
+        "start": 259,
+        "startLoc": {
+          "column": 27,
+          "line": 259,
+          "position": 9333
+        }
+      },
+      "format": "typescript",
+      "fragment": "      tag_ids: [\"overseas\"],\n    });\n    expect(res.ok).toBe(true);\n    if (!res.ok) return;\n    const points = res.candidates.find((c) => c.rate_id === \"rate_scb_overseas\");\n    expect(points?.calculated_rebate_hkd).toBeNull();",
+      "isNew": false,
+      "kind": "exact",
+      "lines": 6,
+      "secondFile": {
+        "end": 277,
+        "endLoc": {
+          "column": 42,
+          "line": 277,
+          "position": 10011
+        },
+        "name": "query.test.ts",
+        "start": 272,
+        "startLoc": {
+          "column": 42,
+          "line": 272,
+          "position": 9821
+        }
+      },
+      "tokens": 52
+    },
+    {
+      "firstFile": {
+        "end": 338,
+        "endLoc": {
+          "column": 14,
+          "line": 338,
+          "position": 12086
+        },
+        "name": "query.test.ts",
+        "start": 331,
+        "startLoc": {
+          "column": 50,
+          "line": 331,
+          "position": 11901
+        }
+      },
+      "format": "typescript",
+      "fragment": "  it(\"orders rows by card_id then rate_id\", async () => {\n    const res = await scoreCandidates(tenv.DB, {\n      amount_hkd: 800,\n      tag_ids: [\"dining\"],\n    });\n    expect(res.ok).toBe(true);\n    if (!res.ok) return;\n    expect(res.candidates.map((c) => c.card_id)).toEqual([",
+      "isNew": false,
+      "kind": "exact",
+      "lines": 8,
+      "secondFile": {
+        "end": 662,
+        "endLoc": {
+          "column": 14,
+          "line": 662,
+          "position": 23095
+        },
+        "name": "query.test.ts",
+        "start": 655,
+        "startLoc": {
+          "column": 60,
+          "line": 655,
+          "position": 22910
+        }
+      },
+      "tokens": 52
+    },
+    {
+      "firstFile": {
+        "end": 411,
+        "endLoc": {
+          "column": 5,
+          "line": 411,
+          "position": 14515
+        },
+        "name": "query.test.ts",
+        "start": 401,
+        "startLoc": {
+          "column": 33,
+          "line": 401,
+          "position": 14287
+        }
+      },
+      "format": "typescript",
+      "fragment": "      card_ids: [\"card_hsbc_red\"],\n    });\n    expect(res.ok).toBe(true);\n    if (!res.ok) return;\n    expect(res.candidates.length).toBeGreaterThan(0);\n    expect(res.candidates.every((c) => c.card_id === \"card_hsbc_red\")).toBe(\n      true,\n    );\n  });\n\n  it(\"echoes unit on each rate row\", async () => {",
+      "isNew": false,
+      "kind": "exact",
+      "lines": 11,
+      "secondFile": {
+        "end": 444,
+        "endLoc": {
+          "column": 5,
+          "line": 444,
+          "position": 15643
+        },
+        "name": "query.test.ts",
+        "start": 434,
+        "startLoc": {
+          "column": 23,
+          "line": 434,
+          "position": 15415
+        }
+      },
+      "tokens": 70
+    },
+    {
+      "firstFile": {
+        "end": 708,
+        "endLoc": {
+          "column": 48,
+          "line": 708,
+          "position": 24931
+        },
+        "name": "query.test.ts",
+        "start": 702,
+        "startLoc": {
+          "column": 75,
+          "line": 702,
+          "position": 24737
+        }
+      },
+      "format": "typescript",
+      "fragment": "  it(\"clears per-transaction min_spend when the amount meets the threshold\", async () => {\n    const res = await scoreCandidates(tenv.DB, {\n      amount_hkd: 800,\n      tag_ids: [\"dining\"],\n    });\n    const row = res.ok\n      ? res.candidates.find((c) => c.rate_id === \"rate_dbs_dining_high\")",
+      "isNew": false,
+      "kind": "exact",
+      "lines": 7,
+      "secondFile": {
+        "end": 806,
+        "endLoc": {
+          "column": 48,
+          "line": 806,
+          "position": 28677
+        },
+        "name": "query.test.ts",
+        "start": 800,
+        "startLoc": {
+          "column": 59,
+          "line": 800,
+          "position": 28483
+        }
+      },
+      "tokens": 51
+    },
+    {
+      "firstFile": {
+        "end": 776,
+        "endLoc": {
+          "column": 50,
+          "line": 776,
+          "position": 27599
+        },
+        "name": "query.test.ts",
+        "start": 768,
+        "startLoc": {
+          "column": 25,
+          "line": 768,
+          "position": 27323
+        }
+      },
+      "format": "typescript",
+      "fragment": "      merchant: \"sushiro\",\n    });\n    const row = res.ok\n      ? res.candidates.find((c) => c.rate_id === \"rate_hsbc_dining\")\n      : undefined;\n    expect(row?.unknown_exclusions).not.toContain(\n      \"merchant_list:term_hsbc_merchant_list\",\n    );\n    if (res.ok) expect(res.merchant_checked).toBe(\"sushiro\");",
+      "isNew": false,
+      "kind": "exact",
+      "lines": 9,
+      "secondFile": {
+        "end": 825,
+        "endLoc": {
+          "column": 50,
+          "line": 825,
+          "position": 29309
+        },
+        "name": "query.test.ts",
+        "start": 817,
+        "startLoc": {
+          "column": 27,
+          "line": 817,
+          "position": 29033
+        }
+      },
+      "tokens": 60
+    }
+  ],
+  "statistics": {
+    "formats": {
+      "typescript": {
+        "clones": 18,
+        "duplicatedLines": 190,
+        "duplicatedTokens": 1214,
+        "lines": 3164,
+        "newClones": 0,
+        "newDuplicatedLines": 0,
+        "percentage": 6.005056890012642,
+        "percentageTokens": 5.781503000285741,
+        "sources": 10,
+        "tokens": 20998
+      }
+    },
+    "total": {
+      "clones": 18,
+      "duplicatedLines": 190,
+      "duplicatedTokens": 1214,
+      "lines": 3164,
+      "newClones": 0,
+      "newDuplicatedLines": 0,
+      "percentage": 6.005056890012642,
+      "percentageTokens": 5.781503000285741,
+      "sources": 10,
+      "tokens": 20998
+    }
+  }
+}
