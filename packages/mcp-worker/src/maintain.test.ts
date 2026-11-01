@@ -187,6 +187,32 @@ describe("listReports / listProposals / getProposal", () => {
     const res = await getProposal(tenv.DB, "prop_nope");
     expect(res.ok).toBe(false);
   });
+
+  it("shows the existing row as old on an insert that would collide", async () => {
+    const proposed = await proposeChange(tenv.DB, {
+      summary: "re-insert the dining tag",
+      evidence_url: "https://example.invalid/evidence",
+      patches: [
+        {
+          op: "insert" as const,
+          table: "tags",
+          id: "dining",
+          set: { label: "Dining", kind: "category" },
+        },
+      ],
+    });
+    expect(proposed.ok).toBe(true);
+    if (!proposed.ok) return;
+
+    const res = await getProposal(tenv.DB, proposed.proposal_id);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.proposal.patches[0].old).toMatchObject({
+      id: "dining",
+      label: "Dining",
+      kind: "category",
+    });
+  });
 });
 
 describe("decideProposal", () => {
@@ -242,6 +268,99 @@ describe("decideProposal", () => {
       decided_by: "owner@cardex.dev",
     });
     expect(again.ok).toBe(false);
+  });
+
+  it("fails cleanly when an insert target already exists", async () => {
+    const proposed = await proposeChange(tenv.DB, {
+      summary: "re-insert the dining tag",
+      evidence_url: "https://example.invalid/evidence",
+      patches: [
+        {
+          op: "insert" as const,
+          table: "tags",
+          id: "dining",
+          set: { label: "Dining", kind: "category" },
+        },
+      ],
+    });
+    expect(proposed.ok).toBe(true);
+    if (!proposed.ok) return;
+
+    const res = await decideProposal(tenv.DB, proposed.proposal_id, {
+      decision: "approve",
+      decided_by: "owner@cardex.dev",
+    });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.detail).toContain("dining");
+    expect(res.detail).toContain("already exists");
+
+    const prop = await tenv.DB.prepare(
+      "SELECT status FROM proposals WHERE id = ?",
+    )
+      .bind(proposed.proposal_id)
+      .first();
+    expect(prop?.status).toBe("pending");
+  });
+
+  it("fails cleanly on a duplicate insert inside one proposal", async () => {
+    const proposed = await proposeChange(tenv.DB, {
+      summary: "insert the same tag twice",
+      evidence_url: "https://example.invalid/evidence",
+      patches: [
+        {
+          op: "insert" as const,
+          table: "tags",
+          id: "japan",
+          set: { label: "Japan spend", kind: "category" },
+        },
+        {
+          op: "insert" as const,
+          table: "tags",
+          id: "japan",
+          set: { label: "Japan spend", kind: "category" },
+        },
+      ],
+    });
+    expect(proposed.ok).toBe(true);
+    if (!proposed.ok) return;
+
+    const res = await decideProposal(tenv.DB, proposed.proposal_id, {
+      decision: "approve",
+      decided_by: "owner@cardex.dev",
+    });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.detail).toContain("duplicate");
+  });
+
+  it("applies delete-then-insert of the same row in one proposal", async () => {
+    const proposed = await proposeChange(tenv.DB, {
+      summary: "re-link citi overseas fx fee term",
+      evidence_url: "https://example.invalid/evidence",
+      patches: [
+        {
+          op: "delete" as const,
+          table: "rate_terms",
+          id: "rate_citi_overseas+term_citi_fx_fee",
+          key: { rate_id: "rate_citi_overseas", term_id: "term_citi_fx_fee" },
+        },
+        {
+          op: "insert" as const,
+          table: "rate_terms",
+          id: "rate_citi_overseas+term_citi_fx_fee",
+          set: { rate_id: "rate_citi_overseas", term_id: "term_citi_fx_fee" },
+        },
+      ],
+    });
+    expect(proposed.ok).toBe(true);
+    if (!proposed.ok) return;
+
+    const res = await decideProposal(tenv.DB, proposed.proposal_id, {
+      decision: "approve",
+      decided_by: "owner@cardex.dev",
+    });
+    expect(res.ok).toBe(true);
   });
 
   it("rolls back the whole batch when one patch fails at apply", async () => {

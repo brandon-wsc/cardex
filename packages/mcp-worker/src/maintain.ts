@@ -113,6 +113,27 @@ function patchKey(patch: Patch, spec: TableSpec): Record<string, Scalar> | null 
   return patch.key;
 }
 
+// The row an insert will write: pk columns come from `set`, falling back to
+// the patch id on single-pk tables. Returns null when a pk value is absent.
+function insertTargetKey(
+  patch: Patch,
+  spec: TableSpec,
+): Record<string, Scalar> | null {
+  const key: Record<string, Scalar> = {};
+  for (const col of spec.pk) {
+    const v = patch.set?.[col] ?? (spec.pk.length === 1 ? patch.id : undefined);
+    if (v === undefined || v === null) return null;
+    key[col] = v;
+  }
+  return key;
+}
+
+function rowKey(patch: Patch, spec: TableSpec): Record<string, Scalar> | null {
+  return patch.op === "insert"
+    ? insertTargetKey(patch, spec)
+    : patchKey(patch, spec);
+}
+
 export async function validatePatch(
   db: D1Database,
   raw: unknown,
@@ -270,17 +291,27 @@ export async function listProposals(
   return { ok: true as const, proposals: rows.results };
 }
 
-async function fetchOldRow(db: D1Database, patch: Patch) {
-  if (patch.op === "insert") return null;
-  const spec = await loadSpec(db, patch.table);
-  if (!spec) return null;
-  const key = patchKey(patch, spec);
-  if (!key) return null;
+function fetchRowByKey(
+  db: D1Database,
+  table: string,
+  spec: TableSpec,
+  key: Record<string, Scalar>,
+) {
   const where = spec.pk.map((col) => `${col} = ?`).join(" AND ");
   return db
-    .prepare(`SELECT * FROM ${patch.table} WHERE ${where}`)
+    .prepare(`SELECT * FROM ${table} WHERE ${where}`)
     .bind(...spec.pk.map((col) => key[col]))
     .first();
+}
+
+// For update/delete `old` is the row being changed; for insert it is the row
+// the insert would collide with, so the portal diff shows the conflict.
+async function fetchOldRow(db: D1Database, patch: Patch) {
+  const spec = await loadSpec(db, patch.table);
+  if (!spec) return null;
+  const key = rowKey(patch, spec);
+  if (!key) return null;
+  return fetchRowByKey(db, patch.table, spec, key);
 }
 
 export async function getProposal(db: D1Database, id: string) {
@@ -389,15 +420,44 @@ export async function decideProposal(
   }
 
   // approve — re-validate, then apply every patch in one batch so a failed
-  // statement rolls the whole proposal back.
+  // statement rolls the whole proposal back. Inserts are pre-flighted in
+  // patch order so a collision names the row instead of surfacing a raw
+  // SQLITE_CONSTRAINT dump; a delete earlier in the same proposal clears the
+  // way (delete-then-insert stays legal).
   const rawPatches = JSON.parse(row.patches) as unknown[];
   const statements: { sql: string; params: Scalar[] }[] = [];
+  const inserted = new Set<string>();
+  const deleted = new Set<string>();
   for (const [i, raw] of rawPatches.entries()) {
     const errors = await validatePatch(db, raw);
     const patch = parsePatch(raw);
     const spec = patch ? await loadSpec(db, patch.table) : null;
     if (errors.length > 0 || !patch || !spec) {
       return fail("invalid_patch", `patch[${i}]: ${errors.join("; ")}`);
+    }
+    const key = rowKey(patch, spec);
+    const token = key
+      ? `${patch.table}|${spec.pk.map((c) => String(key[c])).join("|")}`
+      : null;
+    if (patch.op === "insert" && key && token) {
+      if (inserted.has(token)) {
+        return fail(
+          "invalid_patch",
+          `patch[${i}]: duplicate insert of ${patch.table} '${patch.id}'`,
+        );
+      }
+      if (!deleted.has(token) && (await fetchRowByKey(db, patch.table, spec, key))) {
+        return fail(
+          "invalid_patch",
+          `patch[${i}]: insert into ${patch.table} '${patch.id}' — row already exists`,
+        );
+      }
+      inserted.add(token);
+      deleted.delete(token);
+    }
+    if (patch.op === "delete" && token) {
+      deleted.add(token);
+      inserted.delete(token);
     }
     statements.push(...applyStatements(patch, spec));
   }
