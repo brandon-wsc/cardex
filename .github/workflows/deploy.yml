@@ -1,7 +1,8 @@
 name: Deploy
 
 # Deploy the worker to prod on every merge to main that touches
-# packages/mcp-worker. Migrations are applied to prod D1 first — additive
+# packages/mcp-worker, packages/site (its static assets, ADR 0004), or
+# skills/cardex (served as /skill.md). Migrations are applied to prod D1 first — additive
 # only, and the PR review is the schema gate (AGENTS.md). Manual trigger
 # redeploys the current main without a merge.
 #
@@ -15,7 +16,7 @@ name: Deploy
 on:
   push:
     branches: [main]
-    paths: ["packages/mcp-worker/**"]
+    paths: ["packages/mcp-worker/**", "packages/site/**", "skills/cardex/**"]
   workflow_dispatch: {}
 
 concurrency:
@@ -41,6 +42,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Build site
+        run: pnpm build:site
       - name: Apply D1 migrations to prod
         working-directory: packages/mcp-worker
         run: pnpm wrangler d1 migrations apply cardex-db --remote
