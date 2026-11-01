@@ -1,0 +1,77 @@
+name: Seed export
+
+# Rebuild seed/seed.sql from prod D1 every night and park the diff on a PR —
+# doubles as an off-site facts backup (git history) beyond D1's 30-day
+# Time Travel window. Never commits to main directly.
+#
+# Required repo secrets:
+#   CLOUDFLARE_API_TOKEN   - token with D1 read permission on this account
+#   CLOUDFLARE_ACCOUNT_ID  - account holding cardex-db
+
+on:
+  schedule:
+    # 02:37 HKT daily — off the top of the hour on purpose.
+    - cron: "37 18 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: seed-export
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.20.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Rebuild seed/seed.sql from prod D1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: bash scripts/export-seed.sh
+      - name: Push snapshot branch and open or refresh the PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet seed/seed.sql; then
+            echo "No facts drift; nothing to do."
+            exit 0
+          fi
+          branch='chore/seed-refresh'
+          git config user.name 'cardex-bot'
+          git config user.email 'cardex-bot@users.noreply.github.com'
+          git checkout -B "$branch"
+          git add seed/seed.sql
+          git commit -m "chore(seed): refresh facts snapshot from prod"
+          git push --force-with-lease origin "$branch"
+          if ! gh pr list --head "$branch" --state open --json number --jq '.[0].number' | grep -q .; then
+            gh pr create --base main --head "$branch" \
+              --title "chore(seed): refresh facts snapshot from prod" \
+              --body "$(cat <<'EOF'
+          ## Summary
+
+          Nightly `scripts/export-seed.sh` run: facts tables re-dumped from
+          prod D1. Diff lines in `seed/seed.sql` are the audit trail of what
+          changed since the last merge.
+
+          #### Test plan
+
+          - [x] `bash scripts/export-seed.sh` ran clean; `pnpm seed` verified by CI
+
+          ADR: 0002
+          Breaking: no
+          EOF
+          )"
+          fi
