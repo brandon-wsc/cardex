@@ -25,13 +25,16 @@ INSERT INTO cards (id, name, issuer, network) VALUES
   ('card_citi_cash',  'Citi Cash Back Card',             'Citi',               'mastercard'),
   ('card_scb_simply', 'Standard Chartered Simply Cash',  'Standard Chartered', 'mastercard'),
   ('card_dbs',        'DBS Eminent Visa Signature',      'DBS',                'visa'),
-  ('card_aeon',       'AEON Mastercard',                 'AEON',               'mastercard');
+  ('card_aeon',       'AEON Mastercard',                 'AEON',               'mastercard'),
+  ('card_boc_sogo',   'BOC SOGO Visa Signature Card',    'BOC',                'visa');
 
 INSERT INTO tags (id, label, kind) VALUES
   ('dining',      'Dining',      'category'),
   ('supermarket', 'Supermarket', 'category'),
+  ('eyewear',     'Eyewear',     'category'),
   ('online',      'Online',      'channel'),
-  ('overseas',    'Overseas',    'channel');
+  ('overseas',    'Overseas',    'channel'),
+  ('in_store',    'In-store',    'channel');
 
 INSERT INTO terms (id, card_id, kind, text, source_url, last_verified_at,
                    effective_from, effective_to, cap_hkd, threshold_hkd,
@@ -111,6 +114,16 @@ INSERT INTO terms (id, card_id, kind, text, source_url, last_verified_at,
    'Illustrative online rebate cap of HK$150 per statement month.',
    'https://example.invalid/cardex-seed/aeon-mastercard-terms', '2026-10-01',
    '2026-01-01', NULL, 150, NULL, NULL, NULL, NULL, NULL, NULL,
+   'statement_month', NULL),
+  ('term_boc_eyewear_merchants', 'card_boc_sogo', 'merchant_list',
+   'Illustrative eyewear uplift applies only at named optical merchants.',
+   'https://example.invalid/cardex-seed/boc-sogo-terms', '2026-10-01',
+   '2026-01-01', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+   NULL, NULL),
+  ('term_citi_instore_cap', 'card_citi_cash', 'cap',
+   'Illustrative in-store rebate cap of HK$150 per statement month.',
+   'https://example.invalid/cardex-seed/citi-cash-back-terms', '2026-10-01',
+   '2026-01-01', NULL, 150, NULL, NULL, NULL, NULL, NULL, NULL,
    'statement_month', NULL);
 
 INSERT INTO term_merchants (term_id, merchant) VALUES
@@ -118,7 +131,14 @@ INSERT INTO term_merchants (term_id, merchant) VALUES
   ('term_hsbc_merchant_list', 'TamJai'),
   ('term_hsbc_merchant_list', 'Bakehouse'),
   ('term_hsbc_merchant_list', '壽司郎'),
-  ('term_hsbc_merchant_list', '譚仔');
+  ('term_hsbc_merchant_list', '譚仔'),
+  ('term_boc_eyewear_merchants', 'Even Realities'),
+  ('term_boc_eyewear_merchants', 'evenrealities.com'),
+  ('term_boc_eyewear_merchants', 'Optical 88'),
+  ('term_boc_eyewear_merchants', '眼鏡88'),
+  ('term_boc_eyewear_merchants', '溥儀眼鏡'),
+  ('term_boc_eyewear_merchants', 'Zoff'),
+  ('term_boc_eyewear_merchants', 'OWNDAYS');
 
 INSERT INTO rates (id, card_id, kind, value, unit, source_url, last_verified_at,
                    effective_from, effective_to, exclusive_group, priority) VALUES
@@ -148,6 +168,12 @@ INSERT INTO rates (id, card_id, kind, value, unit, source_url, last_verified_at,
    NULL, NULL, NULL, NULL),
   ('rate_aeon_online',   'card_aeon',       'rebate_percent', 5, 'percent',
    'https://example.invalid/cardex-seed/aeon-mastercard-terms', '2026-10-01',
+   NULL, NULL, NULL, NULL),
+  ('rate_boc_eyewear',   'card_boc_sogo',   'rebate_percent', 5, 'percent',
+   'https://example.invalid/cardex-seed/boc-sogo-terms', '2026-10-01',
+   NULL, NULL, NULL, NULL),
+  ('rate_citi_instore',  'card_citi_cash',  'rebate_percent', 2, 'percent',
+   'https://example.invalid/cardex-seed/citi-cash-back-terms', '2026-10-01',
    NULL, NULL, NULL, NULL);
 
 INSERT INTO rate_tags (rate_id, tag_id) VALUES
@@ -159,7 +185,9 @@ INSERT INTO rate_tags (rate_id, tag_id) VALUES
   ('rate_dbs_dining_high', 'dining'),
   ('rate_dbs_dining_base', 'dining'),
   ('rate_aeon_dining',   'dining'),
-  ('rate_aeon_online',   'online');
+  ('rate_aeon_online',   'online'),
+  ('rate_boc_eyewear',   'eyewear'),
+  ('rate_citi_instore',  'in_store');
 
 INSERT INTO rate_terms (rate_id, term_id) VALUES
   ('rate_hsbc_dining',   'term_hsbc_dining_cap'),
@@ -176,7 +204,9 @@ INSERT INTO rate_terms (rate_id, term_id) VALUES
   ('rate_dbs_dining_high', 'term_dbs_quota'),
   ('rate_dbs_dining_high', 'term_dbs_min_spend'),
   ('rate_dbs_dining_base', 'term_dbs_welcome'),
-  ('rate_aeon_online',   'term_aeon_online_cap');
+  ('rate_aeon_online',   'term_aeon_online_cap'),
+  ('rate_boc_eyewear',   'term_boc_eyewear_merchants'),
+  ('rate_citi_instore',  'term_citi_instore_cap');
 
 INSERT INTO aliases (text) VALUES
   ('茶餐廳'),
@@ -187,7 +217,16 @@ INSERT INTO aliases (text) VALUES
   ('hsbc red'),
   ('惠康'),
   ('wellcome'),
-  ('海外');
+  ('海外'),
+  ('even realities'),
+  ('evenrealities.com'),
+  ('眼鏡'),
+  ('眼鏡鋪'),
+  ('眼鏡88'),
+  ('optical 88'),
+  ('溥儀眼鏡'),
+  ('zoff'),
+  ('owndays');
 
 INSERT INTO alias_tags (alias_text, tag_id) VALUES
   ('茶餐廳',          'dining'),
@@ -196,7 +235,16 @@ INSERT INTO alias_tags (alias_text, tag_id) VALUES
   ('taobao',         'online'),
   ('惠康',            'supermarket'),
   ('wellcome',       'supermarket'),
-  ('海外',            'overseas');
+  ('海外',            'overseas'),
+  ('even realities', 'eyewear'),
+  ('evenrealities.com', 'eyewear'),
+  ('眼鏡',            'eyewear'),
+  ('眼鏡鋪',          'eyewear'),
+  ('眼鏡88',          'eyewear'),
+  ('optical 88',     'eyewear'),
+  ('溥儀眼鏡',        'eyewear'),
+  ('zoff',           'eyewear'),
+  ('owndays',        'eyewear');
 
 INSERT INTO alias_cards (alias_text, card_id) VALUES
   ('紅卡',      'card_hsbc_red'),
