@@ -2,7 +2,7 @@
 
 Cardex is an MCP server that gives AI agents structured facts about Hong Kong credit cards: rebate rates, earning rules, caps, and terms. Agents call it and do their own reasoning.
 
-> **Status:** pre-alpha. `packages/mcp-worker` is a Cloudflare Worker serving a remote MCP over D1. The seed is synthetic; no real issuer terms yet.
+> **Status:** pre-alpha, live at `cardex.brandonhk.com`. `packages/mcp-worker` is a Cloudflare Worker serving a remote MCP over D1. The seed is synthetic; no real issuer terms yet.
 
 ## Docs
 
@@ -14,7 +14,7 @@ Cardex is an MCP server that gives AI agents structured facts about Hong Kong cr
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Phases after v1 |
 | [docs/STATUS.md](docs/STATUS.md) | What exists today |
 | [docs/adr/](docs/adr/) | Architecture Decision Records |
-| [docs/TESTING.md](docs/TESTING.md) | Test policy (no runner yet) |
+| [docs/TESTING.md](docs/TESTING.md) | Test policy |
 | [docs/ai-workflow.md](docs/ai-workflow.md) | AI-assisted development notes |
 
 ## Run it
@@ -30,7 +30,13 @@ pnpm dev       # wrangler dev — MCP at http://localhost:8787/mcp
 
 ## Connect an agent
 
-The endpoint is `POST /mcp` (streamable HTTP). [`skills/cardex`](skills/cardex/SKILL.md) is the Agent Skill that teaches a caller how to connect and which tool to reach for; install it from this repo or a GitHub Release.
+The public endpoint is `POST https://cardex.brandonhk.com/mcp` (streamable HTTP, no auth). [`skills/cardex`](skills/cardex/SKILL.md) is the Agent Skill that teaches a caller how to connect and which tool to reach for; install it from this repo or a GitHub Release.
+
+```json
+{ "mcpServers": { "cardex": { "url": "https://cardex.brandonhk.com/mcp" } } }
+```
+
+Two more surfaces share the Worker (ADR 0002): `POST /maintainer` — a bearer-token MCP the maintenance agent uses to read quarantined reports and file structured proposals (`skills/cardex-maintainer`); and `/admin` — a Cloudflare Access-protected portal where the owner approves or rejects those proposals. Only approved proposals ever write facts.
 
 ## What Cardex is
 
@@ -70,7 +76,8 @@ The endpoint is `POST /mcp` (streamable HTTP). [`skills/cardex`](skills/cardex/S
 | `get_term`         | Fetch a specific term/condition (cap, exclusion, validity) by `id`       |
 | `list_tags`        | List known spend tags                                                    |
 | `resolve_alias`    | Map a free-text name to canonical tag(s) or card(s)                      |
-| `score_candidates` | *(optional)* Score cards for a spend under explicit `assumptions`, and report `unknown_exclusions` |
+| `score_candidates` | Score cards for a spend under explicit `assumptions`, and report `unknown_exclusions` |
+| `report_issue`     | File a wrong-or-stale fact into the quarantine queue for the maintenance loop |
 
 `score_candidates` stays a fact-based calculation. It shows the assumptions it used and lists exclusions it could not check, so the calling agent can decide what to do.
 
@@ -83,7 +90,8 @@ The endpoint is `POST /mcp` (streamable HTTP). [`skills/cardex`](skills/cardex/S
 ├── packages/
 │   └── mcp-worker/       # Cloudflare Worker: remote MCP over D1 (wrangler dev locally)
 ├── skills/
-│   └── cardex/           # Agent Skill: how to connect to the remote MCP
+│   ├── cardex/           # Agent Skill: how to connect to the remote MCP
+│   └── cardex-maintainer/# Agent Skill: triage reports + file proposals via /maintainer
 ├── seed/
 │   └── seed.sql          # Synthetic sample data (invented numbers, not issuer terms)
 ├── docs/
