@@ -1023,3 +1023,117 @@ describe("per-record provenance — ADR 0005", () => {
     expect(row?.illustrative).toBe(true);
   });
 });
+
+// ADR 0006: amount is either HKD (`amount_hkd`) or foreign (`amount` +
+// `currency` + assumptions.hkd_per_foreign_unit). fx_fee settles on the
+// caller's currency assertion: explicit HKD clears it; absent or non-HKD
+// keeps it in unknown_exclusions for the caller to cost.
+describe("score currency — ADR 0006", () => {
+  it("converts a non-HKD amount before scoring and echoes the fx inputs", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount: 100,
+      currency: "USD",
+      tag_ids: ["dining"],
+      card_ids: ["card_aeon"],
+      assumptions: { hkd_per_foreign_unit: 7.8 },
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.amount_hkd).toBe(780);
+    expect(res.currency).toBe("USD");
+    expect(res.fx_rate).toBe(7.8);
+    const row = res.candidates.find((c) => c.rate_id === "rate_aeon_dining");
+    expect(row?.calculated_rebate_hkd).toBe(23.4);
+  });
+
+  it("rejects a non-HKD amount without hkd_per_foreign_unit", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount: 100,
+      currency: "USD",
+      tag_ids: ["dining"],
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toBe("missing_fx_rate");
+  });
+
+  it("requires exactly one of amount_hkd and amount", async () => {
+    const both = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      amount: 100,
+      currency: "USD",
+      tag_ids: ["dining"],
+      assumptions: { hkd_per_foreign_unit: 7.8 },
+    });
+    expect(both.ok).toBe(false);
+    if (!both.ok) expect(both.error).toBe("invalid_amount");
+
+    const neither = await scoreCandidates(tenv.DB, {
+      tag_ids: ["dining"],
+    } as Parameters<typeof scoreCandidates>[1]);
+    expect(neither.ok).toBe(false);
+    if (!neither.ok) expect(neither.error).toBe("invalid_amount");
+  });
+
+  it("rejects a currency that is not three letters", async () => {
+    for (const currency of ["US", "USDX", "H1D"]) {
+      const res = await scoreCandidates(tenv.DB, {
+        amount_hkd: 800,
+        currency,
+        tag_ids: ["dining"],
+      });
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error).toBe("invalid_currency");
+    }
+  });
+
+  it("normalizes the currency code for the echo and fx_fee logic", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount: 100,
+      currency: "usd",
+      tag_ids: ["dining"],
+      assumptions: { hkd_per_foreign_unit: 7.8 },
+    });
+    expect(res.ok && res.currency).toBe("USD");
+  });
+
+  it("clears fx_fee on an explicit HKD currency but keeps it for non-HKD", async () => {
+    const hkd = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "HKD",
+      tag_ids: ["overseas"],
+    });
+    expect(hkd.ok).toBe(true);
+    if (hkd.ok) {
+      const citi = hkd.candidates.find((c) => c.rate_id === "rate_citi_overseas");
+      expect(citi?.unknown_exclusions).not.toContain(
+        "fx_fee:term_citi_fx_fee",
+      );
+    }
+
+    const usd = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "USD",
+      tag_ids: ["overseas"],
+    });
+    expect(usd.ok).toBe(true);
+    if (usd.ok) {
+      const citi = usd.candidates.find((c) => c.rate_id === "rate_citi_overseas");
+      expect(citi?.unknown_exclusions).toContain("fx_fee:term_citi_fx_fee");
+      expect(usd.currency).toBe("USD");
+      expect(usd.fx_rate).toBeNull();
+    }
+  });
+
+  it("keeps fx_fee unknown when currency is absent, as before", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      tag_ids: ["overseas"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const citi = res.candidates.find((c) => c.rate_id === "rate_citi_overseas");
+    expect(citi?.unknown_exclusions).toContain("fx_fee:term_citi_fx_fee");
+    expect(res.currency).toBe("HKD");
+    expect(res.fx_rate).toBeNull();
+  });
+});

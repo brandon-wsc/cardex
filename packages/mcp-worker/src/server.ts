@@ -87,9 +87,11 @@ export function registerReadTools(server: McpServer, db: D1Database): void {
   server.registerTool(
     "score_candidates",
     {
-      description: `Calculate rebate for a spend under explicit assumptions. Lists exclusions it could not check. Tag ids that do not resolve are echoed as unknown_tag_ids. Does not pick a winner. ${SEED_NOTE}`,
+      description: `Calculate rebate for a spend under explicit assumptions. Lists exclusions it could not check. Tag ids that do not resolve are echoed as unknown_tag_ids. Spend is amount_hkd, or amount + currency + assumptions.hkd_per_foreign_unit for non-HKD billing. Does not pick a winner. ${SEED_NOTE}`,
       inputSchema: z.strictObject({
-        amount_hkd: z.number(),
+        amount_hkd: z.number().optional(),
+        amount: z.number().optional(),
+        currency: z.string().optional(),
         tag_ids: z.array(z.string()).optional(),
         card_ids: z.array(z.string()).optional(),
         alias: z.string().optional(),
@@ -100,6 +102,7 @@ export function registerReadTools(server: McpServer, db: D1Database): void {
             month_to_date_rebate_hkd: z.number().nonnegative().optional(),
             month_to_date_spend_hkd: z.number().nonnegative().optional(),
             hkd_per_point: z.number().nonnegative().optional(),
+            hkd_per_foreign_unit: z.number().positive().optional(),
             checked_exclusions: z.array(z.string()).optional(),
           })
           .optional(),
