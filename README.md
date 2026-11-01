@@ -6,6 +6,23 @@ Under the hood Cardex is a pair: an **Agent Skill** ([`skills/cardex`](skills/ca
 
 > **Status:** pre-alpha, live at [cardex.brandonhk.com](https://cardex.brandonhk.com). Every figure is synthetic and marked illustrative — no real issuer terms yet.
 
+## Review it in 10 minutes
+
+1. **Hit the live endpoint — zero install.** `/mcp` on `cardex.brandonhk.com` is the production Cloudflare Worker — CI `wrangler deploy`s it on every merge — and it speaks stateless streamable HTTP, so plain `curl` works. This is the same `score_candidates` call the landing-page demo renders:
+
+   ```bash
+   curl -s https://cardex.brandonhk.com/mcp \
+     -H 'content-type: application/json' \
+     -H 'accept: application/json, text/event-stream' \
+     -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"score_candidates","arguments":{"amount_hkd":280,"alias":"茶餐廳","merchant":"譚仔","card_ids":["card_hsbc_red","card_aeon"]}}}'
+   ```
+
+   Swap the `method`/`params` for `initialize` or `tools/list` to see the handshake and the full tool surface.
+
+2. **See every tool payload locally.** `pnpm install && pnpm demo` migrates and seeds D1, boots `wrangler dev`, and prints eight scripted responses from a real MCP client.
+
+3. **Read the design.** [AGENTS.md](AGENTS.md) for the boundaries and review gates → [docs/adr/](docs/adr/) for why it is shaped this way → [docs/ai-workflow.md](docs/ai-workflow.md) for how agents built the repo.
+
 ## Set it up
 
 Paste this into your AI assistant:
@@ -47,7 +64,7 @@ The skill is what teaches your assistant to connect, which tool to reach for, an
 
 - **From the site** — [`https://cardex.brandonhk.com/skill.md`](https://cardex.brandonhk.com/skill.md), built from [`skills/cardex/SKILL.md`](skills/cardex/SKILL.md).
 - **From this repo** — copy [`skills/cardex/`](skills/cardex/) into your agent's skills directory.
-- **From a GitHub Release** — packaged skill: [`v0.3.0`](https://github.com/brandon-wsc/cardex/releases/latest).
+- **From a GitHub Release** — packaged skill: [`v0.3.1`](https://github.com/brandon-wsc/cardex/releases/latest).
 - **No skill support?** Connect any MCP client to the endpoint directly — `POST https://cardex.brandonhk.com/mcp`, streamable HTTP, no auth:
 
 ```json
@@ -94,6 +111,17 @@ Two more surfaces share the Worker ([ADR 0002](docs/adr/0002-maintenance-surface
 | Protocol | MCP (remote server)                       |
 | Site     | Astro static pages (zh-HK at `/`, en at `/en`) + Preact admin island, served as the Worker's static assets ([ADR 0004](docs/adr/0004-public-site.md)) |
 
+```mermaid
+flowchart LR
+  caller[Calling agent] -->|"POST /mcp"| worker
+  maint[Maintenance agent] -->|"POST /maintainer"| worker
+  owner[Owner] -->|"/admin — Cloudflare Access"| worker
+  subgraph worker["Cloudflare Worker"]
+    site["Astro site — static assets"]
+    api["MCP + admin handlers"] --> d1[("D1 — curated facts")]
+  end
+```
+
 ### Data model
 
 - **Cards** link to **rates** (earning rules) and **terms** (conditions, caps, exclusions).
@@ -125,9 +153,9 @@ The site needs Node ≥ 22.23.4 (Astro's floor). `pnpm demo` builds the site, ru
 | [docs/STATUS.md](docs/STATUS.md) | What exists today |
 | [docs/adr/](docs/adr/) | Architecture Decision Records |
 | [docs/TESTING.md](docs/TESTING.md) | Test policy |
-| [docs/ai-workflow.md](docs/ai-workflow.md) | AI-assisted development notes |
+| [docs/ai-workflow.md](docs/ai-workflow.md) | How agents built this repo — tools, loop, time, gates |
 
-This repo is also a public demo of an AI-assisted development workflow (Pinnacle). The writeup is planned at `docs/ai-workflow.md` and is not written yet.
+This repo was built by coding agents under the conventions in [AGENTS.md](AGENTS.md). The tools, the review loop, the timing, and an honest account of which human gates were real are in [docs/ai-workflow.md](docs/ai-workflow.md).
 
 ## Repository layout
 
@@ -148,7 +176,7 @@ This repo is also a public demo of an AI-assisted development workflow (Pinnacle
 │   ├── STATUS.md
 │   ├── TESTING.md
 │   ├── adr/
-│   └── ai-workflow.md    # AI-assisted development notes
+│   └── ai-workflow.md    # How agents built this repo
 ├── LICENSE               # MIT
 └── README.md
 ```
