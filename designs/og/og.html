@@ -1,0 +1,80 @@
+<!doctype html>
+<!-- Source for packages/site/public/og.png (1200x630).
+     Colours are hard-coded from src/styles/global.css tokens — keep in sync.
+     Fonts come from the built site stylesheet — regenerate with:
+       1. pnpm build:site
+       2. cp this file to packages/site/dist/og.html and update the <link>
+          below to the current dist/_astro/Base.*.css filename
+       3. serve dist statically (e.g. python3 -m http.server inside it),
+          capture a 1200x630 viewport screenshot -> packages/site/public/og.png
+       4. rm packages/site/dist/og.html -->
+<html lang="zh-HK">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="/_astro/Base.h-n_gzan.css" />
+    <style>
+      :root {
+        --color-paper: oklch(96.5% 0.012 85);
+        --color-slip: oklch(98.6% 0.006 85);
+        --color-ink: oklch(23% 0.035 262);
+        --color-ink-2: oklch(38% 0.03 262);
+        --color-muted: oklch(50% 0.02 262);
+        --color-rule: oklch(78% 0.018 85);
+        --color-accent: oklch(52% 0.17 28);
+        --font-display: "Newsreader", "Noto Serif HK", Georgia, serif;
+        --font-body: "IBM Plex Sans", "Noto Sans HK", -apple-system, "PingFang HK", sans-serif;
+        --font-mono: "IBM Plex Mono", "Noto Sans HK", ui-monospace, Menlo, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        width: 1200px; height: 630px; overflow: hidden;
+        background: var(--color-paper); color: var(--color-ink);
+        font-family: var(--font-body);
+        display: grid; grid-template-rows: auto 1fr;
+      }
+      .mast { display: flex; justify-content: space-between; align-items: baseline;
+        padding: 28px 48px 18px; border-bottom: 2px solid var(--color-ink);
+        font: 600 15px/1 var(--font-mono); letter-spacing: 0.14em; }
+      .mast span:last-child { font-weight: 400; color: var(--color-muted); letter-spacing: 0.04em; }
+      .stage { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 56px;
+        padding: 44px 48px; align-items: center; }
+      h1 { font: 600 76px/1.14 var(--font-display); margin: 0; letter-spacing: -0.01em; }
+      h1 .ph { display: inline-block; }
+      .sub { margin-top: 26px; font: 400 17px/1.7 var(--font-mono); color: var(--color-ink-2); }
+      .sub b { color: var(--color-accent); font-weight: 600; }
+      .slip { background: var(--color-slip); border: 1px solid var(--color-rule);
+        border-top: 3px solid var(--color-ink); padding: 20px 24px 16px; position: relative;
+        box-shadow: 0 1px 0 var(--color-rule); }
+      .slip .head { font: 500 11px/1 var(--font-mono); letter-spacing: 0.18em;
+        color: var(--color-muted); display: flex; justify-content: space-between;
+        border-bottom: 1px solid var(--color-rule); padding-bottom: 10px; margin-bottom: 12px; }
+      .q { font: 400 15px/1.5 var(--font-body); margin: 0 0 14px; }
+      .row { display: flex; justify-content: space-between; align-items: baseline;
+        font: 400 16px/2 var(--font-mono); border-bottom: 1px dashed var(--color-rule); }
+      .row .pct { color: var(--color-ink-2); }
+      .row .amt { font-weight: 600; }
+      .warn { font: 400 12.5px/1.6 var(--font-mono); color: var(--color-accent); margin-top: 12px; }
+      .og-stamp { position: absolute; top: -15px; right: -15px; bottom: auto; transform: rotate(6deg); background: var(--color-paper);
+        border: 2px solid var(--color-accent); color: var(--color-accent);
+        font: 600 11px/1 var(--font-mono); letter-spacing: 0.12em; padding: 5px 8px; border-radius: 2px; white-space: nowrap; }
+    </style>
+  </head>
+  <body>
+    <div class="mast"><span>CARDEX</span><span>cardex.brandonhk.com</span></div>
+    <div class="stage">
+      <div>
+        <h1><span class="ph">碌邊張卡，</span><span class="ph">問一句就知。</span></h1>
+        <p class="sub">HK credit card facts for your agent —<br /><b>facts only; the caller decides.</b></p>
+      </div>
+      <div class="slip">
+        <div class="og-stamp">示範數據 DEMO</div>
+        <div class="head"><span>STATEMENT</span><span>HK$</span></div>
+        <p class="q">「今晚茶餐廳食 $280，碌 Red Card 定 AEON？」</p>
+        <div class="row"><span>HSBC Red Credit Card</span><span><span class="pct">8%</span>&nbsp;&nbsp;<span class="amt">$22.40</span></span></div>
+        <div class="row"><span>AEON Mastercard</span><span><span class="pct">3%</span>&nbsp;&nbsp;<span class="amt">$8.40</span></span></div>
+        <div class="warn">碌之前確認：8% 限指定商戶 · 每月上限 $300</div>
+      </div>
+    </div>
+  </body>
+</html>
