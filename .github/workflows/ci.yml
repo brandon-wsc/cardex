@@ -62,7 +62,9 @@ jobs:
           version: 11.20.0
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # Astro's floor is Node 22.23.4; "22" can resolve to an older
+          # cached 22.x and fail astro check before it builds.
+          node-version: 22.23.4
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
@@ -77,7 +79,9 @@ jobs:
           version: 11.20.0
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # Astro's floor is Node 22.23.4; "22" can resolve to an older
+          # cached 22.x and fail astro check before it builds.
+          node-version: 22.23.4
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # The Worker's assets directory is packages/site/dist (ADR 0004); the
