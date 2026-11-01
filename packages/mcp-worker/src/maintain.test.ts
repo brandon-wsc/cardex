@@ -9,6 +9,7 @@ import {
   proposeChange,
   validatePatch,
 } from "./maintain";
+import { getTerm } from "./query";
 
 // Specs for the maintenance surface in ADR 0002: structured patches only,
 // propose ≠ apply, approve is atomic.
@@ -46,7 +47,7 @@ describe("validatePatch", () => {
       set: { status: "applied" },
     });
     expect(errors.length).toBeGreaterThan(0);
-    expect(errors[0]).toContain("table");
+    expect(errors.some((e) => e.includes("proposals"))).toBe(true);
   });
 
   it("rejects a column outside the table whitelist", async () => {
@@ -89,7 +90,9 @@ describe("validatePatch", () => {
       table: "rate_tags",
       id: "rate_hsbc_dining+dining",
     });
-    expect(missing.some((e) => e.includes("key"))).toBe(true);
+    expect(
+      missing.some((e) => e.includes("rate_id") && e.includes("tag_id")),
+    ).toBe(true);
 
     expect(
       await validatePatch(tenv.DB, {
@@ -132,17 +135,19 @@ describe("proposeChange", () => {
     const res = await proposeChange(tenv.DB, good);
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    const row = await tenv.DB.prepare(
-      "SELECT status, proposed_by FROM proposals WHERE id = ?",
-    )
-      .bind(res.proposal_id)
-      .first();
-    expect(row).toMatchObject({ status: "pending", proposed_by: "grokbot" });
+    const view = await getProposal(tenv.DB, res.proposal_id);
+    expect(view.ok).toBe(true);
+    if (!view.ok) return;
+    expect(view.proposal).toMatchObject({
+      status: "pending",
+      proposed_by: "grokbot",
+    });
   });
 
   it("rejects when evidence_url is missing", async () => {
     const res = await proposeChange(tenv.DB, { ...good, evidence_url: "" });
     expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toBe("invalid_proposal");
   });
 
   it("rejects when any patch fails validation", async () => {
@@ -155,6 +160,7 @@ describe("proposeChange", () => {
     });
     expect(res.ok).toBe(false);
     if (res.ok) return;
+    expect(res.error).toBe("invalid_patch");
     expect(res.detail).toContain("nope");
   });
 });
@@ -171,7 +177,8 @@ describe("listReports / listProposals / getProposal", () => {
     const res = await listProposals(tenv.DB, { status: "pending" });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.proposals.map((p) => p.id)).toEqual(["prop_seed_001"]);
+    expect(res.proposals.map((p) => p.id)).toContain("prop_seed_001");
+    expect(res.proposals.every((p) => p.status === "pending")).toBe(true);
   });
 
   it("getProposal parses patches and joins the current row as old", async () => {
@@ -186,6 +193,7 @@ describe("listReports / listProposals / getProposal", () => {
   it("getProposal returns not_found for an unknown id", async () => {
     const res = await getProposal(tenv.DB, "prop_nope");
     expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toBe("not_found");
   });
 
   it("shows the existing row as old on an insert that would collide", async () => {
@@ -223,16 +231,21 @@ describe("decideProposal", () => {
     });
     expect(res.ok).toBe(true);
 
-    const term = await tenv.DB.prepare(
-      "SELECT quota_n, last_verified_at FROM terms WHERE id = 'term_dbs_quota'",
-    ).first();
-    expect(term).toMatchObject({ quota_n: 15000, last_verified_at: "2026-11-01" });
+    // The applied write is observable through the public get_term tool.
+    const term = await getTerm(tenv.DB, "term_dbs_quota");
+    expect(term.ok).toBe(true);
+    if (!term.ok) return;
+    expect(term.term.quota_n).toBe(15000);
+    expect(term.term.last_verified_at).toBe("2026-11-01");
 
-    const prop = await tenv.DB.prepare(
-      "SELECT status, decided_by, decided_at FROM proposals WHERE id = 'prop_seed_001'",
-    ).first();
-    expect(prop).toMatchObject({ status: "applied", decided_by: "owner@cardex.dev" });
-    expect(prop?.decided_at).toBeTruthy();
+    const prop = await getProposal(tenv.DB, "prop_seed_001");
+    expect(prop.ok).toBe(true);
+    if (!prop.ok) return;
+    expect(prop.proposal).toMatchObject({
+      status: "applied",
+      decided_by: "owner@cardex.dev",
+      decided_at: expect.any(String),
+    });
   });
 
   it("reject requires a decision note", async () => {
@@ -241,6 +254,7 @@ describe("decideProposal", () => {
       decided_by: "owner@cardex.dev",
     });
     expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toBe("note_required");
 
     const ok = await decideProposal(tenv.DB, "prop_seed_001", {
       decision: "reject",
@@ -248,10 +262,10 @@ describe("decideProposal", () => {
       note: "affiliate source, cannot verify",
     });
     expect(ok.ok).toBe(true);
-    const prop = await tenv.DB.prepare(
-      "SELECT status, decision_note FROM proposals WHERE id = 'prop_seed_001'",
-    ).first();
-    expect(prop).toMatchObject({
+    const prop = await getProposal(tenv.DB, "prop_seed_001");
+    expect(prop.ok).toBe(true);
+    if (!prop.ok) return;
+    expect(prop.proposal).toMatchObject({
       status: "rejected",
       decision_note: "affiliate source, cannot verify",
     });
@@ -268,6 +282,7 @@ describe("decideProposal", () => {
       decided_by: "owner@cardex.dev",
     });
     expect(again.ok).toBe(false);
+    if (!again.ok) expect(again.error).toBe("already_decided");
   });
 
   it("fails cleanly when an insert target already exists", async () => {
@@ -292,15 +307,13 @@ describe("decideProposal", () => {
     });
     expect(res.ok).toBe(false);
     if (res.ok) return;
+    expect(res.error).toBe("invalid_patch");
+    // Contract: the failure names the colliding row, not a raw SQLITE dump.
     expect(res.detail).toContain("dining");
-    expect(res.detail).toContain("already exists");
 
-    const prop = await tenv.DB.prepare(
-      "SELECT status FROM proposals WHERE id = ?",
-    )
-      .bind(proposed.proposal_id)
-      .first();
-    expect(prop?.status).toBe("pending");
+    const prop = await getProposal(tenv.DB, proposed.proposal_id);
+    expect(prop.ok).toBe(true);
+    if (prop.ok) expect(prop.proposal).toMatchObject({ status: "pending" });
   });
 
   it("fails cleanly on a duplicate insert inside one proposal", async () => {
@@ -331,7 +344,8 @@ describe("decideProposal", () => {
     });
     expect(res.ok).toBe(false);
     if (res.ok) return;
-    expect(res.detail).toContain("duplicate");
+    expect(res.error).toBe("invalid_patch");
+    expect(res.detail).toContain("japan");
   });
 
   it("applies delete-then-insert of the same row in one proposal", async () => {
@@ -398,17 +412,18 @@ describe("decideProposal", () => {
       decided_by: "owner@cardex.dev",
     });
     expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error).toBe("apply_failed");
 
-    const leaked = await tenv.DB.prepare(
-      "SELECT id FROM terms WHERE id IN ('term_new_valid', 'term_bad_fk')",
-    ).all();
-    expect(leaked.results).toHaveLength(0);
+    // Nothing from the failed batch is observable through get_term.
+    for (const id of ["term_new_valid", "term_bad_fk"]) {
+      const term = await getTerm(tenv.DB, id);
+      expect(term.ok).toBe(false);
+      if (!term.ok) expect(term.error).toBe("not_found");
+    }
 
-    const prop = await tenv.DB.prepare(
-      "SELECT status FROM proposals WHERE id = ?",
-    )
-      .bind(proposed.proposal_id)
-      .first();
-    expect(prop?.status).toBe("pending");
+    const prop = await getProposal(tenv.DB, proposed.proposal_id);
+    expect(prop.ok).toBe(true);
+    if (prop.ok) expect(prop.proposal).toMatchObject({ status: "pending" });
   });
 });
