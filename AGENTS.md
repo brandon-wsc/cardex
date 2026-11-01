@@ -20,6 +20,7 @@ Remote MCP server of structured Hong Kong credit-card facts. Callers are other a
 | Public pitch | [`README.md`](README.md) | Human intro. PRD and ADR win if they disagree |
 | Tool I/O | [`packages/mcp-worker/src/query.ts`](packages/mcp-worker/src/query.ts) | D1-backed shapes. PRD describes them; do not add a second shape doc |
 | Test policy | [`docs/TESTING.md`](docs/TESTING.md) | No runner yet. `pnpm demo` is the check |
+| Site copy | [`packages/site/src/i18n/`](packages/site/src/i18n/) | `zh-HK.ts` defines the shape, `en.ts` must match. No copy strings in components. The README prompts mirror `prompt.text` ([ADR 0004](docs/adr/0004-public-site.md)) |
 | Agent execution | this file | Commits, branches, PRs |
 
 ## Hard boundaries
@@ -45,6 +46,10 @@ Remote MCP server of structured Hong Kong credit-card facts. Callers are other a
 
 `packages/mcp-worker` is the v1 Worker: a remote MCP endpoint (`/mcp`, streamable HTTP via `createMcpHandler` from the agents SDK — not deprecated `McpAgent`) backed by D1. Query data lives in D1 — `seed/seed.sql` loads it locally and becomes a generated export snapshot in prod ([ADR 0002](docs/adr/0002-maintenance-surface.md)); numbers are synthetic for now and every payload marks `provenance.illustrative`. Runtime rules live in `wrangler.jsonc` and the Cloudflare Workers guidance; this file does not copy them. The compatibility date is the day the Worker was created (or the newest date the pinned workerd supports), and logs and traces are on (`observability.enabled`, `observability.traces.enabled`). `pnpm types` regenerates `worker-configuration.d.ts` after config changes.
 
+## Site
+
+`packages/site` is Astro (`output: "static"`, no adapter) whose `dist/` is the Worker's static assets ([ADR 0004](docs/adr/0004-public-site.md)). Pages talk to people; tools talk to agents — site copy may promise the benefit (knowing which card to tap) but never names a best card, invents a metric, or hand-writes demo numbers (`src/data/demo-score.json` is a verbatim tool response; regenerate per `src/data/demo.ts`). zh-HK is spoken Cantonese at `/`; en at `/en`. Islands are Preact; the landing page ships only the copy button. `run_worker_first` keeps `/mcp`, `/maintainer`, and `/admin*` ahead of assets — `/admin` is served from `ASSETS` only after the identity check. Astro needs Node ≥ 22.23.4 and TypeScript 6 (`@astrojs/check`); the Worker stays on TypeScript 7. Check pages at 375px and 1440px before calling UI work done.
+
 ## Quick commands
 
 ```bash
@@ -52,10 +57,12 @@ pnpm install
 pnpm migrate    # apply D1 migrations to the local database
 pnpm seed       # load seed/seed.sql into local D1
 pnpm export-seed # rebuild seed/seed.sql from prod D1 (facts tables only)
-pnpm dev        # wrangler dev — MCP at http://localhost:8787/mcp
-pnpm demo       # migrate + seed + scripted MCP calls over wrangler dev
+pnpm dev        # build site, then wrangler dev — site at http://localhost:8787, MCP at /mcp
+pnpm dev:site   # Astro dev server for page work (no /mcp, no /admin/api)
+pnpm build:site # astro check + build → packages/site/dist (needed before test/dev/deploy)
+pnpm demo       # build site + migrate + seed + scripted MCP calls over wrangler dev
 pnpm test       # vitest — specs from the PRD tables, inside workerd + real D1
-pnpm typecheck
+pnpm typecheck  # Worker tsc + astro check
 ```
 
 Package manager is pnpm (`packageManager` in the root `package.json`). `.npmrc` sets `minimum-release-age=10080` (minutes). Install with a pinned version published at least 7 days ago. Never use `latest` or an unbounded range, and never weaken `.npmrc` to get an install through.

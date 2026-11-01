@@ -2,6 +2,7 @@ node_modules
 .pnpm-store
 .wrangler
 dist
+.astro
 *.tsbuildinfo
 .DS_Store
 worker-configuration.d.ts

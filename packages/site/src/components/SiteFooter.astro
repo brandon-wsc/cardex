@@ -1,0 +1,21 @@
+---
+import { links } from "../data/links";
+import { type Locale, t } from "../i18n";
+
+interface Props {
+  locale: Locale;
+}
+
+const ui = t(Astro.props.locale);
+---
+
+<footer>
+  <div class="wrap">
+    <p class="eos">{ui.footer.note}</p>
+    <div class="foot-links">
+      <a href={links.github}>github.com/brandon-wsc/cardex</a>
+      <a href="/llms.txt">llms.txt</a>
+      <span>MIT</span>
+    </div>
+  </div>
+</footer>

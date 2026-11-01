@@ -19,8 +19,15 @@
     "enabled": true,
     "traces": { "enabled": true }
   },
-  // src/admin.html is imported as a text module for the /admin portal.
-  "rules": [{ "type": "Text", "globs": ["**/*.html"] }],
+  // packages/site builds the public pages and the /admin island (ADR 0004).
+  // Worker-first paths keep the MCP surfaces and the /admin identity check
+  // ahead of static hosting; everything else is asset-first.
+  "assets": {
+    "directory": "../site/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page",
+    "run_worker_first": ["/mcp", "/maintainer", "/admin*"]
+  },
   // ADMIN_EMAIL is deliberately NOT a var — it is a secret
   // (`wrangler secret put ADMIN_EMAIL`) so the owner address never lands
   // in committed config. Cloudflare Access is the real boundary; this is

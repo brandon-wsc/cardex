@@ -1,6 +1,5 @@
 import { createMcpHandler } from "agents/mcp/server";
 
-import adminHtml from "./admin.html";
 import {
   decideProposal,
   getProposal,
@@ -23,15 +22,6 @@ declare global {
     ADMIN_PIN: string;
   }
 }
-
-const ABOUT = {
-  name: "cardex",
-  description:
-    "Structured Hong Kong credit-card facts for agents: rates, terms, tags, aliases. Facts only; the caller ranks.",
-  mcp_endpoint: "/mcp",
-  maintainer_endpoint: "/maintainer",
-  docs: "https://github.com/brandon-wsc/cardex",
-};
 
 const json = (body: unknown, status = 200) =>
   Response.json(body, { status });
@@ -107,10 +97,6 @@ export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    if (url.pathname === "/") {
-      return Promise.resolve(json(ABOUT));
-    }
-
     if (url.pathname === "/mcp") {
       const mcp = createMcpHandler(() => buildServer(env.DB), {
         route: "/mcp",
@@ -134,15 +120,11 @@ export default {
       return mcp(request, env, ctx);
     }
 
-    if (url.pathname === "/admin" || url.pathname === "/admin/") {
+    if (["/admin", "/admin/", "/admin.html"].includes(url.pathname)) {
       if (!adminIdentity(request, env)) {
         return Promise.resolve(new Response("Unauthorized", { status: 401 }));
       }
-      return Promise.resolve(
-        new Response(adminHtml, {
-          headers: { "content-type": "text/html; charset=utf-8" },
-        }),
-      );
+      return env.ASSETS.fetch(new URL("/admin", url));
     }
 
     if (url.pathname.startsWith("/admin/api/")) {
@@ -153,6 +135,8 @@ export default {
       return handleAdminApi(request, env, url, email);
     }
 
-    return Promise.resolve(new Response("Not found", { status: 404 }));
+    // Only paths no static asset matched reach here; the assets layer
+    // answers with the site's 404 page.
+    return env.ASSETS.fetch(request);
   },
 } satisfies ExportedHandler<Env>;

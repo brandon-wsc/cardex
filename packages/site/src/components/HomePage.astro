@@ -1,0 +1,185 @@
+---
+import { demoScore, unknownKey } from "../data/demo";
+import { homeJsonLd } from "../data/jsonld";
+import { links, mcpConfig } from "../data/links";
+import { type Locale, t } from "../i18n";
+import Base from "../layouts/Base.astro";
+import CopyButton from "./CopyButton";
+import SiteFooter from "./SiteFooter.astro";
+import SiteHeader from "./SiteHeader.astro";
+
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+const ui = t(locale);
+const unknownText = ui.demo.unknowns as Record<string, string>;
+const cardNames = ui.demo.cardNames as Record<string, string>;
+const money = (n: number | null) => (n === null ? "—" : `$${n.toFixed(2)}`);
+// score_candidates returns card_id order — the slip sorts by the rebate it
+// calculated, so the table reads the way a person expects.
+const candidates = [...demoScore.candidates].sort(
+  (a, b) => (b.calculated_rebate_hkd ?? -Infinity) - (a.calculated_rebate_hkd ?? -Infinity),
+);
+const checks = candidates.flatMap((c) =>
+  c.unknown_exclusions.map((entry) =>
+    (unknownText[unknownKey(entry)] ?? entry).replace("{card}", cardNames[c.card_id] ?? c.card_name),
+  ),
+);
+---
+
+<Base locale={locale} jsonLd={homeJsonLd(locale)}>
+  <SiteHeader locale={locale} />
+  <main id="main">
+    <section class="hero">
+      <div class="wrap">
+        <div>
+          <h1>
+            {ui.hero.titleLines.map((line, i) => <span class={i === ui.hero.accentLine ? "accent" : undefined}>{line}</span>)}
+          </h1>
+          <p class="lede">{ui.hero.lede}</p>
+
+          <div class="prompt">
+            <div class="prompt-head">
+              <h2>{ui.prompt.heading}</h2>
+              <CopyButton
+                client:visible
+                text={ui.prompt.text}
+                label={ui.prompt.copy}
+                copied={ui.prompt.copied}
+                failed={ui.prompt.copyFailed}
+              />
+            </div>
+            <pre>{ui.prompt.text}</pre>
+            <div class="prompt-foot">{ui.prompt.foot} <a href="#manual">{ui.prompt.footLink}</a></div>
+          </div>
+          <p class="trust">{ui.hero.trust}</p>
+        </div>
+
+        <figure class="slip" aria-labelledby="slip-cap">
+          <div class="slip-head">
+            <span id="slip-cap">{ui.demo.label}</span>
+            <span>{ui.demo.by}</span>
+          </div>
+          <div class="asked">
+            <small>{ui.demo.askedLabel}</small>
+            <p>{ui.demo.asked}</p>
+          </div>
+          <table class="lines">
+            <thead>
+              <tr><th>{ui.demo.colCard}</th><th>{ui.demo.colRate}</th><th>{ui.demo.colBack}</th></tr>
+            </thead>
+            <tbody>
+              {
+                candidates.map((c) => (
+                  <tr>
+                    <td>{c.card_name}</td>
+                    <td>{c.value}%</td>
+                    <td class="amt">{money(c.calculated_rebate_hkd)}</td>
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+          <p class="slip-note">{ui.demo.note}</p>
+          {
+            checks.length > 0 && (
+              <div class="catch">
+                <h3>{ui.demo.catchHeading}</h3>
+                <ul>{checks.map((text) => <li>{text}</li>)}</ul>
+              </div>
+            )
+          }
+          <p class="slip-foot">{ui.demo.foot.replace("{date}", String(demoScore.seed_as_of))}</p>
+          <div class="stamp" aria-hidden="true">{ui.demo.stamp[0]}<br />{ui.demo.stamp[1]}</div>
+        </figure>
+      </div>
+    </section>
+
+    <section class="band">
+      <div class="wrap">
+        <div class="band-head"><h2>{ui.pain.heading}</h2></div>
+        <ul class="pain">
+          {ui.pain.items.map((item) => <li><q>{item.q}</q><p>{item.a}</p></li>)}
+        </ul>
+      </div>
+    </section>
+
+    <section class="band" id="how">
+      <div class="wrap">
+        <div class="band-head"><h2>{ui.how.heading}</h2></div>
+        <ol class="steps">
+          {
+            ui.how.steps.map((step) => (
+              <li>
+                <h3>{step.title}</h3>
+                <p>{step.quote ? <q>{step.quote}</q> : step.body}</p>
+              </li>
+            ))
+          }
+        </ol>
+      </div>
+    </section>
+
+    <section class="band">
+      <div class="wrap">
+        <div class="band-head"><h2>{ui.compare.heading}</h2></div>
+        <table class="compare">
+          <thead>
+            <tr><th>{ui.compare.colTopic}</th><th>{ui.compare.colPlain}</th><th class="cardex">{ui.compare.colCardex}</th></tr>
+          </thead>
+          <tbody>
+            {
+              ui.compare.rows.map((row) => (
+                <tr>
+                  <td class="topic">{row.topic}</td>
+                  <td class="plain" data-label={ui.compare.colPlain}>{row.plain}</td>
+                  <td class="cardex" data-label={ui.compare.colCardex}>{row.cardex}</td>
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="band" id="faq">
+      <div class="wrap">
+        <div class="band-head"><h2>{ui.faq.heading}</h2></div>
+        <div class="faq">
+          {
+            ui.faq.items.map((item) => (
+              <details>
+                <summary>{item.q}</summary>
+                <p>{item.a}</p>
+              </details>
+            ))
+          }
+        </div>
+      </div>
+    </section>
+
+    <section class="band" id="manual">
+      <div class="wrap">
+        <div class="band-head">
+          <h2>{ui.manual.heading}</h2>
+          <p>{ui.manual.sub}</p>
+        </div>
+        <div class="manual">
+          <div>
+            <h3>{ui.manual.skillTitle}</h3>
+            <p>{ui.manual.skillBody}</p>
+            <pre><a href={links.skill}>{links.skill}</a></pre>
+          </div>
+          <div>
+            <h3>{ui.manual.mcpTitle}</h3>
+            <p>{ui.manual.mcpBody}</p>
+            <pre>{mcpConfig}</pre>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <SiteFooter locale={locale} />
+</Base>

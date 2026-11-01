@@ -3,12 +3,14 @@
   "private": true,
   "packageManager": "pnpm@11.20.0",
   "scripts": {
-    "dev": "pnpm --dir packages/mcp-worker dev",
+    "dev": "pnpm build:site && pnpm --dir packages/mcp-worker dev",
+    "dev:site": "pnpm --dir packages/site dev",
+    "build:site": "pnpm --dir packages/site build",
     "migrate": "pnpm --dir packages/mcp-worker migrate",
     "seed": "pnpm --dir packages/mcp-worker seed",
     "export-seed": "bash scripts/export-seed.sh",
-    "demo": "pnpm migrate && pnpm seed && pnpm --dir packages/mcp-worker demo",
-    "typecheck": "pnpm --dir packages/mcp-worker typecheck",
+    "demo": "pnpm build:site && pnpm migrate && pnpm seed && pnpm --dir packages/mcp-worker demo",
+    "typecheck": "pnpm --dir packages/mcp-worker typecheck && pnpm --dir packages/site check",
     "test": "pnpm --dir packages/mcp-worker test"
   }
 }

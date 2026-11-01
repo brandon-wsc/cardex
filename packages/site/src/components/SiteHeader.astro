@@ -1,0 +1,40 @@
+---
+import { links } from "../data/links";
+import { type Locale, localeNames, locales, localePath, t } from "../i18n";
+
+interface Props {
+  locale: Locale;
+  path?: string;
+}
+
+const { locale, path = "/" } = Astro.props;
+const ui = t(locale);
+const home = localePath(locale);
+---
+
+<a class="skip" href="#main">{ui.nav.skip}</a>
+<header class="masthead">
+  <div class="wrap">
+    <a class="wordmark" href={home}>
+      <b>CARDEX</b>
+      <span>{ui.nav.tagline}</span>
+    </a>
+    <nav aria-label="Primary">
+      <a class="hide-sm" href={`${home}#how`}>{ui.nav.how}</a>
+      <a href={`${home}#faq`}>{ui.nav.faq}</a>
+      <a class="hide-sm" href={links.github}>GitHub</a>
+      <div class="lang" role="group" aria-label={ui.nav.languageLabel}>
+        {
+          locales.map((l) => (
+            <a href={localePath(l, path)} hreflang={l} lang={l} aria-current={l === locale ? "page" : undefined}>
+              {localeNames[l]}
+            </a>
+          ))
+        }
+      </div>
+    </nav>
+  </div>
+</header>
+<div class="notice">
+  <div class="wrap"><b>{ui.notice.tag}</b>{ui.notice.text}</div>
+</div>

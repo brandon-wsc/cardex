@@ -1,0 +1,64 @@
+{
+  "ok": true,
+  "provenance": {
+    "kind": "synthetic-seed",
+    "illustrative": true,
+    "note": "Invented numbers for tool shape. Not current issuer terms. Confirm with the issuer."
+  },
+  "seed_as_of": "2026-11-01",
+  "amount_hkd": 280,
+  "tag_ids": [
+    "dining"
+  ],
+  "as_of": "2026-11-01",
+  "merchant_checked": "譚仔",
+  "limit": 5,
+  "limit_requested": null,
+  "clamped": false,
+  "total": 2,
+  "candidates": [
+    {
+      "rate_id": "rate_aeon_dining",
+      "card_id": "card_aeon",
+      "card_name": "AEON Card WAKUWAKU",
+      "kind": "rebate_percent",
+      "value": 1,
+      "unit": "percent",
+      "calculated_rebate_hkd": 2.8,
+      "unknown_exclusions": [
+        "cap_remaining:term_aeon_bonus_cap"
+      ],
+      "failed_terms": [],
+      "exclusive_group": null,
+      "priority": null,
+      "assumptions_used": {
+        "month_to_date_rebate_hkd": null,
+        "month_to_date_spend_hkd": null,
+        "hkd_per_point": null,
+        "checked_exclusions": []
+      }
+    },
+    {
+      "rate_id": "rate_hsbc_dining",
+      "card_id": "card_hsbc_red",
+      "card_name": "HSBC Red Credit Card",
+      "kind": "rebate_percent",
+      "value": 8,
+      "unit": "percent",
+      "calculated_rebate_hkd": 22.4,
+      "unknown_exclusions": [
+        "cap_remaining:term_hsbc_dining_cap",
+        "octopus_topup"
+      ],
+      "failed_terms": [],
+      "exclusive_group": null,
+      "priority": null,
+      "assumptions_used": {
+        "month_to_date_rebate_hkd": null,
+        "month_to_date_spend_hkd": null,
+        "hkd_per_point": null,
+        "checked_exclusions": []
+      }
+    }
+  ]
+}
