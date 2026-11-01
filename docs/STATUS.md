@@ -20,7 +20,7 @@ This file is what exists in the tree today. Architecture and phases live in [ROA
 | Maintenance surface | Built — `proposals` table, `/maintainer` bearer-token MCP (`list_reports` + `propose_change`, patch whitelist validated), `/admin` portal + API (Access header + `ADMIN_EMAIL` check, optional `ADMIN_PIN`). Ops not done: real secrets, Access policy, deploy |
 | `docs/ai-workflow.md` | Stub |
 | `LICENSE` | Named in the README as MIT. File not in the tree |
-| Deploy | Local only. `wrangler.jsonc` has a placeholder `database_id`; no real D1 or workers.dev route yet |
+| Deploy | Live — `cardex.unhinted.workers.dev`, prod D1 `d0616cb0…` migrated+seeded, `MAINTAINER_TOKEN`/`ADMIN_PIN` secrets set. Pending: Access app on `/admin` (owner is configuring) |
 | CI | Pull requests only. [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) checks branch name, PR title, commit subjects — and runs vitest + typecheck |
 | Tests | vitest in workerd + real D1 — 55 specs on the PRD tables + 18 on the proposal lifecycle (`maintain.ts`). Policy is [TESTING.md](./TESTING.md) |
 
