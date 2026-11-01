@@ -19,7 +19,7 @@ Remote MCP server of structured Hong Kong credit-card facts. Callers are other a
 | Locked decisions (ADR) | [`docs/adr/`](docs/adr/) | Prefer ADR over chat memory |
 | Public pitch | [`README.md`](README.md) | Human intro. PRD and ADR win if they disagree |
 | Tool I/O | [`packages/mcp-worker/src/query.ts`](packages/mcp-worker/src/query.ts) | D1-backed shapes. PRD describes them; do not add a second shape doc |
-| Test policy | [`docs/TESTING.md`](docs/TESTING.md) | No runner yet. `pnpm demo` is the check |
+| Test policy | [`docs/TESTING.md`](docs/TESTING.md) | `pnpm test` — vitest in workerd on real D1; `pnpm demo` is the e2e check |
 | Site copy | [`packages/site/src/i18n/`](packages/site/src/i18n/) | `zh-HK.ts` defines the shape, `en.ts` must match. No copy strings in components. The README prompts mirror `prompt.text` ([ADR 0004](docs/adr/0004-public-site.md)) |
 | Agent execution | this file | Commits, branches, PRs |
 
