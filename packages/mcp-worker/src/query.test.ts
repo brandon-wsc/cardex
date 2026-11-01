@@ -549,6 +549,68 @@ describe("contract deltas — PRD v0.3", () => {
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error).toBe("not_found");
   });
+
+  it("rejects a report with a non-http(s) or overlong evidence_url", async () => {
+    for (const evidence_url of [
+      "javascript:alert(1)",
+      "data:text/html,<script>alert(1)</script>",
+      "ftp://example.com/x",
+      "not-a-url",
+      "https://example.com/" + "a".repeat(2048),
+    ]) {
+      const res = await reportIssue(tenv.DB, {
+        card_id: "card_hsbc_red",
+        field: "value",
+        claimed_value: "6",
+        evidence_url,
+      });
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error).toBe("invalid_report");
+    }
+  });
+
+  it("accepts http(s) evidence_url but rejects overlong free text", async () => {
+    const ok = await reportIssue(tenv.DB, {
+      card_id: "card_hsbc_red",
+      field: "value",
+      claimed_value: "6",
+      evidence_url: "http://example.com/terms",
+    });
+    expect(ok.ok).toBe(true);
+
+    for (const input of [
+      { field: "f".repeat(101) },
+      { claimed_value: "c".repeat(501) },
+      { note: "n".repeat(2001) },
+    ]) {
+      const res = await reportIssue(tenv.DB, {
+        card_id: "card_hsbc_red",
+        field: "value",
+        claimed_value: "6",
+        ...input,
+      });
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error).toBe("invalid_report");
+    }
+  });
+
+  it("rejects new reports once the daily intake cap is hit", async () => {
+    await tenv.DB.prepare(
+      `WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 500)
+       INSERT INTO reports (id, target_kind, target_id, field, claimed_value, reported_at)
+       SELECT 'rpt_fill_' || x, 'card', 'card_hsbc_red', 'f', 'v', ?1 FROM c`,
+    )
+      .bind(new Date().toISOString())
+      .run();
+
+    const res = await reportIssue(tenv.DB, {
+      card_id: "card_hsbc_red",
+      field: "value",
+      claimed_value: "6",
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toBe("invalid_report");
+  });
 });
 
 // PRD v0.4 contract deltas — silent-footgun hardening. A filter-less or

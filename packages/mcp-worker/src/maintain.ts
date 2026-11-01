@@ -3,6 +3,8 @@
 // every write happens inside one D1 batch at apply time. Proposals carry
 // structured patches — never raw SQL.
 
+import { isHttpUrl } from "./query.js";
+
 export type Scalar = string | number | null;
 
 export interface Patch {
@@ -227,12 +229,54 @@ interface ProposalInput {
   patches?: unknown[];
 }
 
+const PROPOSAL_MAX = {
+  url: 2048,
+  summary: 500,
+  excerpt: 4000,
+  patches: 50,
+  pending: 100,
+};
+
+function proposalBoundsError(input: ProposalInput): string | null {
+  if (!input.summary || !input.evidence_url)
+    return "summary and evidence_url are required";
+  if (input.summary.length > PROPOSAL_MAX.summary) return "summary too long";
+  if (
+    input.excerpt !== undefined &&
+    input.excerpt.length > PROPOSAL_MAX.excerpt
+  )
+    return "excerpt too long";
+  if (
+    input.evidence_url.length > PROPOSAL_MAX.url ||
+    !isHttpUrl(input.evidence_url)
+  )
+    return "evidence_url must be an http(s) URL of at most 2048 chars";
+  return null;
+}
+
+// Pending-queue cap: a leaked maintainer token can spam proposals, so the
+// queue stops growing once the owner has a full inbox. Reviewing drains it.
+async function pendingQueueFull(db: D1Database): Promise<boolean> {
+  const row = await db
+    .prepare(`SELECT COUNT(*) AS n FROM proposals WHERE status = 'pending'`)
+    .first<{ n: number }>();
+  return (row?.n ?? 0) >= PROPOSAL_MAX.pending;
+}
+
 export async function proposeChange(db: D1Database, input: ProposalInput) {
-  if (!input.summary || !input.evidence_url) {
-    return fail("invalid_proposal", "summary and evidence_url are required");
-  }
+  const bounds = proposalBoundsError(input);
+  if (bounds) return fail("invalid_proposal", bounds);
   if (!Array.isArray(input.patches) || input.patches.length === 0) {
     return fail("invalid_proposal", "patches must be a non-empty array");
+  }
+  if (input.patches.length > PROPOSAL_MAX.patches) {
+    return fail(
+      "invalid_proposal",
+      `patches must be at most ${PROPOSAL_MAX.patches} ops`,
+    );
+  }
+  if (await pendingQueueFull(db)) {
+    return fail("invalid_proposal", "pending queue is full — wait for review");
   }
   const allErrors: string[] = [];
   for (const [i, raw] of input.patches.entries()) {
@@ -252,7 +296,9 @@ export async function proposeChange(db: D1Database, input: ProposalInput) {
     )
     .bind(
       id,
-      input.proposed_by ?? "maintainer",
+      // Credential-derived, not caller-supplied — one token, one identity,
+      // so a proposal can never impersonate another proposer.
+      "maintainer",
       input.summary,
       input.evidence_url,
       input.excerpt ?? null,

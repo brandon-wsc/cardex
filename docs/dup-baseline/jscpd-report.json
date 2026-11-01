@@ -4,6 +4,120 @@
       "firstFile": {
         "end": 30,
         "endLoc": {
+          "column": 4,
+          "line": 30,
+          "position": 875
+        },
+        "name": "access.test.ts",
+        "start": 20,
+        "startLoc": {
+          "column": 10,
+          "line": 20,
+          "position": 630
+        }
+      },
+      "format": "typescript",
+      "fragment": "beforeAll(async () => {\n  const pair = await crypto.subtle.generateKey(\n    {\n      name: \"RSASSA-PKCS1-v1_5\",\n      modulusLength: 2048,\n      publicExponent: new Uint8Array([1, 0, 1]),\n      hash: \"SHA-256\",\n    },\n    true,\n    [\"sign\", \"verify\"],\n  );",
+      "isNew": false,
+      "kind": "exact",
+      "lines": 11,
+      "secondFile": {
+        "end": 97,
+        "endLoc": {
+          "column": 6,
+          "line": 97,
+          "position": 3060
+        },
+        "name": "access.test.ts",
+        "start": 87,
+        "startLoc": {
+          "column": 50,
+          "line": 87,
+          "position": 2795
+        }
+      },
+      "tokens": 54
+    },
+    {
+      "firstFile": {
+        "end": 26,
+        "endLoc": {
+          "column": 3,
+          "line": 26,
+          "position": 861
+        },
+        "name": "index.test.ts",
+        "start": 8,
+        "startLoc": {
+          "column": 28,
+          "line": 8,
+          "position": 238
+        }
+      },
+      "format": "typescript",
+      "fragment": "import worker from \"./index\";\n\n// Wire-level specs for the auth and rate-limit layer in index.ts: bearer\n// failure lockout, PIN attempt lockout, Access-configured header distrust,\n// and same-origin enforcement on admin writes. Per test IP keeps the shared\n// in-memory buckets independent.\nconst tenv = env as unknown as {\n  DB: D1Database;\n  TEST_MIGRATIONS: D1Migration[];\n  SEED_SQL: string;\n};\n\nbeforeEach(async () => {\n  await applyD1Migrations(tenv.DB, tenv.TEST_MIGRATIONS);\n  const statements = tenv.SEED_SQL.split(\";\")\n    .map((s) => s.trim())\n    .filter(Boolean);\n  await tenv.DB.batch(statements.map((sql) => tenv.DB.prepare(sql)));\n});",
+      "isNew": false,
+      "kind": "exact",
+      "lines": 19,
+      "secondFile": {
+        "end": 28,
+        "endLoc": {
+          "column": 3,
+          "line": 28,
+          "position": 819
+        },
+        "name": "maintain.test.ts",
+        "start": 12,
+        "startLoc": {
+          "column": 33,
+          "line": 12,
+          "position": 341
+        }
+      },
+      "tokens": 103
+    },
+    {
+      "firstFile": {
+        "end": 26,
+        "endLoc": {
+          "column": 3,
+          "line": 26,
+          "position": 861
+        },
+        "name": "index.test.ts",
+        "start": 8,
+        "startLoc": {
+          "column": 28,
+          "line": 8,
+          "position": 238
+        }
+      },
+      "format": "typescript",
+      "fragment": "import worker from \"./index\";\n\n// Wire-level specs for the auth and rate-limit layer in index.ts: bearer\n// failure lockout, PIN attempt lockout, Access-configured header distrust,\n// and same-origin enforcement on admin writes. Per test IP keeps the shared\n// in-memory buckets independent.\nconst tenv = env as unknown as {\n  DB: D1Database;\n  TEST_MIGRATIONS: D1Migration[];\n  SEED_SQL: string;\n};\n\nbeforeEach(async () => {\n  await applyD1Migrations(tenv.DB, tenv.TEST_MIGRATIONS);\n  const statements = tenv.SEED_SQL.split(\";\")\n    .map((s) => s.trim())\n    .filter(Boolean);\n  await tenv.DB.batch(statements.map((sql) => tenv.DB.prepare(sql)));\n});",
+      "isNew": false,
+      "kind": "exact",
+      "lines": 19,
+      "secondFile": {
+        "end": 23,
+        "endLoc": {
+          "column": 3,
+          "line": 23,
+          "position": 931
+        },
+        "name": "server.test.ts",
+        "start": 5,
+        "startLoc": {
+          "column": 38,
+          "line": 5,
+          "position": 291
+        }
+      },
+      "tokens": 103
+    },
+    {
+      "firstFile": {
+        "end": 30,
+        "endLoc": {
           "column": 9,
           "line": 30,
           "position": 830
@@ -40,56 +154,18 @@
     },
     {
       "firstFile": {
-        "end": 28,
-        "endLoc": {
-          "column": 3,
-          "line": 28,
-          "position": 819
-        },
-        "name": "maintain.test.ts",
-        "start": 12,
-        "startLoc": {
-          "column": 33,
-          "line": 12,
-          "position": 341
-        }
-      },
-      "format": "typescript",
-      "fragment": "import { getTerm } from \"./query\";\n\n// Specs for the maintenance surface in ADR 0002: structured patches only,\n// propose ≠ apply, approve is atomic.\nconst tenv = env as unknown as {\n  DB: D1Database;\n  TEST_MIGRATIONS: D1Migration[];\n  SEED_SQL: string;\n};\n\nbeforeEach(async () => {\n  await applyD1Migrations(tenv.DB, tenv.TEST_MIGRATIONS);\n  const statements = tenv.SEED_SQL.split(\";\")\n    .map((s) => s.trim())\n    .filter(Boolean);\n  await tenv.DB.batch(statements.map((sql) => tenv.DB.prepare(sql)));\n});",
-      "isNew": false,
-      "kind": "exact",
-      "lines": 17,
-      "secondFile": {
-        "end": 23,
-        "endLoc": {
-          "column": 3,
-          "line": 23,
-          "position": 931
-        },
-        "name": "server.test.ts",
-        "start": 5,
-        "startLoc": {
-          "column": 38,
-          "line": 5,
-          "position": 291
-        }
-      },
-      "tokens": 103
-    },
-    {
-      "firstFile": {
-        "end": 216,
+        "end": 274,
         "endLoc": {
           "column": 21,
-          "line": 216,
-          "position": 6550
+          "line": 274,
+          "position": 8626
         },
         "name": "maintain.test.ts",
-        "start": 200,
+        "start": 258,
         "startLoc": {
           "column": 68,
-          "line": 200,
-          "position": 6104
+          "line": 258,
+          "position": 8180
         }
       },
       "format": "typescript",
@@ -98,36 +174,36 @@
       "kind": "exact",
       "lines": 17,
       "secondFile": {
-        "end": 305,
+        "end": 363,
         "endLoc": {
           "column": 21,
-          "line": 305,
-          "position": 9357
+          "line": 363,
+          "position": 11433
         },
         "name": "maintain.test.ts",
-        "start": 289,
+        "start": 347,
         "startLoc": {
           "column": 57,
-          "line": 289,
-          "position": 8911
+          "line": 347,
+          "position": 10987
         }
       },
       "tokens": 87
     },
     {
       "firstFile": {
-        "end": 313,
+        "end": 371,
         "endLoc": {
           "column": 33,
-          "line": 313,
-          "position": 9690
+          "line": 371,
+          "position": 11766
         },
         "name": "maintain.test.ts",
-        "start": 298,
+        "start": 356,
         "startLoc": {
           "column": 32,
-          "line": 298,
-          "position": 9219
+          "line": 356,
+          "position": 11295
         }
       },
       "format": "typescript",
@@ -136,36 +212,36 @@
       "kind": "exact",
       "lines": 16,
       "secondFile": {
-        "end": 349,
+        "end": 407,
         "endLoc": {
           "column": 33,
-          "line": 349,
-          "position": 10815
+          "line": 407,
+          "position": 12891
         },
         "name": "maintain.test.ts",
-        "start": 335,
+        "start": 393,
         "startLoc": {
           "column": 37,
-          "line": 335,
-          "position": 10421
+          "line": 393,
+          "position": 12497
         }
       },
       "tokens": 101
     },
     {
       "firstFile": {
-        "end": 309,
+        "end": 367,
         "endLoc": {
           "column": 24,
-          "line": 309,
-          "position": 9503
+          "line": 367,
+          "position": 11579
         },
         "name": "maintain.test.ts",
-        "start": 298,
+        "start": 356,
         "startLoc": {
           "column": 51,
-          "line": 298,
-          "position": 9238
+          "line": 356,
+          "position": 11314
         }
       },
       "format": "typescript",
@@ -174,36 +250,36 @@
       "kind": "exact",
       "lines": 12,
       "secondFile": {
-        "end": 378,
+        "end": 436,
         "endLoc": {
           "column": 24,
-          "line": 378,
-          "position": 11775
+          "line": 436,
+          "position": 13851
         },
         "name": "maintain.test.ts",
-        "start": 367,
+        "start": 425,
         "startLoc": {
           "column": 76,
-          "line": 367,
-          "position": 11510
+          "line": 425,
+          "position": 13586
         }
       },
       "tokens": 65
     },
     {
       "firstFile": {
-        "end": 311,
+        "end": 369,
         "endLoc": {
           "column": 27,
-          "line": 311,
-          "position": 9562
+          "line": 369,
+          "position": 11638
         },
         "name": "maintain.test.ts",
-        "start": 298,
+        "start": 356,
         "startLoc": {
           "column": 51,
-          "line": 298,
-          "position": 9238
+          "line": 356,
+          "position": 11314
         }
       },
       "format": "typescript",
@@ -212,36 +288,36 @@
       "kind": "exact",
       "lines": 14,
       "secondFile": {
-        "end": 417,
+        "end": 475,
         "endLoc": {
           "column": 27,
-          "line": 417,
-          "position": 12846
+          "line": 475,
+          "position": 14922
         },
         "name": "maintain.test.ts",
-        "start": 404,
+        "start": 462,
         "startLoc": {
           "column": 10,
-          "line": 404,
-          "position": 12522
+          "line": 462,
+          "position": 14598
         }
       },
       "tokens": 85
     },
     {
       "firstFile": {
-        "end": 320,
+        "end": 378,
         "endLoc": {
           "column": 4,
-          "line": 320,
-          "position": 9889
+          "line": 378,
+          "position": 11965
         },
         "name": "maintain.test.ts",
-        "start": 315,
+        "start": 373,
         "startLoc": {
           "column": 4,
-          "line": 315,
-          "position": 9706
+          "line": 373,
+          "position": 11782
         }
       },
       "format": "typescript",
@@ -250,18 +326,18 @@
       "kind": "exact",
       "lines": 6,
       "secondFile": {
-        "end": 430,
+        "end": 488,
         "endLoc": {
           "column": 1,
-          "line": 430,
-          "position": 13321
+          "line": 488,
+          "position": 15397
         },
         "name": "maintain.test.ts",
-        "start": 426,
+        "start": 484,
         "startLoc": {
           "column": 4,
-          "line": 426,
-          "position": 13142
+          "line": 484,
+          "position": 15218
         }
       },
       "tokens": 52
@@ -402,18 +478,18 @@
       "kind": "exact",
       "lines": 7,
       "secondFile": {
-        "end": 661,
+        "end": 723,
         "endLoc": {
           "column": 24,
-          "line": 661,
-          "position": 23080
+          "line": 723,
+          "position": 25008
         },
         "name": "query.test.ts",
-        "start": 655,
+        "start": 717,
         "startLoc": {
           "column": 52,
-          "line": 655,
-          "position": 22902
+          "line": 717,
+          "position": 24830
         }
       },
       "tokens": 51
@@ -440,18 +516,18 @@
       "kind": "exact",
       "lines": 8,
       "secondFile": {
-        "end": 835,
+        "end": 897,
         "endLoc": {
           "column": 9,
-          "line": 835,
-          "position": 29583
+          "line": 897,
+          "position": 31511
         },
         "name": "query.test.ts",
-        "start": 828,
+        "start": 890,
         "startLoc": {
           "column": 65,
-          "line": 828,
-          "position": 29395
+          "line": 890,
+          "position": 31323
         }
       },
       "tokens": 52
@@ -554,18 +630,18 @@
       "kind": "exact",
       "lines": 8,
       "secondFile": {
-        "end": 662,
+        "end": 724,
         "endLoc": {
           "column": 14,
-          "line": 662,
-          "position": 23095
+          "line": 724,
+          "position": 25023
         },
         "name": "query.test.ts",
-        "start": 655,
+        "start": 717,
         "startLoc": {
           "column": 60,
-          "line": 655,
-          "position": 22910
+          "line": 717,
+          "position": 24838
         }
       },
       "tokens": 52
@@ -610,18 +686,18 @@
     },
     {
       "firstFile": {
-        "end": 708,
+        "end": 770,
         "endLoc": {
           "column": 48,
-          "line": 708,
-          "position": 24931
+          "line": 770,
+          "position": 26859
         },
         "name": "query.test.ts",
-        "start": 702,
+        "start": 764,
         "startLoc": {
           "column": 75,
-          "line": 702,
-          "position": 24737
+          "line": 764,
+          "position": 26665
         }
       },
       "format": "typescript",
@@ -630,36 +706,36 @@
       "kind": "exact",
       "lines": 7,
       "secondFile": {
-        "end": 806,
+        "end": 868,
         "endLoc": {
           "column": 48,
-          "line": 806,
-          "position": 28677
+          "line": 868,
+          "position": 30605
         },
         "name": "query.test.ts",
-        "start": 800,
+        "start": 862,
         "startLoc": {
           "column": 59,
-          "line": 800,
-          "position": 28483
+          "line": 862,
+          "position": 30411
         }
       },
       "tokens": 51
     },
     {
       "firstFile": {
-        "end": 776,
+        "end": 838,
         "endLoc": {
           "column": 50,
-          "line": 776,
-          "position": 27599
+          "line": 838,
+          "position": 29527
         },
         "name": "query.test.ts",
-        "start": 768,
+        "start": 830,
         "startLoc": {
           "column": 25,
-          "line": 768,
-          "position": 27323
+          "line": 830,
+          "position": 29251
         }
       },
       "format": "typescript",
@@ -668,18 +744,18 @@
       "kind": "exact",
       "lines": 9,
       "secondFile": {
-        "end": 825,
+        "end": 887,
         "endLoc": {
           "column": 50,
-          "line": 825,
-          "position": 29309
+          "line": 887,
+          "position": 31237
         },
         "name": "query.test.ts",
-        "start": 817,
+        "start": 879,
         "startLoc": {
           "column": 27,
-          "line": 817,
-          "position": 29033
+          "line": 879,
+          "position": 30961
         }
       },
       "tokens": 60
@@ -688,29 +764,29 @@
   "statistics": {
     "formats": {
       "typescript": {
-        "clones": 18,
-        "duplicatedLines": 190,
-        "duplicatedTokens": 1214,
-        "lines": 3164,
+        "clones": 20,
+        "duplicatedLines": 222,
+        "duplicatedTokens": 1371,
+        "lines": 3982,
         "newClones": 0,
         "newDuplicatedLines": 0,
-        "percentage": 6.005056890012642,
-        "percentageTokens": 5.781503000285741,
-        "sources": 10,
-        "tokens": 20998
+        "percentage": 5.575087895529885,
+        "percentageTokens": 5.252471075013409,
+        "sources": 15,
+        "tokens": 26102
       }
     },
     "total": {
-      "clones": 18,
-      "duplicatedLines": 190,
-      "duplicatedTokens": 1214,
-      "lines": 3164,
+      "clones": 20,
+      "duplicatedLines": 222,
+      "duplicatedTokens": 1371,
+      "lines": 3982,
       "newClones": 0,
       "newDuplicatedLines": 0,
-      "percentage": 6.005056890012642,
-      "percentageTokens": 5.781503000285741,
-      "sources": 10,
-      "tokens": 20998
+      "percentage": 5.575087895529885,
+      "percentageTokens": 5.252471075013409,
+      "sources": 15,
+      "tokens": 26102
     }
   }
 }

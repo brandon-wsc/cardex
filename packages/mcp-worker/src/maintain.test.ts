@@ -141,12 +141,70 @@ describe("proposeChange", () => {
     if (!view.ok) return;
     expect(view.proposal).toMatchObject({
       status: "pending",
-      proposed_by: "grokbot",
+      proposed_by: "maintainer",
     });
+  });
+
+  it("records the credential identity, not the caller-supplied name", async () => {
+    const res = await proposeChange(tenv.DB, {
+      ...good,
+      proposed_by: "mallory",
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const view = await getProposal(tenv.DB, res.proposal_id);
+    if (!view.ok) return;
+    expect(view.proposal).toMatchObject({ proposed_by: "maintainer" });
   });
 
   it("rejects when evidence_url is missing", async () => {
     const res = await proposeChange(tenv.DB, { ...good, evidence_url: "" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toBe("invalid_proposal");
+  });
+
+  it("rejects a non-http(s) evidence_url", async () => {
+    for (const evidence_url of [
+      "javascript:alert(1)",
+      "data:text/html,<script>alert(1)</script>",
+      "ftp://example.com/x",
+      "not-a-url",
+    ]) {
+      const res = await proposeChange(tenv.DB, { ...good, evidence_url });
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error).toBe("invalid_proposal");
+    }
+  });
+
+  it("rejects overlong free text and oversized patch lists", async () => {
+    for (const input of [
+      { summary: "s".repeat(501) },
+      { excerpt: "e".repeat(4001) },
+      { evidence_url: "https://example.com/" + "a".repeat(2048) },
+    ]) {
+      const res = await proposeChange(tenv.DB, { ...good, ...input });
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error).toBe("invalid_proposal");
+    }
+
+    const many = await proposeChange(tenv.DB, {
+      ...good,
+      patches: Array.from({ length: 51 }, () => good.patches[0]),
+    });
+    expect(many.ok).toBe(false);
+    if (!many.ok) expect(many.error).toBe("invalid_proposal");
+  });
+
+  it("rejects new proposals once the pending queue is full", async () => {
+    await tenv.DB.prepare(
+      `WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 100)
+       INSERT INTO proposals (id, proposed_by, summary, evidence_url, patches, status, created_at)
+       SELECT 'prop_fill_' || x, 'grokbot', 's', 'https://e/x', '[]', 'pending', ?1 FROM c`,
+    )
+      .bind(new Date().toISOString())
+      .run();
+
+    const res = await proposeChange(tenv.DB, good);
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error).toBe("invalid_proposal");
   });
