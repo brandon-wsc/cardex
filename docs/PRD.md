@@ -1,6 +1,6 @@
 # Cardex — PRD
 
-Status: Draft v0.3 · Owner: Brandon · Last updated: 2026-10-31
+Status: Draft v0.3 · Owner: Brandon · Last updated: 2026-11-01
 
 Cardex is a pair: a **playbook** that teaches a personal agent how to reason about Hong Kong credit cards, and a **facts backend** — a Cloudflare Worker in `packages/mcp-worker`, a public remote MCP endpoint backed by D1. The playbook ships in `skills/cardex` ([ADR 0001](adr/0001-product-shape.md)); this document specifies the backend and its contract. Query data is the synthetic seed in `seed/seed.sql` — invented numbers, not issuer terms.
 
@@ -59,6 +59,10 @@ Language is in [`CONTEXT.md`](../CONTEXT.md). This section is the v1 data model;
 
 `period` vocabulary observed in the wild (open string, not an enum): `statement_month`, `statement_cycle`, `calendar_month`, `promo_period`, `promo_phase`, `event_date`, `rolling_window`, `per_transaction`, `none`.
 
+### 3.4 Language of facts
+
+Fact fields are English-canonical ([ADR 0003](adr/0003-facts-language.md)). Non-English coverage lives in the lookup layer: `aliases` maps zh merchant, nickname, and spend-word text to tags and cards; `ISSUER_ALIASES`/`NETWORK_ALIASES` map zh issuer and network names; `term_merchants` holds one row per known name form of a whitelist member. The caller renders the end-user's language — payloads stay English.
+
 ### 3.2 What a rate does not include
 
 The rate row does not embed the term body. The caller follows `term_ids` with `get_term`. That keeps `lookup_rates` small.
@@ -99,7 +103,7 @@ Inputs:
 - `card_ids?` — restricts scoring to those cards. This is the held-set path after the user confirms their wallet; Cardex never learns why the set was chosen. Alias hits contribute their `card_ids` to the same scope.
 - Tags come from `tag_ids` and from `alias` (via the same match as `resolve_alias`). No tags at all → `missing_spend`.
 - `as_of` — filters windowed terms. Default today.
-- `merchant?` — a merchant name to check `merchant_list` whitelists against. A hit clears the term; a miss keeps it unknown (a fuzzy match can prove membership, never non-membership). The payload echoes `merchant_checked`.
+- `merchant?` — a merchant name to check `merchant_list` whitelists against. Members carry every known name form (en/zh), so the caller passes the name as the user said it. A hit clears the term; a miss keeps it unknown (a fuzzy match can prove membership, never non-membership). The payload echoes `merchant_checked`.
 - `assumptions.month_to_date_rebate_hkd` — rebate already earned this period, used only to apply a cap.
 - `assumptions.month_to_date_spend_hkd` — eligible spend already made this period, used only to check cumulative `min_spend` gates.
 - `assumptions.hkd_per_point` — how the caller values one unit (point or mile) of a `points` rate's `unit`.
