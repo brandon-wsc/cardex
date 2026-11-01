@@ -62,7 +62,7 @@ describe("lookup_rates", () => {
   });
 
   it("defaults limit to 5 and echoes no limit_requested", async () => {
-    const res = await lookupRates(tenv.DB, {});
+    const res = await lookupRates(tenv.DB, { tag_id: "dining" });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.limit).toBe(5);
@@ -71,7 +71,7 @@ describe("lookup_rates", () => {
   });
 
   it("clamps limit above 100 and echoes limit_requested", async () => {
-    const res = await lookupRates(tenv.DB, { limit: 200 });
+    const res = await lookupRates(tenv.DB, { tag_id: "dining", limit: 200 });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.limit).toBe(100);
@@ -359,7 +359,7 @@ describe("score_candidates", () => {
 // PRD v0.3 contract deltas — landed with the tests that gated them.
 describe("contract deltas — PRD v0.3", () => {
   it("returns the requested limit between 21 and 100", async () => {
-    const res = await lookupRates(tenv.DB, { limit: 50 });
+    const res = await lookupRates(tenv.DB, { tag_id: "dining", limit: 50 });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.limit).toBe(50);
@@ -386,7 +386,7 @@ describe("contract deltas — PRD v0.3", () => {
   });
 
   it("echoes unit on each rate row", async () => {
-    const res = await lookupRates(tenv.DB, {});
+    const res = await lookupRates(tenv.DB, { tag_id: "dining" });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     for (const row of res.records) {
@@ -400,7 +400,7 @@ describe("contract deltas — PRD v0.3", () => {
   });
 
   it("echoes seed_as_of on the envelope", async () => {
-    const res = await lookupRates(tenv.DB, {});
+    const res = await lookupRates(tenv.DB, { tag_id: "dining" });
     expect(res.ok && res.seed_as_of).toBe("2026-11-01");
   });
 
@@ -519,6 +519,117 @@ describe("contract deltas — PRD v0.3", () => {
     });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error).toBe("not_found");
+  });
+});
+
+// PRD v0.4 contract deltas — silent-footgun hardening. A filter-less or
+// mistyped call must surface as an error or an explicit flag, never as a
+// quiet catalog dump.
+describe("contract deltas — PRD v0.4", () => {
+  it("rejects a filter-less lookup_rates call with missing_filter", async () => {
+    for (const input of [{}, { limit: 5 }, { card_ids: [] }]) {
+      const res = await lookupRates(tenv.DB, input);
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error).toBe("missing_filter");
+    }
+  });
+
+  it("matches issuer exactly, so a stray letter hits nothing", async () => {
+    // Old behaviour was substring instr(): issuer:"a" matched AEON + Amex +
+    // anything containing the letter. Exact match returns an honest empty page.
+    const res = await lookupRates(tenv.DB, { issuer: "a" });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.total).toBe(0);
+    expect(res.records).toEqual([]);
+  });
+
+  it("resolves an issuer through the alias map to the canonical string", async () => {
+    const zh = await lookupRates(tenv.DB, { issuer: "匯豐" });
+    expect(zh.ok).toBe(true);
+    if (!zh.ok) return;
+    expect(zh.total).toBe(2);
+    expect(zh.records.every((r) => r.issuer === "HSBC")).toBe(true);
+    expect(zh.filters.issuer_canonical).toEqual(["HSBC"]);
+
+    const abbr = await lookupRates(tenv.DB, { issuer: "sc" });
+    expect(abbr.ok).toBe(true);
+    if (!abbr.ok) return;
+    expect(abbr.records.every((r) => r.issuer === "Standard Chartered")).toBe(
+      true,
+    );
+  });
+
+  it("echoes the filters actually applied", async () => {
+    const res = await lookupRates(tenv.DB, {
+      tag_id: "online",
+      card_ids: ["card_hsbc_red"],
+      issuer: "hsbc",
+      as_of: "2026-11-01",
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.filters).toEqual({
+      tag_id: "online",
+      card_ids: ["card_hsbc_red"],
+      issuer: "hsbc",
+      issuer_canonical: ["HSBC"],
+      as_of: "2026-11-01",
+    });
+
+    const sparse = await lookupRates(tenv.DB, { tag_id: "dining" });
+    expect(sparse.ok).toBe(true);
+    if (!sparse.ok) return;
+    expect(sparse.filters.tag_id).toBe("dining");
+    expect(sparse.filters.card_ids).toBeNull();
+    expect(sparse.filters.issuer).toBeNull();
+    expect(sparse.filters.issuer_canonical).toBeNull();
+  });
+
+  it("echoes filters on the unknown_tag_id page too", async () => {
+    const res = await lookupRates(tenv.DB, { tag_id: "nope" });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.filters.tag_id).toBe("nope");
+    expect((res as { unknown_tag_id?: string }).unknown_tag_id).toBe("nope");
+  });
+
+  it("flags unknown tag_ids on score_candidates while scoring the rest", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining", "bogus"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect((res as { unknown_tag_ids?: string[] }).unknown_tag_ids).toEqual([
+      "bogus",
+    ]);
+    expect(res.tag_ids).toEqual(["dining", "bogus"]);
+    expect(res.candidates.length).toBe(4);
+  });
+
+  it("returns ok with empty candidates when every tag is unknown", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["bogus"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.total).toBe(0);
+    expect(res.candidates).toEqual([]);
+    expect((res as { unknown_tag_ids?: string[] }).unknown_tag_ids).toEqual([
+      "bogus",
+    ]);
+  });
+
+  it("omits unknown_tag_ids when every tag resolves", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res).not.toHaveProperty("unknown_tag_ids");
   });
 });
 

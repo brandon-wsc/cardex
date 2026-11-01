@@ -3,7 +3,7 @@
 > **Status:** `pnpm test` — vitest + `@cloudflare/vitest-plugin`, running inside workerd against real D1 (migrations + `packages/mcp-worker/test/seed.sql`, a frozen fixture; `seed/seed.sql` is the prod snapshot and drifts with exports). `pnpm demo` remains the end-to-end check.
 > **Principle:** gate on tool behavior. No repo-wide coverage percentage. No live issuer HTTP in CI.
 
-Specs live next to `query.ts` and are sourced from the PRD tables — one row, one `it()`. Held contract deltas are `it.fails` (expected red; when the delta lands the flip forces you to unmark) or `it.todo` when the schema/function does not exist yet.
+Specs live next to `query.ts` and are sourced from the PRD tables — one row, one `it()`. Held contract deltas are `it.fails` (expected red; when the delta lands the flip forces you to unmark) or `it.todo` when the schema/function does not exist yet. `server.test.ts` covers the wire-level contract — it drives `buildServer` through a real `Client` + `InMemoryTransport` pair so input-schema behaviour (strict keys, InvalidParams) is tested where the SDK applies it.
 
 Add commands to the root [`AGENTS.md`](../AGENTS.md) when they actually run.
 
