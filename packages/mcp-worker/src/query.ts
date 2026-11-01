@@ -24,6 +24,7 @@ type FailureCode =
   | "invalid_amount"
   | "invalid_date"
   | "invalid_report"
+  | "missing_filter"
   | "missing_spend";
 
 export interface Failure {
@@ -232,6 +233,26 @@ const RATE_COLS =
   "r.effective_from, r.effective_to, r.exclusive_group, r.priority, " +
   "c.name AS card_name, c.issuer";
 
+// Issuer matching is never SQL substring: the caller's words resolve
+// through the issuer alias map with the same aliasHits rule as
+// resolve_alias (normalized exact, or either-contains when both sides
+// are at least 2 chars) plus the normalized input itself, so a canonical
+// name works even when it is not a known alias. issuer:"a" hits nothing
+// instead of matching every issuer whose name contains the letter.
+function resolveIssuers(query: string): { params: string[]; canonical: string[] } {
+  const params = new Set<string>([query]);
+  const canonical = new Set<string>();
+  for (const [text, issuer] of Object.entries(ISSUER_ALIASES)) {
+    if (!aliasHits(query, text)) continue;
+    params.add(norm(issuer));
+    canonical.add(issuer);
+  }
+  return {
+    params: [...params].sort(),
+    canonical: [...canonical].sort(),
+  };
+}
+
 export async function lookupRates(
   db: D1Database,
   input: {
@@ -247,6 +268,27 @@ export async function lookupRates(
   const asOf = checkAsOf(input.as_of);
   if (typeof asOf !== "string") return asOf;
 
+  // A filter-less call must not default to a catalog dump — the caller
+  // either mistyped a key (which strict input now rejects upstream) or
+  // meant to narrow and sent nothing.
+  const issuerQuery = input.issuer === undefined ? null : norm(input.issuer);
+  const cardIds = input.card_ids?.length ? input.card_ids : null;
+  if (!input.tag_id && !cardIds && !issuerQuery) {
+    return fail(
+      "missing_filter",
+      "pass at least one of tag_id, card_ids, or issuer",
+    );
+  }
+  const issuer = issuerQuery ? resolveIssuers(issuerQuery) : null;
+
+  const filters = {
+    tag_id: input.tag_id || null,
+    card_ids: cardIds,
+    issuer: issuer ? input.issuer! : null,
+    issuer_canonical: issuer ? issuer.canonical : null,
+    as_of: asOf,
+  };
+
   if (input.tag_id) {
     const tag = await db.prepare("SELECT id FROM tags WHERE id = ?").bind(input.tag_id).first();
     if (!tag) {
@@ -255,6 +297,7 @@ export async function lookupRates(
         provenance: PROVENANCE,
         seed_as_of: await seedAsOf(db),
         ...page,
+        filters,
         total: 0,
         unknown_tag_id: input.tag_id,
         records: [],
@@ -270,13 +313,13 @@ export async function lookupRates(
     );
     params.push(input.tag_id);
   }
-  if (input.card_ids?.length) {
-    where.push(`r.card_id IN (${placeholders(input.card_ids.length)})`);
-    params.push(...input.card_ids);
+  if (cardIds) {
+    where.push(`r.card_id IN (${placeholders(cardIds.length)})`);
+    params.push(...cardIds);
   }
-  if (input.issuer) {
-    where.push("instr(lower(c.issuer), ?) > 0");
-    params.push(norm(input.issuer));
+  if (issuer) {
+    where.push(`lower(c.issuer) IN (${placeholders(issuer.params.length)})`);
+    params.push(...issuer.params);
   }
   const whereSql = `WHERE ${where.join(" AND ")}`;
 
@@ -298,6 +341,7 @@ export async function lookupRates(
     provenance: PROVENANCE,
     seed_as_of: await seedAsOf(db),
     ...page,
+    filters,
     total: totalRow?.n ?? 0,
     records: await rateRowsWithRefs(db, results),
   };
@@ -468,6 +512,16 @@ export async function scoreCandidates(
     return fail("missing_spend", "pass tag_ids or an alias that maps to a tag");
   }
   const tagList = [...spendTags];
+
+  // Same contract as lookup_rates' unknown_tag_id: an unrecognized tag
+  // never errors the call — the caller gets the rows its known tags earned
+  // plus an explicit list of what did not resolve.
+  const { results: knownTagRows } = await db
+    .prepare(`SELECT id FROM tags WHERE id IN (${placeholders(tagList.length)})`)
+    .bind(...tagList)
+    .all<{ id: string }>();
+  const knownTags = new Set(knownTagRows.map((row) => row.id));
+  const unknownTagIds = tagList.filter((id) => !knownTags.has(id)).sort();
 
   const where: string[] = [
     `rt.tag_id IN (${placeholders(tagList.length)})`,
@@ -647,6 +701,7 @@ export async function scoreCandidates(
     seed_as_of: await seedAsOf(db),
     amount_hkd: input.amount_hkd,
     tag_ids: tagList,
+    ...(unknownTagIds.length > 0 ? { unknown_tag_ids: unknownTagIds } : {}),
     as_of: asOf,
     merchant_checked: input.merchant ?? null,
     ...page,

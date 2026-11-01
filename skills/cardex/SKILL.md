@@ -37,10 +37,12 @@ Both `accept` entries are required. The response is a single SSE frame: take the
 
 Every list tool takes filters and `limit` (default 5, max 100 — higher is clamped and the payload echoes `limit_requested` + `clamped`). Every filter takes `as_of` (default: today, `YYYY-MM-DD`); records outside their effective window are dropped from lists and scores but stay fetchable by `id`. Follow up with `get_card` / `get_term` by `id`; tools never return the whole catalog. Each payload echoes `seed_as_of` — the date the underlying data was last refreshed.
 
+Inputs are strict: an unrecognized argument key is a protocol `InvalidParams` error, never a silently dropped filter. A typo like `tag` for `tag_id` fails the call — it does not quietly widen your query.
+
 | Tool | Call it when | Key args |
 | --- | --- | --- |
 | `resolve_alias` | You have a merchant name, nickname, or free text (`茶餐廳`, `hsbc red`, `淘寶`) and need tag or card ids | `query`, `limit` |
-| `lookup_rates` | You need the rates for a tag, set of cards, or issuer | `tag_id`, `card_ids`, `issuer`, `as_of`, `limit` |
+| `lookup_rates` | You need the rates for a tag, set of cards, or issuer | `tag_id`, `card_ids`, `issuer`, `as_of`, `limit` — at least one filter required |
 | `get_card` | You need one card's details and its rate summaries | `id` |
 | `get_term` | A rate cites `term_ids` you cannot evaluate | `id` |
 | `list_tags` | You need the canonical spend tags | `limit` |
@@ -106,4 +108,7 @@ A term stays in `unknown_exclusions` until you settle it. Quoting a number with 
 - **Facts only.** No `winner`, no ranking, no best-card language. `score_candidates` echoes `assumptions_used` — check it before quoting a number.
 - **`provenance.illustrative: true`.** Until the cited seed lands, every figure is invented. Do not present a Cardex number as an issuer's real terms; confirm with the issuer.
 - **Freshness.** Terms carry `source_url`, `last_verified_at`, `effective_from`/`effective_to`. An old `last_verified_at` or a promo `as_of` past `effective_to` means treat the fact as stale.
-- **Not found is a payload,** not an exception: `{ "ok": false, "error": "not_found" }`. Same for `invalid_date`, `invalid_limit`, `invalid_amount`, and `missing_spend`.
+- **`lookup_rates` needs a filter.** At least one of `tag_id` / `card_ids` / `issuer` — an empty call is `{ "ok": false, "error": "missing_filter" }`, not the whole catalog. The page echoes the applied `filters` (`tag_id`, `card_ids`, `issuer`, `issuer_canonical`, `as_of`); read it back before trusting the rows.
+- **`issuer` is not substring.** Pass a canonical issuer name or a known alias (`hsbc`, `sc`, `匯豐`) — resolved like `resolve_alias` (normalized exact, or either-contains when both sides are ≥2 chars). `issuer_canonical` shows what it resolved to. A stray `issuer:"a"` matches nothing, which is the point: check the echo and `total` before ranking.
+- **Unresolved tags are flagged.** `score_candidates` echoes `unknown_tag_ids` for tag ids that do not exist; all-unknown → `ok` with empty `candidates`. Same flag-not-error contract as `unknown_tag_id` on `lookup_rates`.
+- **Not found is a payload,** not an exception: `{ "ok": false, "error": "not_found" }`. Same for `invalid_date`, `invalid_limit`, `invalid_amount`, `missing_filter`, and `missing_spend`.

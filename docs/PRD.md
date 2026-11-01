@@ -1,6 +1,6 @@
 # Cardex — PRD
 
-Status: Draft v0.3 · Owner: Brandon · Last updated: 2026-11-01
+Status: Draft v0.4 · Owner: Brandon · Last updated: 2026-11-01
 
 Cardex is a pair: a **playbook** that teaches a personal agent how to reason about Hong Kong credit cards, and a **facts backend** — a Cloudflare Worker in `packages/mcp-worker`, a public remote MCP endpoint backed by D1. The playbook ships in `skills/cardex` ([ADR 0001](adr/0001-product-shape.md)); this document specifies the backend and its contract. Query data is the synthetic seed in `seed/seed.sql` — invented numbers, not issuer terms.
 
@@ -81,9 +81,11 @@ Shared envelope on every success and failure:
 
 `limit` above 100 is clamped. The payload echoes `limit_requested` and `clamped: true`. `limit` below 1 is `invalid_limit`. Omitted `limit` becomes 5. There is no offset by design — the catalog is small, and follow-up reads are by `id`.
 
+Tool inputs are strict objects: an unrecognized key (`tag` instead of `tag_id`, `cards` instead of `card_ids`) is a protocol-level `InvalidParams` error, never a silently dropped filter.
+
 | Tool | Input | Returns |
 |---|---|---|
-| `lookup_rates` | `tag_id?`, `card_ids?: string[]`, `issuer?`, `as_of?`, `limit?` | Matching rates, all filters AND. Each row: rate id, card id and name, issuer, kind, value, unit, tag ids, term ids. `total` is the pre-limit count. Unknown `tag_id` → empty page plus `unknown_tag_id` |
+| `lookup_rates` | `tag_id?`, `card_ids?: string[]`, `issuer?`, `as_of?`, `limit?` — at least one of `tag_id` / `card_ids` / `issuer` is required | Matching rates, all filters AND. Each row: rate id, card id and name, issuer, kind, value, unit, tag ids, term ids. `total` is the pre-limit count. The payload echoes the applied filters as `filters: { tag_id, card_ids, issuer, issuer_canonical, as_of }`. `issuer` compares against the canonical `cards.issuer` string (normalized) or resolves through the issuer alias map via the same `aliasHits` rule as `resolve_alias` — exact, or either-contains when both sides are ≥2 characters — never catalog-wide substring; `issuer_canonical` lists the canonical issuer names the input resolved to. Unknown `tag_id` → empty page plus `unknown_tag_id` |
 | `get_card` | `id` | One card, its rate summaries, the term ids those rates cite. Unknown id → `not_found` |
 | `get_term` | `id` | One term. Unknown id → `not_found` |
 | `list_tags` | `limit?` | Tag id + label |
@@ -101,7 +103,7 @@ Inputs:
 
 - `amount_hkd` — must be > 0, else `invalid_amount`.
 - `card_ids?` — restricts scoring to those cards. This is the held-set path after the user confirms their wallet; Cardex never learns why the set was chosen. Alias hits contribute their `card_ids` to the same scope.
-- Tags come from `tag_ids` and from `alias` (via the same match as `resolve_alias`). No tags at all → `missing_spend`.
+- Tags come from `tag_ids` and from `alias` (via the same match as `resolve_alias`). No tags at all → `missing_spend`. Resolved tag ids that do not exist are echoed as `unknown_tag_ids` — the call still scores the tags that resolved, and an all-unknown list returns `ok` with empty `candidates`. Same ok-plus-flag contract as `lookup_rates`' `unknown_tag_id`.
 - `as_of` — filters windowed terms. Default today.
 - `merchant?` — a merchant name to check `merchant_list` whitelists against. Members carry every known name form (en/zh), so the caller passes the name as the user said it. A hit clears the term; a miss keeps it unknown (a fuzzy match can prove membership, never non-membership). The payload echoes `merchant_checked`.
 - `assumptions.month_to_date_rebate_hkd` — rebate already earned this period, used only to apply a cap.
@@ -140,8 +142,11 @@ A cleared exclusion is the caller saying "this does not apply", not Cardex decid
 | State | Behaviour |
 |---|---|
 | No rates match | `ok: true`, `records: []`, `total: 0` |
+| Unknown input key on any tool | Protocol `InvalidParams` error — the handler never runs |
+| `lookup_rates` with no `tag_id` / `card_ids` / `issuer` | `ok: false`, `error: "missing_filter"` |
 | Unknown card or term id | `ok: false`, `error: "not_found"` |
 | Unknown tag on lookup | `ok: true`, empty page, `unknown_tag_id` set |
+| Unknown tag ids on score | `ok: true`, `unknown_tag_ids` lists them; all-unknown → empty `candidates` |
 | Alias matches nothing | `ok: true`, `matches: []` |
 | `limit` above 100 | Clamped, `clamped: true` |
 | Score with no tag and no usable alias | `ok: false`, `error: "missing_spend"` |

@@ -3,8 +3,11 @@
 // than seed rows scattered between tag and card aliases.
 //
 // Keys are matched case-insensitively with collapsed whitespace — write them
-// lowercase. Values must equal the canonical cards.issuer / cards.network
-// strings, so a resolved issuer feeds straight into lookup_rates(issuer).
+// lowercase. Both resolve_alias and lookup_rates' issuer filter match keys
+// with the same rule: exact, or either-contains when both sides are at
+// least 2 characters. Values must equal the canonical cards.issuer /
+// cards.network strings, so a resolved issuer feeds straight into
+// lookup_rates(issuer).
 
 export const ISSUER_ALIASES: Record<string, string> = {
   hsbc: "HSBC",

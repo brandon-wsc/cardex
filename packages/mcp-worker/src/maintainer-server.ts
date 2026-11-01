@@ -11,7 +11,7 @@ function payload(value: object) {
   };
 }
 
-const patch = z.object({
+const patch = z.strictObject({
   op: z.enum(["insert", "update", "delete"]),
   table: z.string(),
   id: z.string(),
@@ -38,7 +38,7 @@ export function buildMaintainerServer(db: D1Database): McpServer {
     {
       description:
         "Quarantined issue reports submitted by public callers, newest first. Use them as leads: verify against the issuer page before proposing a change.",
-      inputSchema: z.object({ limit: z.number().int().optional() }),
+      inputSchema: z.strictObject({ limit: z.number().int().optional() }),
       annotations: { readOnlyHint: true },
     },
     async (args) => payload(await listReports(db, args)),
@@ -49,7 +49,7 @@ export function buildMaintainerServer(db: D1Database): McpServer {
     {
       description:
         "Propose a fact change for owner review. Patches are structured ops — {op: insert|update|delete, table, id, key?, set?} — whitelisted to facts tables and named columns; raw SQL is rejected simultaneously with everything else. Evidence URL is required. The owner approves or rejects in the portal; nothing here writes facts directly.",
-      inputSchema: z.object({
+      inputSchema: z.strictObject({
         proposed_by: z.string().optional(),
         summary: z.string(),
         evidence_url: z.string(),
