@@ -19,6 +19,20 @@ Example client config:
 { "mcpServers": { "cardex": { "url": "https://cardex.brandonhk.com/mcp" } } }
 ```
 
+### No MCP client?
+
+The endpoint is plain HTTP — if you can POST, you can call it. Stateless: a single request is a complete call, no `initialize` handshake.
+
+```bash
+curl {BASE_URL}/mcp \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
+       "params":{"name":"list_tags","arguments":{"limit":3}}}'
+```
+
+Both `accept` entries are required. The response is a single SSE frame: take the `data:` line, `JSON.parse` it, and read `result.structuredContent` (the `content[0].text` echo carries the same payload). Swap `tools/call` for `tools/list` to discover schemas. CORS is open, so a browser `fetch` works too.
+
 ## Tools
 
 Every list tool takes filters and `limit` (default 5, max 100 — higher is clamped and the payload echoes `limit_requested` + `clamped`). Every filter takes `as_of` (default: today, `YYYY-MM-DD`); records outside their effective window are dropped from lists and scores but stay fetchable by `id`. Follow up with `get_card` / `get_term` by `id`; tools never return the whole catalog. Each payload echoes `seed_as_of` — the date the underlying data was last refreshed.
