@@ -141,8 +141,20 @@ describe("proposeChange", () => {
     if (!view.ok) return;
     expect(view.proposal).toMatchObject({
       status: "pending",
-      proposed_by: "grokbot",
+      proposed_by: "maintainer",
     });
+  });
+
+  it("records the credential identity, not the caller-supplied name", async () => {
+    const res = await proposeChange(tenv.DB, {
+      ...good,
+      proposed_by: "mallory",
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const view = await getProposal(tenv.DB, res.proposal_id);
+    if (!view.ok) return;
+    expect(view.proposal).toMatchObject({ proposed_by: "maintainer" });
   });
 
   it("rejects when evidence_url is missing", async () => {
@@ -168,7 +180,6 @@ describe("proposeChange", () => {
     for (const input of [
       { summary: "s".repeat(501) },
       { excerpt: "e".repeat(4001) },
-      { proposed_by: "p".repeat(101) },
       { evidence_url: "https://example.com/" + "a".repeat(2048) },
     ]) {
       const res = await proposeChange(tenv.DB, { ...good, ...input });

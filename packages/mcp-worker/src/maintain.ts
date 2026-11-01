@@ -233,7 +233,6 @@ const PROPOSAL_MAX = {
   url: 2048,
   summary: 500,
   excerpt: 4000,
-  proposed_by: 100,
   patches: 50,
   pending: 100,
 };
@@ -247,11 +246,6 @@ function proposalBoundsError(input: ProposalInput): string | null {
     input.excerpt.length > PROPOSAL_MAX.excerpt
   )
     return "excerpt too long";
-  if (
-    input.proposed_by !== undefined &&
-    input.proposed_by.length > PROPOSAL_MAX.proposed_by
-  )
-    return "proposed_by too long";
   if (
     input.evidence_url.length > PROPOSAL_MAX.url ||
     !isHttpUrl(input.evidence_url)
@@ -302,7 +296,9 @@ export async function proposeChange(db: D1Database, input: ProposalInput) {
     )
     .bind(
       id,
-      input.proposed_by ?? "maintainer",
+      // Credential-derived, not caller-supplied — one token, one identity,
+      // so a proposal can never impersonate another proposer.
+      "maintainer",
       input.summary,
       input.evidence_url,
       input.excerpt ?? null,
