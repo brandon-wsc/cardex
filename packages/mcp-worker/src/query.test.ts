@@ -914,3 +914,112 @@ describe("audit-driven term kinds", () => {
     expect(reg.ok && reg.term.register_by).toBe("2026-10-31");
   });
 });
+
+// ADR 0005: illustrative is per-record — a rate or term is verified when
+// source_url is a real URL (not the example.invalid placeholder) and
+// last_verified_at is set. The envelope summarizes the returned rows.
+describe("per-record provenance — ADR 0005", () => {
+  async function insertVerifiedDiningRate() {
+    await tenv.DB.prepare(
+      "INSERT INTO cards (id, name, issuer, network) " +
+        "VALUES ('card_bea', 'BEA Visa Signature', 'BEA', 'visa')",
+    ).run();
+    await tenv.DB.prepare(
+      "INSERT INTO rates (id, card_id, kind, value, unit, source_url, " +
+        "last_verified_at, effective_from, effective_to, exclusive_group, priority) " +
+        "VALUES ('rate_bea_dining', 'card_bea', 'rebate_percent', 3.6, 'percent', " +
+        "'https://www.hkbea.com.example-check/terms', '2026-10-30', NULL, NULL, NULL, NULL)",
+    ).run();
+    await tenv.DB.prepare(
+      "INSERT INTO rate_tags (rate_id, tag_id) VALUES ('rate_bea_dining', 'dining')",
+    ).run();
+  }
+
+  it("marks fixture rows illustrative and echoes source fields on each rate row", async () => {
+    const res = await lookupRates(tenv.DB, { tag_id: "dining", limit: 100 });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.provenance).toMatchObject({
+      kind: "synthetic-seed",
+      illustrative: true,
+    });
+    for (const row of res.records) {
+      expect(row.illustrative).toBe(true);
+      expect(row.source_url).toContain("example.invalid");
+      expect(row.last_verified_at).toBe("2026-10-01");
+    }
+  });
+
+  it("reads cited-seed when every returned record is verified", async () => {
+    await insertVerifiedDiningRate();
+    const res = await lookupRates(tenv.DB, { card_ids: ["card_bea"] });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.provenance).toMatchObject({
+      kind: "cited-seed",
+      illustrative: false,
+    });
+    expect(res.records).toHaveLength(1);
+    expect(res.records[0].illustrative).toBe(false);
+    expect(res.records[0].source_url).toBe(
+      "https://www.hkbea.com.example-check/terms",
+    );
+    expect(res.records[0].last_verified_at).toBe("2026-10-30");
+  });
+
+  it("reads mixed-seed when the page mixes verified and illustrative rows", async () => {
+    await insertVerifiedDiningRate();
+    const res = await lookupRates(tenv.DB, { tag_id: "dining", limit: 100 });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.provenance).toMatchObject({ kind: "mixed-seed", illustrative: true });
+    const verified = res.records.find((r) => r.rate_id === "rate_bea_dining");
+    const invented = res.records.find((r) => r.rate_id === "rate_hsbc_dining");
+    expect(verified?.illustrative).toBe(false);
+    expect(invented?.illustrative).toBe(true);
+  });
+
+  it("flags get_term and score_candidates rows per record", async () => {
+    const invented = await getTerm(tenv.DB, "term_dbs_quota");
+    expect(invented.ok && invented.term.illustrative).toBe(true);
+    expect(invented.ok && invented.provenance.kind).toBe("synthetic-seed");
+
+    await tenv.DB.prepare(
+      "INSERT INTO terms (id, card_id, kind, text, source_url, last_verified_at) " +
+        "VALUES ('term_bea_check', 'card_citi_cash', 'eligibility', 'Verified term.', " +
+        "'https://www.hkbea.com.example-check/terms', '2026-10-30')",
+    ).run();
+    const verified = await getTerm(tenv.DB, "term_bea_check");
+    expect(verified.ok && verified.term.illustrative).toBe(false);
+    expect(verified.ok && verified.provenance.kind).toBe("cited-seed");
+
+    await insertVerifiedDiningRate();
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      tag_ids: ["dining"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const row = res.candidates.find((c) => c.rate_id === "rate_bea_dining");
+    expect(row?.illustrative).toBe(false);
+    expect(row?.source_url).toBe("https://www.hkbea.com.example-check/terms");
+    expect(row?.last_verified_at).toBe("2026-10-30");
+    expect(res.provenance).toMatchObject({ kind: "mixed-seed" });
+  });
+
+  it("marks a record missing either evidence column as illustrative", async () => {
+    await tenv.DB.prepare(
+      "INSERT INTO rates (id, card_id, kind, value, unit, source_url, " +
+        "last_verified_at, effective_from, effective_to, exclusive_group, priority) " +
+        "VALUES ('rate_unverified', 'card_citi_cash', 'rebate_percent', 2, 'percent', " +
+        "'https://www.citibank.com.hk/real-terms', NULL, NULL, NULL, NULL, NULL)",
+    ).run();
+    await tenv.DB.prepare(
+      "INSERT INTO rate_tags (rate_id, tag_id) VALUES ('rate_unverified', 'dining')",
+    ).run();
+    const res = await lookupRates(tenv.DB, { tag_id: "dining", limit: 100 });
+    if (!res.ok) return;
+    const row = res.records.find((r) => r.rate_id === "rate_unverified");
+    expect(row?.illustrative).toBe(true);
+  });
+});
