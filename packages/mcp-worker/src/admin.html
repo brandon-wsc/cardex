@@ -334,6 +334,7 @@
 <script>
 const state = {
   me: "",
+  pinRequired: false,
   tab: "queue",
   queue: [],
   decided: [],
@@ -375,6 +376,7 @@ function chip(status) {
 async function refresh() {
   const me = await api("/me");
   state.me = me.email || "?";
+  state.pinRequired = !!me.pin_required;
   const [queue, decided, reports] = await Promise.all([
     api("/proposals?status=pending"),
     api("/proposals?status=applied"),
@@ -550,7 +552,9 @@ function render() {
     (state.confirm
       ? '<div class="modal-backdrop"><div class="modal"><h3>Apply ' + esc(state.confirm.patches) + " patch" + (state.confirm.patches === 1 ? "" : "es") + "?</h3>" +
         "<p>This writes to the facts tables in one transaction and marks " + esc(state.confirm.id) + " applied.</p>" +
-        '<div class="pin-row"><label>Approval PIN (if configured)</label><input id="pin" type="password" autocomplete="off"></div>' +
+        (state.pinRequired
+          ? '<div class="pin-row"><label>Approval PIN</label><input id="pin" type="password" autocomplete="off"></div>'
+          : "") +
         '<div class="modal-btns"><button class="btn" id="cancel">Cancel</button>' +
         '<button class="btn approve" id="confirm">Confirm apply</button></div></div></div>'
       : "");
@@ -578,8 +582,8 @@ function render() {
   const confirm = document.getElementById("confirm");
   if (confirm) confirm.addEventListener("click", () => {
     const note = document.getElementById("note") ? document.getElementById("note").value.trim() : "";
-    const pin = document.getElementById("pin").value;
-    decide("approve", note || undefined, pin || undefined);
+    const pinEl = document.getElementById("pin");
+    decide("approve", note || undefined, pinEl ? pinEl.value : undefined);
   });
 }
 
