@@ -31,7 +31,7 @@ export function registerReadTools(server: McpServer, db: D1Database): void {
   server.registerTool(
     "lookup_rates",
     {
-      description: `Rates for a tag, card, or issuer. Requires at least one of tag_id, card_ids, issuer — a filter-less call returns missing_filter instead of the catalog. issuer matches exactly or through known issuer aliases, and the response echoes the applied filters. Compact page. ${SEED_NOTE}`,
+      description: `Rates for a tag, card, or issuer. Requires at least one of tag_id, card_ids, issuer — a filter-less call returns missing_filter instead of the catalog. issuer takes the canonical issuer name or a known alias (never substring), and the response echoes the applied filters. Compact page. ${SEED_NOTE}`,
       inputSchema: z.strictObject({
         tag_id: z.string().optional(),
         card_ids: z.array(z.string()).optional(),

@@ -85,7 +85,7 @@ Tool inputs are strict objects: an unrecognized key (`tag` instead of `tag_id`, 
 
 | Tool | Input | Returns |
 |---|---|---|
-| `lookup_rates` | `tag_id?`, `card_ids?: string[]`, `issuer?`, `as_of?`, `limit?` — at least one of `tag_id` / `card_ids` / `issuer` is required | Matching rates, all filters AND. Each row: rate id, card id and name, issuer, kind, value, unit, tag ids, term ids. `total` is the pre-limit count. The payload echoes the applied filters as `filters: { tag_id, card_ids, issuer, issuer_canonical, as_of }`. `issuer` is exact — normalized input or an entry in the issuer alias map — never substring; `issuer_canonical` lists the canonical issuer names the input resolved to. Unknown `tag_id` → empty page plus `unknown_tag_id` |
+| `lookup_rates` | `tag_id?`, `card_ids?: string[]`, `issuer?`, `as_of?`, `limit?` — at least one of `tag_id` / `card_ids` / `issuer` is required | Matching rates, all filters AND. Each row: rate id, card id and name, issuer, kind, value, unit, tag ids, term ids. `total` is the pre-limit count. The payload echoes the applied filters as `filters: { tag_id, card_ids, issuer, issuer_canonical, as_of }`. `issuer` compares against the canonical `cards.issuer` string (normalized) or resolves through the issuer alias map via the same `aliasHits` rule as `resolve_alias` — exact, or either-contains when both sides are ≥2 characters — never catalog-wide substring; `issuer_canonical` lists the canonical issuer names the input resolved to. Unknown `tag_id` → empty page plus `unknown_tag_id` |
 | `get_card` | `id` | One card, its rate summaries, the term ids those rates cite. Unknown id → `not_found` |
 | `get_term` | `id` | One term. Unknown id → `not_found` |
 | `list_tags` | `limit?` | Tag id + label |

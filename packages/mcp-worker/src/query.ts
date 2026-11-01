@@ -233,11 +233,12 @@ const RATE_COLS =
   "r.effective_from, r.effective_to, r.exclusive_group, r.priority, " +
   "c.name AS card_name, c.issuer";
 
-// Issuer matching is exact, never substring: resolve the caller's words
-// through the issuer alias map (the same normalized match resolve_alias
-// uses) and always keep the normalized input itself, so a canonical name
-// works even when it is not a known alias. issuer:"a" hits nothing instead
-// of matching every issuer whose name contains the letter.
+// Issuer matching is never SQL substring: the caller's words resolve
+// through the issuer alias map with the same aliasHits rule as
+// resolve_alias (normalized exact, or either-contains when both sides
+// are at least 2 chars) plus the normalized input itself, so a canonical
+// name works even when it is not a known alias. issuer:"a" hits nothing
+// instead of matching every issuer whose name contains the letter.
 function resolveIssuers(query: string): { params: string[]; canonical: string[] } {
   const params = new Set<string>([query]);
   const canonical = new Set<string>();

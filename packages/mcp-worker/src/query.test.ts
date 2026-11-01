@@ -534,9 +534,10 @@ describe("contract deltas — PRD v0.4", () => {
     }
   });
 
-  it("matches issuer exactly, so a stray letter hits nothing", async () => {
+  it("does not substring-match issuer, so a stray letter hits nothing", async () => {
     // Old behaviour was substring instr(): issuer:"a" matched AEON + Amex +
-    // anything containing the letter. Exact match returns an honest empty page.
+    // anything containing the letter. Canonical-or-alias resolution returns
+    // an honest empty page.
     const res = await lookupRates(tenv.DB, { issuer: "a" });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
