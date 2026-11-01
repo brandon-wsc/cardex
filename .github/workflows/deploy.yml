@@ -1,0 +1,49 @@
+name: Deploy
+
+# Deploy the worker to prod on every merge to main that touches
+# packages/mcp-worker. Migrations are applied to prod D1 first — additive
+# only, and the PR review is the schema gate (AGENTS.md). Manual trigger
+# redeploys the current main without a merge.
+#
+# Required repo secrets:
+#   CLOUDFLARE_API_TOKEN   - user API token with Account -> Workers Scripts
+#                          -> Edit *and* Account -> D1 -> Edit (same secret
+#                          as seed-export.yml — widen its scope)
+#   CLOUDFLARE_ACCOUNT_ID  - account holding cardex-db (account_id is also
+#                          pinned in wrangler.jsonc as a fallback)
+
+on:
+  push:
+    branches: [main]
+    paths: ["packages/mcp-worker/**"]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.20.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Apply D1 migrations to prod
+        working-directory: packages/mcp-worker
+        run: pnpm wrangler d1 migrations apply cardex-db --remote
+      - name: Deploy worker
+        working-directory: packages/mcp-worker
+        run: pnpm wrangler deploy
