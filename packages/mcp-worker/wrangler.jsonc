@@ -6,6 +6,8 @@
   // newest date the pinned workerd binary supports.
   "compatibility_date": "2026-10-26",
   "compatibility_flags": ["nodejs_compat"],
+  // Preview hostnames would bypass the Access app fronting /admin — off.
+  "preview_urls": false,
   "observability": {
     "enabled": true,
     "traces": { "enabled": true }
@@ -21,9 +23,7 @@
     {
       "binding": "DB",
       "database_name": "cardex-db",
-      // Placeholder for local dev. For a real deploy, create the database with
-      // `wrangler d1 create cardex-db` and paste the id here.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "d0616cb0-2def-4466-8568-8abd53ae41e8",
       "migrations_dir": "migrations"
     }
   ]
