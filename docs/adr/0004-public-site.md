@@ -1,6 +1,6 @@
 # ADR 0004 — Public site on the same Worker: Astro static assets, Preact admin island
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-01
 
 ## Context
