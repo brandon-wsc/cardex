@@ -14,3 +14,11 @@ DEV_ADMIN_EMAIL=owner@example.com
 
 # Optional second factor on the approve action. Leave unset to disable.
 # ADMIN_PIN=1234
+
+# Optional: verify Cloudflare Access JWTs for /admin instead of trusting the
+# identity header. ACCESS_TEAM is the Access team domain; ACCESS_AUD is the
+# app's AUD tag (Access console → the /admin application). When both are
+# set, a signed Cf-Access-Jwt-Assertion must verify — the header fallback
+# (including DEV_ADMIN_EMAIL) is disabled.
+# ACCESS_TEAM=your-team.cloudflareaccess.com
+# ACCESS_AUD=64hexaudtag
