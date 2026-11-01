@@ -40,11 +40,12 @@
   .topbar {
     background: var(--surface);
     border-bottom: 1px solid var(--border);
-    padding: 0 24px;
+    padding: 8px 24px;
     display: flex;
     align-items: center;
-    gap: 20px;
-    height: 56px;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    min-height: 56px;
     position: sticky;
     top: 0;
     z-index: 10;
@@ -81,6 +82,12 @@
     align-items: center;
     gap: 8px;
     font-family: var(--mono);
+    min-width: 0;
+  }
+  .who > span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .who .access {
     font-family: var(--mono);
@@ -96,14 +103,18 @@
   .page-title { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
   .page-sub { font-size: 13px; color: var(--text-dim); margin: 0 0 20px; }
 
-  table.list {
-    width: 100%;
-    border-collapse: collapse;
+  .table-scroll {
+    overflow-x: auto;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    overflow: hidden;
   }
+  table.list {
+    width: 100%;
+    min-width: 620px;
+    border-collapse: collapse;
+  }
+  .table-scroll.wide table.list { min-width: 780px; }
   table.list th {
     text-align: left;
     font-size: 11px;
@@ -114,6 +125,7 @@
     padding: 10px 14px;
     border-bottom: 1px solid var(--border);
     background: var(--bg);
+    white-space: nowrap;
   }
   table.list td {
     padding: 12px 14px;
@@ -188,15 +200,17 @@
   .patch-head {
     display: flex;
     align-items: center;
-    gap: 10px;
+    flex-wrap: wrap;
+    gap: 4px 10px;
     padding: 8px 12px;
     background: var(--bg);
     border-bottom: 1px solid var(--border-soft);
   }
+  .patch-head .target { overflow-wrap: anywhere; }
   .patch-rows { padding: 4px 0; }
   .diff-row {
     display: grid;
-    grid-template-columns: 160px 1fr 24px 1fr;
+    grid-template-columns: minmax(90px, 160px) minmax(0, 1fr) 24px minmax(0, 1fr);
     align-items: center;
     padding: 5px 12px;
     gap: 10px;
@@ -213,12 +227,14 @@
   .actions {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 10px;
     border-top: 1px solid var(--border);
     padding-top: 16px;
   }
   .actions input[type="text"] {
-    flex: 1;
+    flex: 1 1 220px;
+    min-width: 0;
     padding: 8px 12px;
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -250,6 +266,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    padding: 16px;
     z-index: 100;
   }
   .modal {
@@ -257,6 +274,9 @@
     border-radius: 10px;
     padding: 24px;
     width: 440px;
+    max-width: 100%;
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
     box-shadow: 0 16px 48px rgba(0,0,0,0.4);
   }
   .modal h3 { margin: 0 0 8px; font-size: 16px; }
@@ -288,12 +308,24 @@
     font-size: 13px;
     z-index: 200;
     box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    max-width: calc(100vw - 32px);
   }
   .empty {
     padding: 48px;
     text-align: center;
     color: var(--text-faint);
     font-size: 13px;
+  }
+
+  @media (max-width: 640px) {
+    .topbar { padding: 8px 12px; gap: 8px 12px; }
+    .tab { padding: 6px 10px; }
+    .main { padding: 16px 12px; }
+    .card { padding: 14px; }
+    .empty { padding: 32px 16px; }
+    .diff-row { grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr); }
+    .diff-row .field { grid-column: 1 / -1; }
+    .diff-row .ins, .diff-row .del { grid-column: 1 / -1; }
   }
 </style>
 </head>
@@ -400,16 +432,16 @@ function proposalRow(p, decided) {
 
 function listTable(rows, decided) {
   if (!rows.length) return '<div class="empty">Nothing here.</div>';
-  return '<table class="list"><thead><tr>' +
+  return '<div class="table-scroll"><table class="list"><thead><tr>' +
     "<th>Proposal</th><th style=\"text-align:right\">Patches</th><th>Evidence</th><th>" +
     (decided ? "Decided" : "Proposed") + "</th><th>Status</th>" +
     "</tr></thead><tbody>" + rows.map((p) => proposalRow(p, decided)).join("") +
-    "</tbody></table>";
+    "</tbody></table></div>";
 }
 
 function reportsTable() {
   if (!state.reports.length) return '<div class="empty">No reports in quarantine.</div>';
-  return '<table class="list"><thead><tr>' +
+  return '<div class="table-scroll wide"><table class="list"><thead><tr>' +
     "<th>Target</th><th>Field</th><th>Claimed</th><th>Evidence</th><th>Note</th><th>Reported</th>" +
     "</tr></thead><tbody>" +
     state.reports.map((r) =>
@@ -421,7 +453,7 @@ function reportsTable() {
       '<td class="muted">' + esc(r.note || "—") + "</td>" +
       '<td class="mono muted">' + esc(fmtTs(r.reported_at)) + "</td>" +
       "</tr>").join("") +
-    "</tbody></table>";
+    "</tbody></table></div>";
 }
 
 function diffRow(field, oldV, newV) {
