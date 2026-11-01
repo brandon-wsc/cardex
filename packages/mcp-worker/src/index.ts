@@ -60,7 +60,7 @@ async function handleAdminApi(
   const path = url.pathname.slice("/admin/api".length);
 
   if (path === "/me" && request.method === "GET") {
-    return json({ email });
+    return json({ email, pin_required: !!env.ADMIN_PIN });
   }
   if (path === "/reports" && request.method === "GET") {
     return json(await listReports(env.DB, {}));
