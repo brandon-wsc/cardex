@@ -63,6 +63,7 @@ pnpm build:site # astro check + build → packages/site/dist (needed before test
 pnpm demo       # build site + migrate + seed + scripted MCP calls over wrangler dev
 pnpm test       # vitest — specs from the PRD tables, inside workerd + real D1
 pnpm typecheck  # Worker tsc + astro check
+pnpm dup        # jscpd clone scan → docs/dup-baseline/ (advisory, no gate)
 ```
 
 Package manager is pnpm (`packageManager` in the root `package.json`). `.npmrc` sets `minimum-release-age=10080` (minutes). Install with a pinned version published at least 7 days ago. Never use `latest` or an unbounded range, and never weaken `.npmrc` to get an install through.

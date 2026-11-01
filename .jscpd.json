@@ -1,0 +1,6 @@
+{
+  "pattern": "**/*.{ts,tsx}",
+  "reporters": ["console", "json"],
+  "output": "docs/dup-baseline",
+  "ignore": ["**/node_modules/**", "**/dist/**"]
+}

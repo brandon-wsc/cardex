@@ -10,12 +10,14 @@
     "seed": "pnpm --dir packages/mcp-worker seed",
     "export-seed": "bash scripts/export-seed.sh",
     "demo": "pnpm build:site && pnpm migrate && pnpm seed && pnpm --dir packages/mcp-worker demo",
+    "dup": "jscpd packages/mcp-worker/src && node scripts/dup-baseline.mjs",
     "lint": "eslint",
     "typecheck": "pnpm --dir packages/mcp-worker typecheck && pnpm --dir packages/site check",
     "test": "pnpm --dir packages/mcp-worker test"
   },
   "devDependencies": {
     "@typescript-eslint/parser": "8.72.0",
-    "eslint": "10.13.0"
+    "eslint": "10.13.0",
+    "jscpd": "5.4.2"
   }
 }
