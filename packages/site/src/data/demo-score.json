@@ -11,7 +11,7 @@
     "dining"
   ],
   "as_of": "2026-11-01",
-  "merchant_checked": null,
+  "merchant_checked": "譚仔",
   "limit": 5,
   "limit_requested": null,
   "clamped": false,
@@ -20,12 +20,14 @@
     {
       "rate_id": "rate_aeon_dining",
       "card_id": "card_aeon",
-      "card_name": "AEON Mastercard",
+      "card_name": "AEON Card WAKUWAKU",
       "kind": "rebate_percent",
-      "value": 3,
+      "value": 1,
       "unit": "percent",
-      "calculated_rebate_hkd": 8.4,
-      "unknown_exclusions": [],
+      "calculated_rebate_hkd": 2.8,
+      "unknown_exclusions": [
+        "cap_remaining:term_aeon_bonus_cap"
+      ],
       "failed_terms": [],
       "exclusive_group": null,
       "priority": null,
@@ -46,7 +48,6 @@
       "calculated_rebate_hkd": 22.4,
       "unknown_exclusions": [
         "cap_remaining:term_hsbc_dining_cap",
-        "merchant_list:term_hsbc_merchant_list",
         "octopus_topup"
       ],
       "failed_terms": [],

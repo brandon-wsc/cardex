@@ -129,6 +129,7 @@ html[lang="zh-HK"] .hero h1 { letter-spacing: 0.01em; line-height: 1.15; }
 .lines td { padding: var(--space-sm) 0; border-bottom: var(--rule-hair) dotted var(--color-rule); vertical-align: baseline; }
 .lines th:not(:first-child), .lines td:not(:first-child) { text-align: right; padding-left: var(--space-sm); white-space: nowrap; }
 .lines td.amt { font-size: var(--text-lg); font-weight: 600; }
+.slip-note { margin: var(--space-md) 0 0; font-size: var(--text-xs); color: var(--color-muted); }
 .catch { margin-top: var(--space-lg); }
 .catch h3 { font: 600 var(--text-xs)/1.4 var(--font-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-accent); margin-bottom: var(--space-xs); }
 .catch ul { margin: 0; padding: 0; list-style: none; }

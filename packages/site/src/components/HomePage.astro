@@ -17,7 +17,12 @@ const ui = t(locale);
 const unknownText = ui.demo.unknowns as Record<string, string>;
 const cardNames = ui.demo.cardNames as Record<string, string>;
 const money = (n: number | null) => (n === null ? "—" : `$${n.toFixed(2)}`);
-const checks = demoScore.candidates.flatMap((c) =>
+// score_candidates returns card_id order — the slip sorts by the rebate it
+// calculated, so the table reads the way a person expects.
+const candidates = [...demoScore.candidates].sort(
+  (a, b) => (b.calculated_rebate_hkd ?? -Infinity) - (a.calculated_rebate_hkd ?? -Infinity),
+);
+const checks = candidates.flatMap((c) =>
   c.unknown_exclusions.map((entry) =>
     (unknownText[unknownKey(entry)] ?? entry).replace("{card}", cardNames[c.card_id] ?? c.card_name),
   ),
@@ -67,7 +72,7 @@ const checks = demoScore.candidates.flatMap((c) =>
             </thead>
             <tbody>
               {
-                demoScore.candidates.map((c) => (
+                candidates.map((c) => (
                   <tr>
                     <td>{c.card_name}</td>
                     <td>{c.value}%</td>
@@ -77,6 +82,7 @@ const checks = demoScore.candidates.flatMap((c) =>
               }
             </tbody>
           </table>
+          <p class="slip-note">{ui.demo.note}</p>
           {
             checks.length > 0 && (
               <div class="catch">
@@ -85,7 +91,7 @@ const checks = demoScore.candidates.flatMap((c) =>
               </div>
             )
           }
-          <p class="slip-foot">{ui.demo.foot}</p>
+          <p class="slip-foot">{ui.demo.foot.replace("{date}", String(demoScore.seed_as_of))}</p>
           <div class="stamp" aria-hidden="true">{ui.demo.stamp[0]}<br />{ui.demo.stamp[1]}</div>
         </figure>
       </div>
