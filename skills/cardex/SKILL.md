@@ -106,8 +106,8 @@ A term stays in `unknown_exclusions` until you settle it. Quoting a number with 
 ## Contract
 
 - **Facts only.** No `winner`, no ranking, no best-card language. `score_candidates` echoes `assumptions_used` — check it before quoting a number.
-- **`provenance.illustrative: true`.** Until the cited seed lands, every figure is invented. Do not present a Cardex number as an issuer's real terms; confirm with the issuer.
-- **Freshness.** Terms carry `source_url`, `last_verified_at`, `effective_from`/`effective_to`. An old `last_verified_at` or a promo `as_of` past `effective_to` means treat the fact as stale.
+- **`illustrative` is per-record.** Every rate and term row echoes `source_url`, `last_verified_at`, and its own `illustrative` flag; the envelope `provenance.kind` only summarizes the page — `synthetic-seed` when nothing returned is verified, `mixed-seed` when some rows are, `cited-seed` when all are. Until the cited seed lands every figure is invented. Never present an `illustrative` number as an issuer's real terms; confirm with the issuer.
+- **Freshness.** Rate and term rows carry `source_url`, `last_verified_at`, `effective_from`/`effective_to`. An old `last_verified_at` or a promo `as_of` past `effective_to` means treat the fact as stale.
 - **`lookup_rates` needs a filter.** At least one of `tag_id` / `card_ids` / `issuer` — an empty call is `{ "ok": false, "error": "missing_filter" }`, not the whole catalog. The page echoes the applied `filters` (`tag_id`, `card_ids`, `issuer`, `issuer_canonical`, `as_of`); read it back before trusting the rows.
 - **`issuer` is not substring.** Pass a canonical issuer name or a known alias (`hsbc`, `sc`, `匯豐`) — resolved like `resolve_alias` (normalized exact, or either-contains when both sides are ≥2 chars). `issuer_canonical` shows what it resolved to. A stray `issuer:"a"` matches nothing, which is the point: check the echo and `total` before ranking.
 - **Unresolved tags are flagged.** `score_candidates` echoes `unknown_tag_ids` for tag ids that do not exist; all-unknown → `ok` with empty `candidates`. Same flag-not-error contract as `unknown_tag_id` on `lookup_rates`.
