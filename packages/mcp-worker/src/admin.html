@@ -471,8 +471,14 @@ function patchCard(patch) {
   const rows = [];
   if (patch.op === "insert") {
     const set = patch.set || {};
+    const clash = patch.old || null;
+    if (clash) {
+      rows.push('<div class="diff-row"><span class="del">row already exists — insert will fail on apply</span></div>');
+    }
     for (const k of Object.keys(set)) {
-      rows.push('<div class="diff-row"><span class="field">' + esc(k) + '</span><span class="ins">+ ' + esc(JSON.stringify(set[k])) + "</span></div>");
+      rows.push(clash
+        ? diffRow(k, clash[k], set[k])
+        : '<div class="diff-row"><span class="field">' + esc(k) + '</span><span class="ins">+ ' + esc(JSON.stringify(set[k])) + "</span></div>");
     }
   } else if (patch.op === "update") {
     const old = patch.old || {};
