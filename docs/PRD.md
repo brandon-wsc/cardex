@@ -83,7 +83,7 @@ Shared envelope on every success and failure:
 
 `limit` above 100 is clamped. The payload echoes `limit_requested` and `clamped: true`. `limit` below 1 is `invalid_limit`. Omitted `limit` becomes 5. There is no offset by design — the catalog is small, and follow-up reads are by `id`.
 
-Tool inputs are strict objects: an unrecognized key (`tag` instead of `tag_id`, `cards` instead of `card_ids`) is a protocol-level `InvalidParams` error, never a silently dropped filter.
+Tool inputs are strict objects: an unrecognized key (`tag` instead of `tag_id`, `cards` instead of `card_ids`) is a protocol-level `InvalidParams` error, never a silently dropped filter. The error names the rejected keys and lists the valid ones.
 
 | Tool | Input | Returns |
 |---|---|---|
