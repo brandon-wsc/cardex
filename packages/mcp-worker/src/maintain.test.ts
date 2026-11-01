@@ -184,6 +184,20 @@ describe("proposeChange", () => {
     if (!many.ok) expect(many.error).toBe("invalid_proposal");
   });
 
+  it("rejects new proposals once the pending queue is full", async () => {
+    await tenv.DB.prepare(
+      `WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 100)
+       INSERT INTO proposals (id, proposed_by, summary, evidence_url, patches, status, created_at)
+       SELECT 'prop_fill_' || x, 'grokbot', 's', 'https://e/x', '[]', 'pending', ?1 FROM c`,
+    )
+      .bind(new Date().toISOString())
+      .run();
+
+    const res = await proposeChange(tenv.DB, good);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toBe("invalid_proposal");
+  });
+
   it("rejects when any patch fails validation", async () => {
     const res = await proposeChange(tenv.DB, {
       ...good,

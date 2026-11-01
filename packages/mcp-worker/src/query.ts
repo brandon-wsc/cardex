@@ -25,6 +25,7 @@ export function isHttpUrl(s: string): boolean {
 }
 
 const INTAKE_MAX = { url: 2048, field: 100, claimed_value: 500, note: 2000 };
+const REPORT_DAILY_CAP = 500;
 
 function reportBoundsError(input: {
   field: string;
@@ -785,6 +786,16 @@ export async function reportIssue(
     evidence_url: input.evidence_url,
   });
   if (bounds) return fail("invalid_report", bounds);
+
+  // Intake cap: unauthenticated writes to quarantine are rate-limited by
+  // volume, not caller. Old rows age out of the window, so triage drains it.
+  const recent = await db
+    .prepare(`SELECT COUNT(*) AS n FROM reports WHERE reported_at > ?`)
+    .bind(new Date(Date.now() - 86_400_000).toISOString())
+    .first<{ n: number }>();
+  if ((recent?.n ?? 0) >= REPORT_DAILY_CAP) {
+    return fail("invalid_report", "report queue is full — try again later");
+  }
 
   const exists = await db
     .prepare(`SELECT id FROM ${table} WHERE id = ?`)

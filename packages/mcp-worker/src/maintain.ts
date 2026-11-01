@@ -235,14 +235,12 @@ const PROPOSAL_MAX = {
   excerpt: 4000,
   proposed_by: 100,
   patches: 50,
+  pending: 100,
 };
 
-function proposalBoundsError(input: {
-  summary: string;
-  evidence_url: string;
-  excerpt?: string;
-  proposed_by?: string;
-}): string | null {
+function proposalBoundsError(input: ProposalInput): string | null {
+  if (!input.summary || !input.evidence_url)
+    return "summary and evidence_url are required";
   if (input.summary.length > PROPOSAL_MAX.summary) return "summary too long";
   if (
     input.excerpt !== undefined &&
@@ -262,26 +260,29 @@ function proposalBoundsError(input: {
   return null;
 }
 
+// Pending-queue cap: a leaked maintainer token can spam proposals, so the
+// queue stops growing once the owner has a full inbox. Reviewing drains it.
+async function pendingQueueFull(db: D1Database): Promise<boolean> {
+  const row = await db
+    .prepare(`SELECT COUNT(*) AS n FROM proposals WHERE status = 'pending'`)
+    .first<{ n: number }>();
+  return (row?.n ?? 0) >= PROPOSAL_MAX.pending;
+}
+
 export async function proposeChange(db: D1Database, input: ProposalInput) {
-  if (!input.summary || !input.evidence_url) {
-    return fail("invalid_proposal", "summary and evidence_url are required");
-  }
-  const bounds = proposalBoundsError({
-    summary: input.summary,
-    evidence_url: input.evidence_url,
-    excerpt: input.excerpt,
-    proposed_by: input.proposed_by,
-  });
+  const bounds = proposalBoundsError(input);
   if (bounds) return fail("invalid_proposal", bounds);
-  if (
-    !Array.isArray(input.patches) ||
-    input.patches.length === 0 ||
-    input.patches.length > PROPOSAL_MAX.patches
-  ) {
+  if (!Array.isArray(input.patches) || input.patches.length === 0) {
+    return fail("invalid_proposal", "patches must be a non-empty array");
+  }
+  if (input.patches.length > PROPOSAL_MAX.patches) {
     return fail(
       "invalid_proposal",
-      `patches must be a non-empty array of at most ${PROPOSAL_MAX.patches} ops`,
+      `patches must be at most ${PROPOSAL_MAX.patches} ops`,
     );
+  }
+  if (await pendingQueueFull(db)) {
+    return fail("invalid_proposal", "pending queue is full — wait for review");
   }
   const allErrors: string[] = [];
   for (const [i, raw] of input.patches.entries()) {

@@ -593,6 +593,24 @@ describe("contract deltas — PRD v0.3", () => {
       if (!res.ok) expect(res.error).toBe("invalid_report");
     }
   });
+
+  it("rejects new reports once the daily intake cap is hit", async () => {
+    await tenv.DB.prepare(
+      `WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 500)
+       INSERT INTO reports (id, target_kind, target_id, field, claimed_value, reported_at)
+       SELECT 'rpt_fill_' || x, 'card', 'card_hsbc_red', 'f', 'v', ?1 FROM c`,
+    )
+      .bind(new Date().toISOString())
+      .run();
+
+    const res = await reportIssue(tenv.DB, {
+      card_id: "card_hsbc_red",
+      field: "value",
+      claimed_value: "6",
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toBe("invalid_report");
+  });
 });
 
 // PRD v0.4 contract deltas — silent-footgun hardening. A filter-less or
