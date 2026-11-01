@@ -38,8 +38,8 @@ Remote MCP server of structured Hong Kong credit-card facts. Callers are other a
 ## Working agreements
 
 - **Test first.** A change to tool behavior (`query.ts`, migrations, scoring) lands with its failing test first: write the vitest spec, watch it fail, implement, go green. Spec names state behavior in BDD style — one test per PRD §5/§6 table row. No gherkin layer — the PRD tables are the spec.
-- **Owner review gates.** D1 schema (`migrations/`, wrangler DB config) and any UI surface require the owner's explicit review before merge — an agent may draft them, never self-approve. Fact changes are approved in the `/admin` portal over structured proposals ([ADR 0002](docs/adr/0002-maintenance-surface.md)); until the portal ships the owner applies them manually.
-- **MCP surface.** Streamable HTTP at `POST /mcp` only, stateless — whatever the pinned `@modelcontextprotocol/server` 2.x implements. No legacy SSE transport, no stdio variant in v1. The supported standard moves by dependency update, never by ad-hoc contract edits.
+- **Owner review gates.** D1 schema (`migrations/`, wrangler DB config) and any UI surface require the owner's explicit review before merge — an agent may draft them, never self-approve. Fact changes are approved in the `/admin` portal over structured proposals ([ADR 0002](docs/adr/0002-maintenance-surface.md)).
+- **MCP surface.** Streamable HTTP, stateless — whatever the pinned `@modelcontextprotocol/server` 2.x implements. No legacy SSE transport, no stdio variant in v1. The supported standard moves by dependency update, never by ad-hoc contract edits. Three surfaces per [ADR 0002](docs/adr/0002-maintenance-surface.md): `POST /mcp` public, `POST /maintainer` bearer-token (`MAINTAINER_TOKEN`; `list_reports` + `propose_change` + fact reads — proposals only, never facts), `/admin` + `/admin/api/*` behind Cloudflare Access with a `Cf-Access-Authenticated-User-Email` + `ADMIN_EMAIL` check and optional `ADMIN_PIN`. Patches are structured `{op, table, id, key?, set?}` whitelisted in `maintain.ts` — never raw SQL.
 
 ## Worker
 

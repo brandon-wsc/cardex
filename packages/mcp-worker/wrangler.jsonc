@@ -10,6 +10,13 @@
     "enabled": true,
     "traces": { "enabled": true }
   },
+  // src/admin.html is imported as a text module for the /admin portal.
+  "rules": [{ "type": "Text", "globs": ["**/*.html"] }],
+  "vars": {
+    // The owner address allowed past the /admin identity check. Cloudflare
+    // Access (email OTP) is the real boundary; this is the second check.
+    "ADMIN_EMAIL": "owner@example.com"
+  },
   "d1_databases": [
     {
       "binding": "DB",

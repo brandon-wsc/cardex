@@ -23,9 +23,9 @@ function payload(value: object) {
 
 const limit = z.number().int().optional();
 
-export function buildServer(db: D1Database): McpServer {
-  const server = new McpServer({ name: "cardex", version: "0.0.1" });
-
+// The six public read tools, shared between /mcp and /maintainer (ADR 0002 —
+// the maintainer surface exposes fact reads plus its own write-lite tools).
+export function registerReadTools(server: McpServer, db: D1Database): void {
   server.registerTool(
     "lookup_rates",
     {
@@ -107,6 +107,11 @@ export function buildServer(db: D1Database): McpServer {
     },
     async (args) => payload(await scoreCandidates(db, args)),
   );
+}
+
+export function buildServer(db: D1Database): McpServer {
+  const server = new McpServer({ name: "cardex", version: "0.0.1" });
+  registerReadTools(server, db);
 
   server.registerTool(
     "report_issue",

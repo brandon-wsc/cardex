@@ -1,0 +1,12 @@
+# Copy to .dev.vars for local `wrangler dev` (gitignored). Never commit real
+# values. In production these are set with `wrangler secret put`.
+
+# Bearer token for POST /maintainer. If unset, the route returns 404.
+MAINTAINER_TOKEN=dev-maintainer-token
+
+# Identity used for /admin when no Cf-Access-Authenticated-User-Email header
+# is present (Access is not in the loop locally). Must match ADMIN_EMAIL var.
+DEV_ADMIN_EMAIL=owner@example.com
+
+# Optional second factor on the approve action. Leave unset to disable.
+# ADMIN_PIN=1234
