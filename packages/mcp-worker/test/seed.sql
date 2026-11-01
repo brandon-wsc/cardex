@@ -116,7 +116,9 @@ INSERT INTO terms (id, card_id, kind, text, source_url, last_verified_at,
 INSERT INTO term_merchants (term_id, merchant) VALUES
   ('term_hsbc_merchant_list', 'Sushiro'),
   ('term_hsbc_merchant_list', 'TamJai'),
-  ('term_hsbc_merchant_list', 'Bakehouse');
+  ('term_hsbc_merchant_list', 'Bakehouse'),
+  ('term_hsbc_merchant_list', '壽司郎'),
+  ('term_hsbc_merchant_list', '譚仔');
 
 INSERT INTO rates (id, card_id, kind, value, unit, source_url, last_verified_at,
                    effective_from, effective_to, exclusive_group, priority) VALUES

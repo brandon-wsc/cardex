@@ -669,6 +669,21 @@ describe("audit-driven term kinds", () => {
     );
   });
 
+  it("clears merchant_list when merchant matches a zh member name", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+      merchant: "壽司郎",
+    });
+    const row = res.ok
+      ? res.candidates.find((c) => c.rate_id === "rate_hsbc_dining")
+      : undefined;
+    expect(row?.unknown_exclusions).not.toContain(
+      "merchant_list:term_hsbc_merchant_list",
+    );
+    if (res.ok) expect(res.merchant_checked).toBe("壽司郎");
+  });
+
   it("echoes exclusive_group and priority on competing rate rows", async () => {
     const res = await scoreCandidates(tenv.DB, {
       amount_hkd: 800,
