@@ -115,6 +115,10 @@ export const en: UI = {
         q: "Do I need to sign up or get an API key?",
         a: "No. The data connection is public, with no sign-up and no key. The source code is on GitHub under the MIT licence.",
       },
+      {
+        q: "Is Cardex affiliated with any card issuer?",
+        a: "No. Cardex is an open-source project with no affiliation, partnership, or endorsement from any issuer. Card and issuer names are used only to describe facts; the issuer's own terms are final.",
+      },
     ],
   },
   manual: {
@@ -126,7 +130,7 @@ export const en: UI = {
     mcpBody: "Public, no key needed.",
   },
   footer: {
-    note: "Card terms change often. Confirm with your issuer before a big spend.",
+    note: "Card terms change often. Confirm with your issuer before a big spend. Cardex is not affiliated with any issuer; card names describe facts only.",
   },
   notFound: {
     title: "Page not found",

@@ -113,6 +113,10 @@ export const zhHK = {
         q: "要唔要註冊或者 API key？",
         a: "唔使。資料連線係公開嘅，唔使註冊、唔使 key。Source code 喺 GitHub，用 MIT 授權。",
       },
+      {
+        q: "Cardex 同發卡行有冇關係？",
+        a: "冇。Cardex 係開源項目，同任何發卡行都冇隸屬、合作或者贊助關係。卡名同發卡行名只係用嚟描述事實，最終條款以發卡行為準。",
+      },
     ],
   },
   manual: {
@@ -124,7 +128,7 @@ export const zhHK = {
     mcpBody: "公開，唔使 key。",
   },
   footer: {
-    note: "信用卡條款成日變，大額消費前記得同發卡行確認。",
+    note: "信用卡條款成日變，大額消費前記得同發卡行確認。Cardex 同任何發卡行都冇關係，卡名只係用嚟描述事實。",
   },
   notFound: {
     title: "搵唔到呢頁",
