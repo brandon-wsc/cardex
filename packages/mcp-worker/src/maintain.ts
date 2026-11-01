@@ -19,67 +19,50 @@ interface TableSpec {
   columns: string[];
 }
 
-const FACT_TABLES: Record<string, TableSpec> = {
-  cards: {
-    pk: ["id"],
-    required: ["id", "name", "issuer", "network"],
-    columns: ["id", "name", "issuer", "network"],
-  },
-  tags: {
-    pk: ["id"],
-    required: ["id", "label", "kind"],
-    columns: ["id", "label", "kind"],
-  },
-  rates: {
-    pk: ["id"],
-    required: ["id", "card_id", "kind", "value", "unit"],
-    columns: [
-      "id", "card_id", "kind", "value", "unit", "source_url",
-      "last_verified_at", "effective_from", "effective_to",
-      "exclusive_group", "priority",
-    ],
-  },
-  rate_tags: {
-    pk: ["rate_id", "tag_id"],
-    required: ["rate_id", "tag_id"],
-    columns: ["rate_id", "tag_id"],
-  },
-  terms: {
-    pk: ["id"],
-    required: ["id", "card_id", "kind", "text"],
-    columns: [
-      "id", "card_id", "kind", "text", "source_url", "last_verified_at",
-      "effective_from", "effective_to", "cap_hkd", "threshold_hkd",
-      "quota_n", "register_by", "post_within_days", "anchor",
-      "anchor_days", "period", "exclusion_key",
-    ],
-  },
-  rate_terms: {
-    pk: ["rate_id", "term_id"],
-    required: ["rate_id", "term_id"],
-    columns: ["rate_id", "term_id"],
-  },
-  term_merchants: {
-    pk: ["term_id", "merchant"],
-    required: ["term_id", "merchant"],
-    columns: ["term_id", "merchant"],
-  },
-  aliases: {
-    pk: ["text"],
-    required: ["text"],
-    columns: ["text"],
-  },
-  alias_tags: {
-    pk: ["alias_text", "tag_id"],
-    required: ["alias_text", "tag_id"],
-    columns: ["alias_text", "tag_id"],
-  },
-  alias_cards: {
-    pk: ["alias_text", "card_id"],
-    required: ["alias_text", "card_id"],
-    columns: ["alias_text", "card_id"],
-  },
-};
+// The capability boundary is the table list — which tables a proposal may
+// touch. Column sets are read live from PRAGMA so a new column on a facts
+// table is patchable with zero code change.
+const FACT_TABLES = new Set([
+  "cards",
+  "tags",
+  "rates",
+  "rate_tags",
+  "terms",
+  "rate_terms",
+  "term_merchants",
+  "aliases",
+  "alias_tags",
+  "alias_cards",
+]);
+
+interface PragmaRow {
+  name: string;
+  notnull: number;
+  dflt_value: string | null;
+  pk: number;
+}
+
+async function loadSpec(
+  db: D1Database,
+  table: string,
+): Promise<TableSpec | null> {
+  if (!FACT_TABLES.has(table)) return null;
+  const { results } = await db
+    .prepare(`PRAGMA table_info(${table})`)
+    .all<PragmaRow>();
+  const pk = results
+    .filter((r) => r.pk > 0)
+    .sort((a, b) => a.pk - b.pk)
+    .map((r) => r.name);
+  const nonKeyRequired = results
+    .filter((r) => r.notnull === 1 && r.dflt_value === null && r.pk === 0)
+    .map((r) => r.name);
+  return {
+    pk,
+    required: [...pk, ...nonKeyRequired],
+    columns: results.map((r) => r.name),
+  };
+}
 
 type Failure = { ok: false; error: string; detail?: string };
 
@@ -130,11 +113,14 @@ function patchKey(patch: Patch, spec: TableSpec): Record<string, Scalar> | null 
   return patch.key;
 }
 
-export function validatePatch(raw: unknown): string[] {
+export async function validatePatch(
+  db: D1Database,
+  raw: unknown,
+): Promise<string[]> {
   const patch = parsePatch(raw);
   if (!patch) return ["malformed patch: need {op, table, id, key?, set?}"];
 
-  const spec = FACT_TABLES[patch.table];
+  const spec = await loadSpec(db, patch.table);
   if (!spec) return [`table '${patch.table}' is not a facts table`];
 
   const errors: string[] = [];
@@ -214,9 +200,11 @@ export async function proposeChange(db: D1Database, input: ProposalInput) {
     return fail("invalid_proposal", "patches must be a non-empty array");
   }
   const allErrors: string[] = [];
-  input.patches.forEach((raw, i) => {
-    for (const e of validatePatch(raw)) allErrors.push(`patch[${i}]: ${e}`);
-  });
+  for (const [i, raw] of input.patches.entries()) {
+    for (const e of await validatePatch(db, raw)) {
+      allErrors.push(`patch[${i}]: ${e}`);
+    }
+  }
   if (allErrors.length > 0) {
     return fail("invalid_patch", allErrors.join("; "));
   }
@@ -283,8 +271,9 @@ export async function listProposals(
 }
 
 async function fetchOldRow(db: D1Database, patch: Patch) {
-  const spec = FACT_TABLES[patch.table];
-  if (!spec || patch.op === "insert") return null;
+  if (patch.op === "insert") return null;
+  const spec = await loadSpec(db, patch.table);
+  if (!spec) return null;
   const key = patchKey(patch, spec);
   if (!key) return null;
   const where = spec.pk.map((col) => `${col} = ?`).join(" AND ");
@@ -322,9 +311,10 @@ export async function getProposal(db: D1Database, id: string) {
   };
 }
 
-function applyStatements(patch: Patch): { sql: string; params: Scalar[] }[] {
-  const spec = FACT_TABLES[patch.table];
-  if (!spec) return [];
+function applyStatements(
+  patch: Patch,
+  spec: TableSpec,
+): { sql: string; params: Scalar[] }[] {
 
   if (patch.op === "insert") {
     const set = { ...patch.set };
@@ -401,23 +391,22 @@ export async function decideProposal(
   // approve — re-validate, then apply every patch in one batch so a failed
   // statement rolls the whole proposal back.
   const rawPatches = JSON.parse(row.patches) as unknown[];
-  const patches: Patch[] = [];
+  const statements: { sql: string; params: Scalar[] }[] = [];
   for (const [i, raw] of rawPatches.entries()) {
-    const errors = validatePatch(raw);
+    const errors = await validatePatch(db, raw);
     const patch = parsePatch(raw);
-    if (errors.length > 0 || !patch) {
+    const spec = patch ? await loadSpec(db, patch.table) : null;
+    if (errors.length > 0 || !patch || !spec) {
       return fail("invalid_patch", `patch[${i}]: ${errors.join("; ")}`);
     }
-    patches.push(patch);
+    statements.push(...applyStatements(patch, spec));
   }
 
-  const statements = patches.flatMap((patch) =>
-    applyStatements(patch).map(({ sql, params }) => {
-      const stmt = db.prepare(sql);
-      return params.length ? stmt.bind(...params) : stmt;
-    }),
-  );
-  statements.push(
+  const prepared = statements.map(({ sql, params }) => {
+    const stmt = db.prepare(sql);
+    return params.length ? stmt.bind(...params) : stmt;
+  });
+  prepared.push(
     db
       .prepare(
         `UPDATE proposals SET status = 'applied', decided_at = ?, ` +
@@ -427,7 +416,7 @@ export async function decideProposal(
   );
 
   try {
-    await db.batch(statements);
+    await db.batch(prepared);
   } catch (e) {
     return fail("apply_failed", e instanceof Error ? e.message : String(e));
   }

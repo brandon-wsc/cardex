@@ -27,9 +27,9 @@ beforeEach(async () => {
 });
 
 describe("validatePatch", () => {
-  it("accepts a well-formed update on a facts table", () => {
+  it("accepts a well-formed update on a facts table", async () => {
     expect(
-      validatePatch({
+      await validatePatch(tenv.DB, {
         op: "update",
         table: "terms",
         id: "term_dbs_quota",
@@ -38,8 +38,8 @@ describe("validatePatch", () => {
     ).toEqual([]);
   });
 
-  it("rejects a table outside the facts whitelist", () => {
-    const errors = validatePatch({
+  it("rejects a table outside the facts whitelist", async () => {
+    const errors = await validatePatch(tenv.DB, {
       op: "update",
       table: "proposals",
       id: "prop_x",
@@ -49,8 +49,8 @@ describe("validatePatch", () => {
     expect(errors[0]).toContain("table");
   });
 
-  it("rejects a column outside the table whitelist", () => {
-    const errors = validatePatch({
+  it("rejects a column outside the table whitelist", async () => {
+    const errors = await validatePatch(tenv.DB, {
       op: "update",
       table: "terms",
       id: "term_dbs_quota",
@@ -59,8 +59,8 @@ describe("validatePatch", () => {
     expect(errors.some((e) => e.includes("bogus"))).toBe(true);
   });
 
-  it("rejects insert missing required columns", () => {
-    const errors = validatePatch({
+  it("rejects insert missing required columns", async () => {
+    const errors = await validatePatch(tenv.DB, {
       op: "insert",
       table: "rates",
       id: "rate_new",
@@ -69,23 +69,22 @@ describe("validatePatch", () => {
     expect(errors.some((e) => e.includes("kind"))).toBe(true);
   });
 
-  it("rejects update with an empty set and delete carrying a set", () => {
+  it("rejects update with an empty set and delete carrying a set", async () => {
     expect(
-      validatePatch({ op: "update", table: "terms", id: "t", set: {} })
-        .length,
+      (await validatePatch(tenv.DB, { op: "update", table: "terms", id: "t", set: {} })).length,
     ).toBeGreaterThan(0);
     expect(
-      validatePatch({
+      (await validatePatch(tenv.DB, {
         op: "delete",
         table: "terms",
         id: "t",
         set: { text: "x" },
-      }).length,
+      })).length,
     ).toBeGreaterThan(0);
   });
 
-  it("requires key for update/delete on composite-pk tables", () => {
-    const missing = validatePatch({
+  it("requires key for update/delete on composite-pk tables", async () => {
+    const missing = await validatePatch(tenv.DB, {
       op: "delete",
       table: "rate_tags",
       id: "rate_hsbc_dining+dining",
@@ -93,7 +92,7 @@ describe("validatePatch", () => {
     expect(missing.some((e) => e.includes("key"))).toBe(true);
 
     expect(
-      validatePatch({
+      await validatePatch(tenv.DB, {
         op: "delete",
         table: "rate_tags",
         id: "rate_hsbc_dining+dining",
@@ -102,8 +101,8 @@ describe("validatePatch", () => {
     ).toEqual([]);
   });
 
-  it("requires composite pk columns inside set on insert", () => {
-    const errors = validatePatch({
+  it("requires composite pk columns inside set on insert", async () => {
+    const errors = await validatePatch(tenv.DB, {
       op: "insert",
       table: "term_merchants",
       id: "term_x+KFC",
