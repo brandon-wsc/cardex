@@ -42,7 +42,7 @@ interface PragmaRow {
   pk: number;
 }
 
-async function loadSpec(
+async function specForTable(
   db: D1Database,
   table: string,
 ): Promise<TableSpec | null> {
@@ -141,8 +141,8 @@ export async function validatePatch(
   const patch = parsePatch(raw);
   if (!patch) return ["malformed patch: need {op, table, id, key?, set?}"];
 
-  const spec = await loadSpec(db, patch.table);
-  if (!spec) return [`table '${patch.table}' is not a facts table`];
+  const spec = await specForTable(db, patch.table);
+  if (!spec) return [`'${patch.table}' is outside the patchable facts whitelist`];
 
   const errors: string[] = [];
 
@@ -183,7 +183,7 @@ export async function validatePatch(
     if (patchKey(patch, spec) === null) {
       errors.push(
         spec.pk.length > 1
-          ? `update on ${patch.table} requires key {${spec.pk.join(", ")}}`
+          ? `update on ${patch.table} must name {${spec.pk.join(", ")}} to find the row`
           : "key does not match id",
       );
     }
@@ -196,7 +196,7 @@ export async function validatePatch(
     if (patchKey(patch, spec) === null) {
       errors.push(
         spec.pk.length > 1
-          ? `delete on ${patch.table} requires key {${spec.pk.join(", ")}}`
+          ? `delete on ${patch.table} must name {${spec.pk.join(", ")}} to find the row`
           : "key does not match id",
       );
     }
@@ -291,23 +291,30 @@ export async function listProposals(
   return { ok: true as const, proposals: rows.results };
 }
 
+function pkWhere(spec: TableSpec): string {
+  return spec.pk.map((col) => `${col} = ?`).join(" AND ");
+}
+
+function pkParams(spec: TableSpec, key: Record<string, Scalar>): Scalar[] {
+  return spec.pk.map((col) => key[col]);
+}
+
 function fetchRowByKey(
   db: D1Database,
   table: string,
   spec: TableSpec,
   key: Record<string, Scalar>,
 ) {
-  const where = spec.pk.map((col) => `${col} = ?`).join(" AND ");
   return db
-    .prepare(`SELECT * FROM ${table} WHERE ${where}`)
-    .bind(...spec.pk.map((col) => key[col]))
+    .prepare(`SELECT * FROM ${table} WHERE ${pkWhere(spec)}`)
+    .bind(...pkParams(spec, key))
     .first();
 }
 
 // For update/delete `old` is the row being changed; for insert it is the row
 // the insert would collide with, so the portal diff shows the conflict.
-async function fetchOldRow(db: D1Database, patch: Patch) {
-  const spec = await loadSpec(db, patch.table);
+async function oldRowFor(db: D1Database, patch: Patch) {
+  const spec = await specForTable(db, patch.table);
   if (!spec) return null;
   const key = rowKey(patch, spec);
   if (!key) return null;
@@ -332,7 +339,7 @@ export async function getProposal(db: D1Database, id: string) {
       if (!patch) {
         return { op: "malformed", table: "", id: "", raw, old: null };
       }
-      return { ...patch, old: await fetchOldRow(db, patch) };
+      return { ...patch, old: await oldRowFor(db, patch) };
     }),
   );
 
@@ -342,7 +349,7 @@ export async function getProposal(db: D1Database, id: string) {
   };
 }
 
-function applyStatements(
+function patchStatements(
   patch: Patch,
   spec: TableSpec,
 ): { sql: string; params: Scalar[] }[] {
@@ -365,8 +372,8 @@ function applyStatements(
 
   const key = patchKey(patch, spec);
   if (!key) return [];
-  const where = spec.pk.map((col) => `${col} = ?`).join(" AND ");
-  const keyParams = spec.pk.map((col) => key[col]);
+  const where = pkWhere(spec);
+  const keyParams = pkParams(spec, key);
 
   if (patch.op === "update") {
     const set = patch.set ?? {};
@@ -431,7 +438,7 @@ export async function decideProposal(
   for (const [i, raw] of rawPatches.entries()) {
     const errors = await validatePatch(db, raw);
     const patch = parsePatch(raw);
-    const spec = patch ? await loadSpec(db, patch.table) : null;
+    const spec = patch ? await specForTable(db, patch.table) : null;
     if (errors.length > 0 || !patch || !spec) {
       return fail("invalid_patch", `patch[${i}]: ${errors.join("; ")}`);
     }
@@ -443,13 +450,13 @@ export async function decideProposal(
       if (inserted.has(token)) {
         return fail(
           "invalid_patch",
-          `patch[${i}]: duplicate insert of ${patch.table} '${patch.id}'`,
+          `patch[${i}]: ${patch.table} '${patch.id}' is inserted twice in this proposal`,
         );
       }
       if (!deleted.has(token) && (await fetchRowByKey(db, patch.table, spec, key))) {
         return fail(
           "invalid_patch",
-          `patch[${i}]: insert into ${patch.table} '${patch.id}' — row already exists`,
+          `patch[${i}]: insert into ${patch.table} '${patch.id}' conflicts with an existing row`,
         );
       }
       inserted.add(token);
@@ -459,7 +466,7 @@ export async function decideProposal(
       deleted.add(token);
       inserted.delete(token);
     }
-    statements.push(...applyStatements(patch, spec));
+    statements.push(...patchStatements(patch, spec));
   }
 
   const prepared = statements.map(({ sql, params }) => {
