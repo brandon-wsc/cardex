@@ -2,6 +2,9 @@
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "cardex",
   "main": "src/index.ts",
+  // Account IDs are not secrets; pinning it lets CI tokens that cannot list
+  // accounts (no User -> Memberships read) still run d1 commands.
+  "account_id": "05658a8d94b905714924bdafa0690068",
   // Set on the day this Worker was created (AGENTS.md); 2026-10-26 is the
   // newest date the pinned workerd binary supports.
   "compatibility_date": "2026-10-26",

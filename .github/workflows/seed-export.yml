@@ -5,8 +5,12 @@ name: Seed export
 # Time Travel window. Never commits to main directly.
 #
 # Required repo secrets:
-#   CLOUDFLARE_API_TOKEN   - token with D1 read permission on this account
-#   CLOUDFLARE_ACCOUNT_ID  - account holding cardex-db
+#   CLOUDFLARE_API_TOKEN   - a *user* API token (My Profile -> API Tokens,
+#                          not an account-owned token) with Account -> D1 ->
+#                          Edit. Export is a POST; D1 Read is not enough and
+#                          account-owned tokens miss Memberships read.
+#   CLOUDFLARE_ACCOUNT_ID  - account holding cardex-db (account_id is also
+#                          pinned in wrangler.jsonc as a fallback)
 
 on:
   schedule:
