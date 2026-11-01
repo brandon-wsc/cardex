@@ -11,12 +11,12 @@ Remote MCP of structured Hong Kong credit-card facts. You connect, ask narrow qu
 
 - **Endpoint:** `POST {BASE_URL}/mcp` — streamable HTTP transport, stateless, no auth.
 - **Local dev:** `http://localhost:8787/mcp` after `pnpm migrate && pnpm seed && pnpm dev` in the cardex repo.
-- **Hosted:** use the `workers.dev` URL the repo owner publishes.
+- **Hosted:** `https://cardex.brandonhk.com/mcp` (custom domain; workers.dev is disabled).
 
 Example client config:
 
 ```json
-{ "mcpServers": { "cardex": { "url": "https://cardex.<account>.workers.dev/mcp" } } }
+{ "mcpServers": { "cardex": { "url": "https://cardex.brandonhk.com/mcp" } } }
 ```
 
 ## Tools

@@ -1,42 +1,22 @@
 # Cardex
 
-Cardex is an MCP server that gives AI agents structured facts about Hong Kong credit cards: rebate rates, earning rules, caps, and terms. Agents call it and do their own reasoning.
+Cardex gives personal agents structured facts about Hong Kong credit cards — rebate rates, earning rules, caps, and terms. It is a pair: an **Agent Skill** ([`skills/cardex`](skills/cardex/SKILL.md)) that teaches the agent how to reason, and a public **remote MCP** endpoint that returns the records. The agent does its own ranking; Cardex never names a best card.
 
-> **Status:** pre-alpha, live at `cardex.brandonhk.com`. `packages/mcp-worker` is a Cloudflare Worker serving a remote MCP over D1. The seed is synthetic; no real issuer terms yet.
+> **Status:** pre-alpha, live at `cardex.brandonhk.com`. `packages/mcp-worker` is a Cloudflare Worker serving the MCP over D1. The seed is synthetic; no real issuer terms yet.
 
-## Docs
+## Install the skill
 
-| Doc | Purpose |
-| --- | --- |
-| [AGENTS.md](AGENTS.md) | Coding-agent entry: sources of truth, hard boundaries, commit rules |
-| [CONTEXT.md](CONTEXT.md) | Domain language |
-| [docs/PRD.md](docs/PRD.md) | Product spec |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Phases after v1 |
-| [docs/STATUS.md](docs/STATUS.md) | What exists today |
-| [docs/adr/](docs/adr/) | Architecture Decision Records |
-| [docs/TESTING.md](docs/TESTING.md) | Test policy |
-| [docs/ai-workflow.md](docs/ai-workflow.md) | AI-assisted development notes |
+The skill is the product surface — your agent installs it and learns how to connect, which tool to reach for, and how to settle terms it cannot check.
 
-## Run it
-
-```bash
-pnpm install
-pnpm migrate   # apply D1 schema to the local database
-pnpm seed      # load seed/seed.sql (synthetic data)
-pnpm dev       # wrangler dev — MCP at http://localhost:8787/mcp
-```
-
-`pnpm demo` runs all three setup steps, boots `wrangler dev`, and prints eight scripted tool payloads (a real MCP client over HTTP). Rates in that output are invented fixtures, not issuer terms. The spec is [`docs/PRD.md`](docs/PRD.md).
-
-## Connect an agent
-
-The public endpoint is `POST https://cardex.brandonhk.com/mcp` (streamable HTTP, no auth). [`skills/cardex`](skills/cardex/SKILL.md) is the Agent Skill that teaches a caller how to connect and which tool to reach for; install it from this repo or a GitHub Release.
+- **From this repo** — copy [`skills/cardex/`](skills/cardex/) into your agent's skills directory.
+- **From a GitHub Release** — packaged skill (first release pending).
+- **No skill support?** Connect any MCP client to the endpoint directly — `POST https://cardex.brandonhk.com/mcp`, streamable HTTP, no auth:
 
 ```json
 { "mcpServers": { "cardex": { "url": "https://cardex.brandonhk.com/mcp" } } }
 ```
 
-Two more surfaces share the Worker (ADR 0002): `POST /maintainer` — a bearer-token MCP the maintenance agent uses to read quarantined reports and file structured proposals (`skills/cardex-maintainer`); and `/admin` — a Cloudflare Access-protected portal where the owner approves or rejects those proposals. Only approved proposals ever write facts.
+Two more surfaces share the Worker ([ADR 0002](docs/adr/0002-maintenance-surface.md)): `POST /maintainer`, a bearer-token MCP the maintenance agent uses to read quarantined reports and file structured proposals (runbook: [`skills/cardex-maintainer`](skills/cardex-maintainer/SKILL.md)); and `/admin`, a Cloudflare Access portal where the owner approves or rejects proposals. Only approved proposals ever write facts.
 
 ## What Cardex is
 
@@ -50,6 +30,20 @@ Two more surfaces share the Worker (ADR 0002): `POST /maintainer` — a bearer-t
 - Not a wallet or card-management product. It stores no user cards, transactions, or personal data.
 - Not a live scraper. Data is curated facts in D1 — nothing is scraped at request time.
 - Not a RAG system. Lookups are structured queries, not embedding search over documents.
+
+## Tools
+
+| Tool               | Purpose                                                                  |
+| ------------------ | ------------------------------------------------------------------------ |
+| `lookup_rates`     | Find rebate/earning rates by tag, card, or issuer, with filters and `limit` |
+| `get_card`         | Fetch one card's details by `id`                                         |
+| `get_term`         | Fetch a specific term/condition (cap, exclusion, validity) by `id`       |
+| `list_tags`        | List known spend tags                                                    |
+| `resolve_alias`    | Map a free-text name to canonical tag(s) or card(s)                      |
+| `score_candidates` | Score cards for a spend under explicit `assumptions`, and report `unknown_exclusions` |
+| `report_issue`     | File a wrong-or-stale fact into the quarantine queue for the maintenance loop |
+
+`score_candidates` stays a fact-based calculation. It shows the assumptions it used and lists exclusions it could not check, so the calling agent can decide what to do.
 
 ## Architecture (v1)
 
@@ -67,19 +61,33 @@ Two more surfaces share the Worker (ADR 0002): `POST /maintainer` — a bearer-t
 - **Tags** classify merchants and spend categories (for example `dining`, `online`, `overseas`). Tags and rates are many-to-many, and tags can overlap. One spend can match several tags.
 - **Aliases** map free-text names (merchant names, nicknames, abbreviations) to canonical tags or cards, also many-to-many.
 
-## Tools
+## Run it
 
-| Tool               | Purpose                                                                  |
-| ------------------ | ------------------------------------------------------------------------ |
-| `lookup_rates`     | Find rebate/earning rates by tag, card, or issuer, with filters and `limit` |
-| `get_card`         | Fetch one card's details by `id`                                         |
-| `get_term`         | Fetch a specific term/condition (cap, exclusion, validity) by `id`       |
-| `list_tags`        | List known spend tags                                                    |
-| `resolve_alias`    | Map a free-text name to canonical tag(s) or card(s)                      |
-| `score_candidates` | Score cards for a spend under explicit `assumptions`, and report `unknown_exclusions` |
-| `report_issue`     | File a wrong-or-stale fact into the quarantine queue for the maintenance loop |
+Local development:
 
-`score_candidates` stays a fact-based calculation. It shows the assumptions it used and lists exclusions it could not check, so the calling agent can decide what to do.
+```bash
+pnpm install
+pnpm migrate   # apply D1 schema to the local database
+pnpm seed      # load seed/seed.sql (synthetic data)
+pnpm dev       # wrangler dev — MCP at http://localhost:8787/mcp
+```
+
+`pnpm demo` runs all three setup steps, boots `wrangler dev`, and prints eight scripted tool payloads (a real MCP client over HTTP). Rates in that output are invented fixtures, not issuer terms. The spec is [`docs/PRD.md`](docs/PRD.md).
+
+## Docs
+
+| Doc | Purpose |
+| --- | --- |
+| [AGENTS.md](AGENTS.md) | Coding-agent entry: sources of truth, hard boundaries, commit rules |
+| [CONTEXT.md](CONTEXT.md) | Domain language |
+| [docs/PRD.md](docs/PRD.md) | Product spec |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Phases after v1 |
+| [docs/STATUS.md](docs/STATUS.md) | What exists today |
+| [docs/adr/](docs/adr/) | Architecture Decision Records |
+| [docs/TESTING.md](docs/TESTING.md) | Test policy |
+| [docs/ai-workflow.md](docs/ai-workflow.md) | AI-assisted development notes |
+
+This repo is also a public demo of an AI-assisted development workflow (Pinnacle). The writeup is planned at `docs/ai-workflow.md` and is not written yet.
 
 ## Repository layout
 
@@ -90,7 +98,7 @@ Two more surfaces share the Worker (ADR 0002): `POST /maintainer` — a bearer-t
 ├── packages/
 │   └── mcp-worker/       # Cloudflare Worker: remote MCP over D1 (wrangler dev locally)
 ├── skills/
-│   ├── cardex/           # Agent Skill: how to connect to the remote MCP
+│   ├── cardex/           # Agent Skill: the caller playbook (the product surface)
 │   └── cardex-maintainer/# Agent Skill: triage reports + file proposals via /maintainer
 ├── seed/
 │   └── seed.sql          # Synthetic sample data (invented numbers, not issuer terms)
@@ -103,13 +111,6 @@ Two more surfaces share the Worker (ADR 0002): `POST /maintainer` — a bearer-t
 ├── LICENSE               # Named MIT; file not added yet
 └── README.md
 ```
-
-## Distribution
-
-- **Remote MCP** runs on Cloudflare Workers.
-- **Agent Skill** is published through GitHub Releases. Agents install it to learn how to connect to and query the remote MCP.
-
-This repo is also a public demo of an AI-assisted development workflow (Pinnacle). The writeup is planned at `docs/ai-workflow.md` and is not written yet.
 
 ## Data policy
 
