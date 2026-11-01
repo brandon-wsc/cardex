@@ -118,7 +118,7 @@ function fail(error: FailureCode, detail?: string): Failure {
     : { ok: false, provenance: PROVENANCE, error, detail };
 }
 
-async function seedAsOf(db: D1Database): Promise<string | null> {
+async function seedDate(db: D1Database): Promise<string | null> {
   const row = await db
     .prepare("SELECT value FROM meta WHERE key = 'seed_as_of'")
     .first<{ value: string }>();
@@ -130,7 +130,7 @@ export function applyLimit(requested: number | undefined): LimitApplied | Failur
     return { limit: DEFAULT_LIMIT, limit_requested: null, clamped: false };
   }
   if (!Number.isInteger(requested) || requested < 1) {
-    return fail("invalid_limit", "limit must be an integer >= 1");
+    return fail("invalid_limit", "limit must be a positive integer");
   }
   if (requested > MAX_LIMIT) {
     return { limit: MAX_LIMIT, limit_requested: requested, clamped: true };
@@ -141,23 +141,23 @@ export function applyLimit(requested: number | undefined): LimitApplied | Failur
 function checkAsOf(asOf: string | undefined): string | Failure {
   if (asOf === undefined) return new Date().toISOString().slice(0, 10);
   if (!ISO_DATE.test(asOf)) {
-    return fail("invalid_date", "as_of must be an ISO date YYYY-MM-DD");
+    return fail("invalid_date", "as_of must be a YYYY-MM-DD date");
   }
   return asOf;
 }
 
 // A record is active when its window contains the date; NULL means open-ended.
-function activeAt(column: string): string {
+function windowContains(column: string): string {
   return `(${column}_from IS NULL OR ${column}_from <= ?) AND (${column}_to IS NULL OR ${column}_to >= ?)`;
 }
 
-function norm(value: string): string {
+function normalizeText(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 function aliasHits(query: string, alias: string): boolean {
-  const q = norm(query);
-  const a = norm(alias);
+  const q = normalizeText(query);
+  const a = normalizeText(alias);
   if (!q || !a) return false;
   if (q === a) return true;
   if ([...q].length < 2 || [...a].length < 2) return false;
@@ -172,7 +172,7 @@ function placeholders(count: number): string {
   return Array.from({ length: count }, () => "?").join(",");
 }
 
-async function refsByOwner(
+async function groupRefsByOwner(
   db: D1Database,
   table: "rate_tags" | "rate_terms" | "alias_tags" | "alias_cards" | "term_merchants",
   ownerColumn: string,
@@ -222,8 +222,8 @@ async function rateRowsWithRefs(
 ) {
   const ids = rows.map((row) => row.id);
   const [tagIds, termIds] = await Promise.all([
-    refsByOwner(db, "rate_tags", "rate_id", "tag_id", ids),
-    refsByOwner(db, "rate_terms", "rate_id", "term_id", ids),
+    groupRefsByOwner(db, "rate_tags", "rate_id", "tag_id", ids),
+    groupRefsByOwner(db, "rate_terms", "rate_id", "term_id", ids),
   ]);
   return rows.map((row) => rateRow(row, tagIds.get(row.id) ?? [], termIds.get(row.id) ?? []));
 }
@@ -244,7 +244,7 @@ function resolveIssuers(query: string): { params: string[]; canonical: string[] 
   const canonical = new Set<string>();
   for (const [text, issuer] of Object.entries(ISSUER_ALIASES)) {
     if (!aliasHits(query, text)) continue;
-    params.add(norm(issuer));
+    params.add(normalizeText(issuer));
     canonical.add(issuer);
   }
   return {
@@ -271,7 +271,7 @@ export async function lookupRates(
   // A filter-less call must not default to a catalog dump — the caller
   // either mistyped a key (which strict input now rejects upstream) or
   // meant to narrow and sent nothing.
-  const issuerQuery = input.issuer === undefined ? null : norm(input.issuer);
+  const issuerQuery = input.issuer === undefined ? null : normalizeText(input.issuer);
   const cardIds = input.card_ids?.length ? input.card_ids : null;
   if (!input.tag_id && !cardIds && !issuerQuery) {
     return fail(
@@ -295,7 +295,7 @@ export async function lookupRates(
       return {
         ok: true as const,
         provenance: PROVENANCE,
-        seed_as_of: await seedAsOf(db),
+        seed_as_of: await seedDate(db),
         ...page,
         filters,
         total: 0,
@@ -305,7 +305,7 @@ export async function lookupRates(
     }
   }
 
-  const where: string[] = [activeAt("r.effective")];
+  const where: string[] = [windowContains("r.effective")];
   const params: unknown[] = [asOf, asOf];
   if (input.tag_id) {
     where.push(
@@ -339,7 +339,7 @@ export async function lookupRates(
   return {
     ok: true as const,
     provenance: PROVENANCE,
-    seed_as_of: await seedAsOf(db),
+    seed_as_of: await seedDate(db),
     ...page,
     filters,
     total: totalRow?.n ?? 0,
@@ -368,7 +368,7 @@ export async function getCard(db: D1Database, id: string) {
   return {
     ok: true as const,
     provenance: PROVENANCE,
-    seed_as_of: await seedAsOf(db),
+    seed_as_of: await seedDate(db),
     card,
     rates,
     term_ids: [...new Set(rates.flatMap((rate) => rate.term_ids))],
@@ -378,7 +378,7 @@ export async function getCard(db: D1Database, id: string) {
 export async function getTerm(db: D1Database, id: string) {
   const term = await db.prepare("SELECT * FROM terms WHERE id = ?").bind(id).first<TermRow>();
   if (!term) return fail("not_found", id);
-  return { ok: true as const, provenance: PROVENANCE, seed_as_of: await seedAsOf(db), term };
+  return { ok: true as const, provenance: PROVENANCE, seed_as_of: await seedDate(db), term };
 }
 
 export async function listTags(db: D1Database, input: { limit?: number } = {}) {
@@ -392,7 +392,7 @@ export async function listTags(db: D1Database, input: { limit?: number } = {}) {
   return {
     ok: true as const,
     provenance: PROVENANCE,
-    seed_as_of: await seedAsOf(db),
+    seed_as_of: await seedDate(db),
     ...page,
     total: totalRow?.n ?? 0,
     records: results,
@@ -405,8 +405,8 @@ async function allAliases(db: D1Database): Promise<AliasRow[]> {
   }>();
   const texts = results.map((row) => row.text);
   const [tagIds, cardIds] = await Promise.all([
-    refsByOwner(db, "alias_tags", "alias_text", "tag_id", texts),
-    refsByOwner(db, "alias_cards", "alias_text", "card_id", texts),
+    groupRefsByOwner(db, "alias_tags", "alias_text", "tag_id", texts),
+    groupRefsByOwner(db, "alias_cards", "alias_text", "card_id", texts),
   ]);
   return texts.map((text) => ({
     text,
@@ -465,7 +465,7 @@ export async function resolveAlias(
   return {
     ok: true as const,
     provenance: PROVENANCE,
-    seed_as_of: await seedAsOf(db),
+    seed_as_of: await seedDate(db),
     query: input.query,
     ...page,
     total: merged.length,
@@ -494,7 +494,7 @@ export async function scoreCandidates(
 ) {
   const page = applyLimit(input.limit);
   if ("ok" in page) return page;
-  if (!(input.amount_hkd > 0)) return fail("invalid_amount", "amount_hkd must be > 0");
+  if (!(input.amount_hkd > 0)) return fail("invalid_amount", "amount_hkd must be positive");
   const asOf = checkAsOf(input.as_of);
   if (typeof asOf !== "string") return asOf;
 
@@ -509,7 +509,7 @@ export async function scoreCandidates(
     }
   }
   if (spendTags.size === 0) {
-    return fail("missing_spend", "pass tag_ids or an alias that maps to a tag");
+    return fail("missing_spend", "supply tag_ids or an alias that resolves to a tag");
   }
   const tagList = [...spendTags];
 
@@ -524,8 +524,9 @@ export async function scoreCandidates(
   const unknownTagIds = tagList.filter((id) => !knownTags.has(id)).sort();
 
   const where: string[] = [
-    `rt.tag_id IN (${placeholders(tagList.length)})`,
-    activeAt("r.effective"),
+    `EXISTS (SELECT 1 FROM rate_tags rt WHERE rt.rate_id = r.id ` +
+      `AND rt.tag_id IN (${placeholders(tagList.length)}))`,
+    windowContains("r.effective"),
   ];
   const params: unknown[] = [...tagList, asOf, asOf];
   if (cardScope.size > 0) {
@@ -535,24 +536,21 @@ export async function scoreCandidates(
   const whereSql = `WHERE ${where.join(" AND ")}`;
 
   const totalRow = await db
-    .prepare(
-      `SELECT count(DISTINCT r.id) AS n FROM rates r JOIN rate_tags rt ON rt.rate_id = r.id ${whereSql}`,
-    )
+    .prepare(`SELECT count(*) AS n FROM rates r ${whereSql}`)
     .bind(...params)
     .first<{ n: number }>();
 
   const { results } = await db
     .prepare(
-      `SELECT DISTINCT ${RATE_COLS} ` +
-        `FROM rates r JOIN cards c ON c.id = r.card_id ` +
-        `JOIN rate_tags rt ON rt.rate_id = r.id ${whereSql} ` +
+      `SELECT ${RATE_COLS} ` +
+        `FROM rates r JOIN cards c ON c.id = r.card_id ${whereSql} ` +
         `ORDER BY r.card_id, r.id LIMIT ?`,
     )
     .bind(...params, page.limit)
     .all<RateRow & { card_name: string; issuer: string }>();
 
   const rateIds = results.map((row) => row.id);
-  const termIdsByRate = await refsByOwner(db, "rate_terms", "rate_id", "term_id", rateIds);
+  const termIdsByRate = await groupRefsByOwner(db, "rate_terms", "rate_id", "term_id", rateIds);
   const allTermIds = [...new Set([...termIdsByRate.values()].flat())];
   const termsById = new Map<string, TermRow>();
   if (allTermIds.length) {
@@ -567,7 +565,7 @@ export async function scoreCandidates(
   const merchantTermIds = allTermIds.filter(
     (id) => termsById.get(id)?.kind === "merchant_list",
   );
-  const merchantsByTerm = await refsByOwner(
+  const merchantsByTerm = await groupRefsByOwner(
     db,
     "term_merchants",
     "term_id",
@@ -698,7 +696,7 @@ export async function scoreCandidates(
   return {
     ok: true as const,
     provenance: PROVENANCE,
-    seed_as_of: await seedAsOf(db),
+    seed_as_of: await seedDate(db),
     amount_hkd: input.amount_hkd,
     tag_ids: tagList,
     ...(unknownTagIds.length > 0 ? { unknown_tag_ids: unknownTagIds } : {}),
@@ -737,7 +735,7 @@ export async function reportIssue(
   ) {
     return fail(
       "invalid_report",
-      "pass exactly one of card_id, rate_id, term_id, plus field and claimed_value",
+      "supply exactly one of card_id, rate_id, term_id, plus field and claimed_value",
     );
   }
   const [targetKind, targetId, table] = targets[0];
@@ -769,7 +767,7 @@ export async function reportIssue(
   return {
     ok: true as const,
     provenance: PROVENANCE,
-    seed_as_of: await seedAsOf(db),
+    seed_as_of: await seedDate(db),
     report_id: reportId,
   };
 }

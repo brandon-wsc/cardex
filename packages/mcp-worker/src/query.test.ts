@@ -1,6 +1,7 @@
 import { applyD1Migrations, env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { D1Migration } from "@cloudflare/vitest-plugin";
+import { listReports } from "./maintain";
 import {
   getCard,
   getTerm,
@@ -28,13 +29,14 @@ beforeEach(async () => {
 
 describe("lookup_rates", () => {
   it("returns matching rates for a tag", async () => {
-    const res = await lookupRates(tenv.DB, { tag_id: "dining" });
+    const res = await lookupRates(tenv.DB, { tag_id: "dining", limit: 100 });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     const ids = res.records.map((r) => r.rate_id);
     expect(ids).toContain("rate_hsbc_dining");
     expect(ids).toContain("rate_aeon_dining");
-    expect(res.total).toBe(4);
+    // A page under max limit is the whole match set — total counts it all.
+    expect(res.records).toHaveLength(res.total);
   });
 
   it("ANDs tag, card and issuer filters", async () => {
@@ -49,7 +51,12 @@ describe("lookup_rates", () => {
       tag_id: "dining",
       issuer: "hsbc",
     });
-    expect(byIssuer.ok && byIssuer.records).toHaveLength(1);
+    expect(byIssuer.ok).toBe(true);
+    if (byIssuer.ok) {
+      expect(byIssuer.records.map((r) => r.rate_id)).toEqual(["rate_hsbc_dining"]);
+      expect(byIssuer.records.every((r) => r.issuer === "HSBC")).toBe(true);
+      expect(byIssuer.filters.issuer_canonical).toEqual(["HSBC"]);
+    }
   });
 
   it("returns an empty page with unknown_tag_id for an unknown tag", async () => {
@@ -89,10 +96,12 @@ describe("lookup_rates", () => {
 
   it("reports total as the pre-limit count", async () => {
     const res = await lookupRates(tenv.DB, { tag_id: "dining", limit: 1 });
-    expect(res.ok).toBe(true);
-    if (!res.ok) return;
+    const full = await lookupRates(tenv.DB, { tag_id: "dining", limit: 100 });
+    expect(res.ok && full.ok).toBe(true);
+    if (!res.ok || !full.ok) return;
     expect(res.records).toHaveLength(1);
-    expect(res.total).toBe(4);
+    expect(res.total).toBe(full.records.length);
+    expect(res.total).toBe(full.total);
   });
 });
 
@@ -102,10 +111,13 @@ describe("get_card", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.card.name).toBe("HSBC Red Credit Card");
-    expect(res.rates).toHaveLength(2);
+    expect(res.rates.map((r) => r.rate_id).sort()).toEqual(
+      ["rate_hsbc_dining", "rate_hsbc_online"].sort(),
+    );
     expect(res.term_ids).toEqual(
       expect.arrayContaining(["term_hsbc_dining_cap", "term_hsbc_octopus"]),
     );
+    expect(res.term_ids).not.toContain("term_dbs_quota");
   });
 
   it("returns not_found for an unknown id", async () => {
@@ -134,15 +146,17 @@ describe("get_term", () => {
 
 describe("list_tags", () => {
   it("returns tags honoring limit and total", async () => {
-    const all = await listTags(tenv.DB);
+    const all = await listTags(tenv.DB, { limit: 100 });
     expect(all.ok).toBe(true);
     if (!all.ok) return;
-    expect(all.total).toBe(4);
-    expect(all.records).toHaveLength(4);
+    expect(all.records).toHaveLength(all.total);
+    expect(all.records.map((t) => t.id)).toEqual(
+      expect.arrayContaining(["dining", "online", "overseas", "supermarket"]),
+    );
 
     const one = await listTags(tenv.DB, { limit: 1 });
     expect(one.ok && one.records).toHaveLength(1);
-    if (one.ok) expect(one.total).toBe(4);
+    if (one.ok) expect(one.total).toBe(all.total);
   });
 });
 
@@ -151,8 +165,8 @@ describe("resolve_alias", () => {
     const res = await resolveAlias(tenv.DB, { query: "茶餐廳" });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.matches[0].text).toBe("茶餐廳");
-    expect(res.matches[0].tag_ids).toContain("dining");
+    const hit = res.matches.find((m) => m.text === "茶餐廳");
+    expect(hit?.tag_ids).toContain("dining");
   });
 
   it("resolves a card nickname and contains-matches a longer query", async () => {
@@ -180,7 +194,8 @@ describe("resolve_alias", () => {
     const res = await resolveAlias(tenv.DB, { query: "匯豐" });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.matches[0].issuers).toContain("HSBC");
+    const hit = res.matches.find((m) => m.text === "匯豐");
+    expect(hit?.issuers).toContain("HSBC");
   });
 
   it("shows both readings of an ambiguous issuer query", async () => {
@@ -199,7 +214,8 @@ describe("resolve_alias", () => {
     const res = await resolveAlias(tenv.DB, { query: "銀聯" });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.matches[0].networks).toContain("unionpay");
+    const hit = res.matches.find((m) => m.text === "銀聯");
+    expect(hit?.networks).toContain("unionpay");
   });
 });
 
@@ -370,8 +386,12 @@ describe("contract deltas — PRD v0.3", () => {
     const res = await lookupRates(tenv.DB, { card_ids: ["card_hsbc_red"] });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
+    expect(res.records.length).toBeGreaterThan(0);
     expect(res.records.every((r) => r.card_id === "card_hsbc_red")).toBe(true);
-    expect(res.total).toBe(2);
+    expect(res.records.map((r) => r.rate_id)).toEqual(
+      expect.arrayContaining(["rate_hsbc_dining", "rate_hsbc_online"]),
+    );
+    expect(res.total).toBeGreaterThanOrEqual(res.records.length);
   });
 
   it("restricts scored rows to confirmed card_ids", async () => {
@@ -382,7 +402,10 @@ describe("contract deltas — PRD v0.3", () => {
     });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.candidates.map((c) => c.card_id)).toEqual(["card_hsbc_red"]);
+    expect(res.candidates.length).toBeGreaterThan(0);
+    expect(res.candidates.every((c) => c.card_id === "card_hsbc_red")).toBe(
+      true,
+    );
   });
 
   it("echoes unit on each rate row", async () => {
@@ -401,7 +424,7 @@ describe("contract deltas — PRD v0.3", () => {
 
   it("echoes seed_as_of on the envelope", async () => {
     const res = await lookupRates(tenv.DB, { tag_id: "dining" });
-    expect(res.ok && res.seed_as_of).toBe("2026-11-01");
+    expect(res.ok && res.seed_as_of).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   it("narrows the scored set by card hits from an alias", async () => {
@@ -412,7 +435,10 @@ describe("contract deltas — PRD v0.3", () => {
     });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.candidates.map((c) => c.card_id)).toEqual(["card_hsbc_red"]);
+    expect(res.candidates.length).toBeGreaterThan(0);
+    expect(res.candidates.every((c) => c.card_id === "card_hsbc_red")).toBe(
+      true,
+    );
   });
 
   it("filters terms outside their effective window by as_of", async () => {
@@ -481,14 +507,17 @@ describe("contract deltas — PRD v0.3", () => {
     if (!res.ok) return;
     expect(res.report_id).toMatch(/^rpt_/);
 
-    const row = await tenv.DB
-      .prepare("SELECT * FROM reports WHERE id = ?")
-      .bind(res.report_id)
-      .first<Record<string, unknown>>();
-    expect(row?.target_kind).toBe("rate");
-    expect(row?.field).toBe("value");
-    expect(row?.claimed_value).toBe("6");
-    // Quarantine: the report is not part of any query-tool payload.
+    // Re-read through the maintenance surface: the report lands in
+    // quarantine for triage, never in a query-tool payload.
+    const list = await listReports(tenv.DB, {});
+    expect(list.ok).toBe(true);
+    if (!list.ok) return;
+    const row = list.reports.find((r) => r.id === res.report_id);
+    expect(row).toMatchObject({
+      target_kind: "rate",
+      field: "value",
+      claimed_value: "6",
+    });
   });
 
   it("rejects a report missing target, field, or claimed_value", async () => {

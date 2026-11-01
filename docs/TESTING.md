@@ -5,6 +5,8 @@
 
 Specs live next to `query.ts` and are sourced from the PRD tables — one row, one `it()`. Held contract deltas are `it.fails` (expected red; when the delta lands the flip forces you to unmark) or `it.todo` when the schema/function does not exist yet. `server.test.ts` covers the wire-level contract — it drives `buildServer` through a real `Client` + `InMemoryTransport` pair so input-schema behaviour (strict keys, InvalidParams) is tested where the SDK applies it.
 
+Assert the envelope, not the machinery: error codes and structured fields, not `detail` phrasing; tool re-reads (`get_term`, `getProposal`, `listReports`), not raw `SELECT`; invariants like `records.length === total`, not fixture counts. If a behavior-preserving change turns a spec red, the spec was written too low — fix the spec, not the code.
+
 Add commands to the root [`AGENTS.md`](../AGENTS.md) when they actually run.
 
 ## Tiers
