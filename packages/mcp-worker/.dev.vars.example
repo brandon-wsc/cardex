@@ -4,8 +4,12 @@
 # Bearer token for POST /maintainer. If unset, the route returns 404.
 MAINTAINER_TOKEN=dev-maintainer-token
 
+# Owner address allowed past the /admin identity check. In production set
+# it with `wrangler secret put ADMIN_EMAIL` — never as a wrangler var.
+ADMIN_EMAIL=owner@example.com
+
 # Identity used for /admin when no Cf-Access-Authenticated-User-Email header
-# is present (Access is not in the loop locally). Must match ADMIN_EMAIL var.
+# is present (Access is not in the loop locally). Must match ADMIN_EMAIL.
 DEV_ADMIN_EMAIL=owner@example.com
 
 # Optional second factor on the approve action. Leave unset to disable.

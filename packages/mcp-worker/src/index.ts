@@ -10,11 +10,17 @@ import {
 import { buildMaintainerServer } from "./maintainer-server.js";
 import { buildServer } from "./server.js";
 
-// Secrets in .dev.vars are typed by `wrangler types`; ADMIN_PIN is optional
-// and may be absent from local dev vars, so it is declared here instead.
+// These four live in .dev.vars locally and are `wrangler secret put` in
+// prod, so generated Env types only see them when .dev.vars exists (CI has
+// none). Declared here as non-optional so the interface merge stays
+// identical whether or not wrangler emitted them; runtime guards below
+// handle actual absence.
 declare global {
   interface Env {
-    ADMIN_PIN?: string;
+    MAINTAINER_TOKEN: string;
+    ADMIN_EMAIL: string;
+    DEV_ADMIN_EMAIL: string;
+    ADMIN_PIN: string;
   }
 }
 
