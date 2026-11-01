@@ -46,8 +46,9 @@ describe("validatePatch", () => {
       id: "prop_x",
       set: { status: "applied" },
     });
-    expect(errors.length).toBeGreaterThan(0);
-    expect(errors.some((e) => e.includes("proposals"))).toBe(true);
+    expect(errors).toEqual([
+      "'proposals' is outside the patchable facts whitelist",
+    ]);
   });
 
   it("rejects a column outside the table whitelist", async () => {
@@ -57,7 +58,7 @@ describe("validatePatch", () => {
       id: "term_dbs_quota",
       set: { bogus: 1 },
     });
-    expect(errors.some((e) => e.includes("bogus"))).toBe(true);
+    expect(errors).toEqual(["'bogus' is not a column of terms"]);
   });
 
   it("rejects insert missing required columns", async () => {
@@ -67,21 +68,21 @@ describe("validatePatch", () => {
       id: "rate_new",
       set: { card_id: "card_dbs" },
     });
-    expect(errors.some((e) => e.includes("kind"))).toBe(true);
+    expect(errors).toContain("insert missing required 'kind'");
   });
 
   it("rejects update with an empty set and delete carrying a set", async () => {
     expect(
-      (await validatePatch(tenv.DB, { op: "update", table: "terms", id: "t", set: {} })).length,
-    ).toBeGreaterThan(0);
+      await validatePatch(tenv.DB, { op: "update", table: "terms", id: "t", set: {} }),
+    ).toEqual(["update requires a non-empty set"]);
     expect(
-      (await validatePatch(tenv.DB, {
+      await validatePatch(tenv.DB, {
         op: "delete",
         table: "terms",
         id: "t",
         set: { text: "x" },
-      })).length,
-    ).toBeGreaterThan(0);
+      }),
+    ).toEqual(["delete must not carry set"]);
   });
 
   it("requires key for update/delete on composite-pk tables", async () => {
@@ -90,9 +91,9 @@ describe("validatePatch", () => {
       table: "rate_tags",
       id: "rate_hsbc_dining+dining",
     });
-    expect(
-      missing.some((e) => e.includes("rate_id") && e.includes("tag_id")),
-    ).toBe(true);
+    expect(missing).toEqual([
+      "delete on rate_tags must name {rate_id, tag_id} to find the row",
+    ]);
 
     expect(
       await validatePatch(tenv.DB, {
@@ -111,7 +112,7 @@ describe("validatePatch", () => {
       id: "term_x+KFC",
       set: { merchant: "KFC" },
     });
-    expect(errors.some((e) => e.includes("term_id"))).toBe(true);
+    expect(errors).toContain("insert missing required 'term_id'");
   });
 });
 
@@ -170,14 +171,14 @@ describe("listReports / listProposals / getProposal", () => {
     const res = await listReports(tenv.DB, {});
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.reports.map((r) => r.id)).toContain("rpt_seed_001");
+    expect(res.reports.map((r) => r.id)).toEqual(["rpt_seed_001"]);
   });
 
   it("listProposals filters by status", async () => {
     const res = await listProposals(tenv.DB, { status: "pending" });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.proposals.map((p) => p.id)).toContain("prop_seed_001");
+    expect(res.proposals.map((p) => p.id)).toEqual(["prop_seed_001"]);
     expect(res.proposals.every((p) => p.status === "pending")).toBe(true);
   });
 

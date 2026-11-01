@@ -53,13 +53,9 @@ describe("lookup_rates", () => {
     });
     expect(byIssuer.ok).toBe(true);
     if (byIssuer.ok) {
-      expect(byIssuer.records.length).toBeGreaterThan(0);
-      expect(
-        byIssuer.records.every((r) => r.issuer.toLowerCase().includes("hsbc")),
-      ).toBe(true);
-      expect(byIssuer.records.map((r) => r.rate_id)).toContain(
-        "rate_hsbc_dining",
-      );
+      expect(byIssuer.records.map((r) => r.rate_id)).toEqual(["rate_hsbc_dining"]);
+      expect(byIssuer.records.every((r) => r.issuer === "HSBC")).toBe(true);
+      expect(byIssuer.filters.issuer_canonical).toEqual(["HSBC"]);
     }
   });
 
@@ -115,12 +111,13 @@ describe("get_card", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.card.name).toBe("HSBC Red Credit Card");
-    expect(res.rates.map((r) => r.rate_id)).toEqual(
-      expect.arrayContaining(["rate_hsbc_dining", "rate_hsbc_online"]),
+    expect(res.rates.map((r) => r.rate_id).sort()).toEqual(
+      ["rate_hsbc_dining", "rate_hsbc_online"].sort(),
     );
     expect(res.term_ids).toEqual(
       expect.arrayContaining(["term_hsbc_dining_cap", "term_hsbc_octopus"]),
     );
+    expect(res.term_ids).not.toContain("term_dbs_quota");
   });
 
   it("returns not_found for an unknown id", async () => {

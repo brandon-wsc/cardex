@@ -244,7 +244,7 @@ function resolveIssuers(query: string): { params: string[]; canonical: string[] 
   const canonical = new Set<string>();
   for (const [text, issuer] of Object.entries(ISSUER_ALIASES)) {
     if (!aliasHits(query, text)) continue;
-    params.add(norm(issuer));
+    params.add(normalizeText(issuer));
     canonical.add(issuer);
   }
   return {
@@ -271,7 +271,7 @@ export async function lookupRates(
   // A filter-less call must not default to a catalog dump — the caller
   // either mistyped a key (which strict input now rejects upstream) or
   // meant to narrow and sent nothing.
-  const issuerQuery = input.issuer === undefined ? null : norm(input.issuer);
+  const issuerQuery = input.issuer === undefined ? null : normalizeText(input.issuer);
   const cardIds = input.card_ids?.length ? input.card_ids : null;
   if (!input.tag_id && !cardIds && !issuerQuery) {
     return fail(
