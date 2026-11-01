@@ -40,6 +40,82 @@
     },
     {
       "firstFile": {
+        "end": 26,
+        "endLoc": {
+          "column": 3,
+          "line": 26,
+          "position": 861
+        },
+        "name": "index.test.ts",
+        "start": 8,
+        "startLoc": {
+          "column": 28,
+          "line": 8,
+          "position": 238
+        }
+      },
+      "format": "typescript",
+      "fragment": "import worker from \"./index\";\n\n// Wire-level specs for the auth and rate-limit layer in index.ts: bearer\n// failure lockout, PIN attempt lockout, Access-configured header distrust,\n// and same-origin enforcement on admin writes. Per test IP keeps the shared\n// in-memory buckets independent.\nconst tenv = env as unknown as {\n  DB: D1Database;\n  TEST_MIGRATIONS: D1Migration[];\n  SEED_SQL: string;\n};\n\nbeforeEach(async () => {\n  await applyD1Migrations(tenv.DB, tenv.TEST_MIGRATIONS);\n  const statements = tenv.SEED_SQL.split(\";\")\n    .map((s) => s.trim())\n    .filter(Boolean);\n  await tenv.DB.batch(statements.map((sql) => tenv.DB.prepare(sql)));\n});",
+      "isNew": false,
+      "kind": "exact",
+      "lines": 19,
+      "secondFile": {
+        "end": 28,
+        "endLoc": {
+          "column": 3,
+          "line": 28,
+          "position": 819
+        },
+        "name": "maintain.test.ts",
+        "start": 12,
+        "startLoc": {
+          "column": 33,
+          "line": 12,
+          "position": 341
+        }
+      },
+      "tokens": 103
+    },
+    {
+      "firstFile": {
+        "end": 26,
+        "endLoc": {
+          "column": 3,
+          "line": 26,
+          "position": 861
+        },
+        "name": "index.test.ts",
+        "start": 8,
+        "startLoc": {
+          "column": 28,
+          "line": 8,
+          "position": 238
+        }
+      },
+      "format": "typescript",
+      "fragment": "import worker from \"./index\";\n\n// Wire-level specs for the auth and rate-limit layer in index.ts: bearer\n// failure lockout, PIN attempt lockout, Access-configured header distrust,\n// and same-origin enforcement on admin writes. Per test IP keeps the shared\n// in-memory buckets independent.\nconst tenv = env as unknown as {\n  DB: D1Database;\n  TEST_MIGRATIONS: D1Migration[];\n  SEED_SQL: string;\n};\n\nbeforeEach(async () => {\n  await applyD1Migrations(tenv.DB, tenv.TEST_MIGRATIONS);\n  const statements = tenv.SEED_SQL.split(\";\")\n    .map((s) => s.trim())\n    .filter(Boolean);\n  await tenv.DB.batch(statements.map((sql) => tenv.DB.prepare(sql)));\n});",
+      "isNew": false,
+      "kind": "exact",
+      "lines": 19,
+      "secondFile": {
+        "end": 23,
+        "endLoc": {
+          "column": 3,
+          "line": 23,
+          "position": 931
+        },
+        "name": "server.test.ts",
+        "start": 5,
+        "startLoc": {
+          "column": 38,
+          "line": 5,
+          "position": 291
+        }
+      },
+      "tokens": 103
+    },
+    {
+      "firstFile": {
         "end": 30,
         "endLoc": {
           "column": 9,
@@ -78,56 +154,18 @@
     },
     {
       "firstFile": {
-        "end": 28,
-        "endLoc": {
-          "column": 3,
-          "line": 28,
-          "position": 819
-        },
-        "name": "maintain.test.ts",
-        "start": 12,
-        "startLoc": {
-          "column": 33,
-          "line": 12,
-          "position": 341
-        }
-      },
-      "format": "typescript",
-      "fragment": "import { getTerm } from \"./query\";\n\n// Specs for the maintenance surface in ADR 0002: structured patches only,\n// propose ≠ apply, approve is atomic.\nconst tenv = env as unknown as {\n  DB: D1Database;\n  TEST_MIGRATIONS: D1Migration[];\n  SEED_SQL: string;\n};\n\nbeforeEach(async () => {\n  await applyD1Migrations(tenv.DB, tenv.TEST_MIGRATIONS);\n  const statements = tenv.SEED_SQL.split(\";\")\n    .map((s) => s.trim())\n    .filter(Boolean);\n  await tenv.DB.batch(statements.map((sql) => tenv.DB.prepare(sql)));\n});",
-      "isNew": false,
-      "kind": "exact",
-      "lines": 17,
-      "secondFile": {
-        "end": 23,
-        "endLoc": {
-          "column": 3,
-          "line": 23,
-          "position": 931
-        },
-        "name": "server.test.ts",
-        "start": 5,
-        "startLoc": {
-          "column": 38,
-          "line": 5,
-          "position": 291
-        }
-      },
-      "tokens": 103
-    },
-    {
-      "firstFile": {
-        "end": 263,
+        "end": 274,
         "endLoc": {
           "column": 21,
-          "line": 263,
-          "position": 8256
+          "line": 274,
+          "position": 8626
         },
         "name": "maintain.test.ts",
-        "start": 247,
+        "start": 258,
         "startLoc": {
           "column": 68,
-          "line": 247,
-          "position": 7810
+          "line": 258,
+          "position": 8180
         }
       },
       "format": "typescript",
@@ -136,36 +174,36 @@
       "kind": "exact",
       "lines": 17,
       "secondFile": {
-        "end": 352,
+        "end": 363,
         "endLoc": {
           "column": 21,
-          "line": 352,
-          "position": 11063
+          "line": 363,
+          "position": 11433
         },
         "name": "maintain.test.ts",
-        "start": 336,
+        "start": 347,
         "startLoc": {
           "column": 57,
-          "line": 336,
-          "position": 10617
+          "line": 347,
+          "position": 10987
         }
       },
       "tokens": 87
     },
     {
       "firstFile": {
-        "end": 360,
+        "end": 371,
         "endLoc": {
           "column": 33,
-          "line": 360,
-          "position": 11396
+          "line": 371,
+          "position": 11766
         },
         "name": "maintain.test.ts",
-        "start": 345,
+        "start": 356,
         "startLoc": {
           "column": 32,
-          "line": 345,
-          "position": 10925
+          "line": 356,
+          "position": 11295
         }
       },
       "format": "typescript",
@@ -174,36 +212,36 @@
       "kind": "exact",
       "lines": 16,
       "secondFile": {
-        "end": 396,
+        "end": 407,
         "endLoc": {
           "column": 33,
-          "line": 396,
-          "position": 12521
+          "line": 407,
+          "position": 12891
         },
         "name": "maintain.test.ts",
-        "start": 382,
+        "start": 393,
         "startLoc": {
           "column": 37,
-          "line": 382,
-          "position": 12127
+          "line": 393,
+          "position": 12497
         }
       },
       "tokens": 101
     },
     {
       "firstFile": {
-        "end": 356,
+        "end": 367,
         "endLoc": {
           "column": 24,
-          "line": 356,
-          "position": 11209
+          "line": 367,
+          "position": 11579
         },
         "name": "maintain.test.ts",
-        "start": 345,
+        "start": 356,
         "startLoc": {
           "column": 51,
-          "line": 345,
-          "position": 10944
+          "line": 356,
+          "position": 11314
         }
       },
       "format": "typescript",
@@ -212,36 +250,36 @@
       "kind": "exact",
       "lines": 12,
       "secondFile": {
-        "end": 425,
+        "end": 436,
         "endLoc": {
           "column": 24,
-          "line": 425,
-          "position": 13481
+          "line": 436,
+          "position": 13851
         },
         "name": "maintain.test.ts",
-        "start": 414,
+        "start": 425,
         "startLoc": {
           "column": 76,
-          "line": 414,
-          "position": 13216
+          "line": 425,
+          "position": 13586
         }
       },
       "tokens": 65
     },
     {
       "firstFile": {
-        "end": 358,
+        "end": 369,
         "endLoc": {
           "column": 27,
-          "line": 358,
-          "position": 11268
+          "line": 369,
+          "position": 11638
         },
         "name": "maintain.test.ts",
-        "start": 345,
+        "start": 356,
         "startLoc": {
           "column": 51,
-          "line": 345,
-          "position": 10944
+          "line": 356,
+          "position": 11314
         }
       },
       "format": "typescript",
@@ -250,36 +288,36 @@
       "kind": "exact",
       "lines": 14,
       "secondFile": {
-        "end": 464,
+        "end": 475,
         "endLoc": {
           "column": 27,
-          "line": 464,
-          "position": 14552
+          "line": 475,
+          "position": 14922
         },
         "name": "maintain.test.ts",
-        "start": 451,
+        "start": 462,
         "startLoc": {
           "column": 10,
-          "line": 451,
-          "position": 14228
+          "line": 462,
+          "position": 14598
         }
       },
       "tokens": 85
     },
     {
       "firstFile": {
-        "end": 367,
+        "end": 378,
         "endLoc": {
           "column": 4,
-          "line": 367,
-          "position": 11595
+          "line": 378,
+          "position": 11965
         },
         "name": "maintain.test.ts",
-        "start": 362,
+        "start": 373,
         "startLoc": {
           "column": 4,
-          "line": 362,
-          "position": 11412
+          "line": 373,
+          "position": 11782
         }
       },
       "format": "typescript",
@@ -288,18 +326,18 @@
       "kind": "exact",
       "lines": 6,
       "secondFile": {
-        "end": 477,
+        "end": 488,
         "endLoc": {
           "column": 1,
-          "line": 477,
-          "position": 15027
+          "line": 488,
+          "position": 15397
         },
         "name": "maintain.test.ts",
-        "start": 473,
+        "start": 484,
         "startLoc": {
           "column": 4,
-          "line": 473,
-          "position": 14848
+          "line": 484,
+          "position": 15218
         }
       },
       "tokens": 52
@@ -726,29 +764,29 @@
   "statistics": {
     "formats": {
       "typescript": {
-        "clones": 19,
-        "duplicatedLines": 201,
-        "duplicatedTokens": 1268,
-        "lines": 3693,
+        "clones": 20,
+        "duplicatedLines": 222,
+        "duplicatedTokens": 1371,
+        "lines": 3982,
         "newClones": 0,
         "newDuplicatedLines": 0,
-        "percentage": 5.442729488220959,
-        "percentageTokens": 5.241835469202149,
-        "sources": 12,
-        "tokens": 24190
+        "percentage": 5.575087895529885,
+        "percentageTokens": 5.252471075013409,
+        "sources": 15,
+        "tokens": 26102
       }
     },
     "total": {
-      "clones": 19,
-      "duplicatedLines": 201,
-      "duplicatedTokens": 1268,
-      "lines": 3693,
+      "clones": 20,
+      "duplicatedLines": 222,
+      "duplicatedTokens": 1371,
+      "lines": 3982,
       "newClones": 0,
       "newDuplicatedLines": 0,
-      "percentage": 5.442729488220959,
-      "percentageTokens": 5.241835469202149,
-      "sources": 12,
-      "tokens": 24190
+      "percentage": 5.575087895529885,
+      "percentageTokens": 5.252471075013409,
+      "sources": 15,
+      "tokens": 26102
     }
   }
 }
