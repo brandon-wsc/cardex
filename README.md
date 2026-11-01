@@ -149,7 +149,7 @@ This repo is also a public demo of an AI-assisted development workflow (Pinnacle
 │   ├── TESTING.md
 │   ├── adr/
 │   └── ai-workflow.md    # AI-assisted development notes
-├── LICENSE               # Named MIT; file not added yet
+├── LICENSE               # MIT
 └── README.md
 ```
 

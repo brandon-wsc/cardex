@@ -20,7 +20,7 @@ This file is what exists in the tree today. Architecture and phases live in [ROA
 | `skills/cardex-maintainer` | Written — connect, patch grammar, triage loop, evidence rules for the proposal loop ([ADR 0002](./adr/0002-maintenance-surface.md)) |
 | Maintenance surface | Built — `proposals` table, `/maintainer` bearer-token MCP (`list_reports` + `propose_change`, patch whitelist validated), `/admin` portal + API (Access header + `ADMIN_EMAIL` check, optional `ADMIN_PIN`). Ops not done: real secrets, Access policy, deploy |
 | `docs/ai-workflow.md` | Stub |
-| `LICENSE` | Named in the README as MIT. File not in the tree |
+| `LICENSE` | MIT — file in the tree |
 | Deploy | Live — `cardex.brandonhk.com` (custom domain, workers.dev disabled), prod D1 `d0616cb0…` migrated+seeded, `MAINTAINER_TOKEN` secret set (`ADMIN_PIN` unset — approve relies on Access alone), Cloudflare Access fronts `/admin` (email OTP, owner only) |
 | CI/CD | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) on PRs: branch/title/commit conventions + site build (`astro check`) + vitest + typecheck. [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) on merges touching `packages/mcp-worker`, `packages/site`, or `skills/cardex`: builds the site, applies prod D1 migrations then `wrangler deploy`; also `workflow_dispatch` |
 | Tests | vitest in workerd + real D1 — 60 specs on the PRD tables + 4 wire-level (`server.ts` strict input) + 22 on the proposal lifecycle (`maintain.ts`). Policy is [TESTING.md](./TESTING.md) |
