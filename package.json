@@ -6,6 +6,7 @@
     "dev": "pnpm --dir packages/mcp-worker dev",
     "migrate": "pnpm --dir packages/mcp-worker migrate",
     "seed": "pnpm --dir packages/mcp-worker seed",
+    "export-seed": "bash scripts/export-seed.sh",
     "demo": "pnpm migrate && pnpm seed && pnpm --dir packages/mcp-worker demo",
     "typecheck": "pnpm --dir packages/mcp-worker typecheck",
     "test": "pnpm --dir packages/mcp-worker test"

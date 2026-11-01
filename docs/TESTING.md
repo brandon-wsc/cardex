@@ -1,6 +1,6 @@
 # Testing policy
 
-> **Status:** `pnpm test` — vitest + `@cloudflare/vitest-plugin`, running inside workerd against real D1 (migrations + `seed/seed.sql` as the committed fixture). `pnpm demo` remains the end-to-end check.
+> **Status:** `pnpm test` — vitest + `@cloudflare/vitest-plugin`, running inside workerd against real D1 (migrations + `packages/mcp-worker/test/seed.sql`, a frozen fixture; `seed/seed.sql` is the prod snapshot and drifts with exports). `pnpm demo` remains the end-to-end check.
 > **Principle:** gate on tool behavior. No repo-wide coverage percentage. No live issuer HTTP in CI.
 
 Specs live next to `query.ts` and are sourced from the PRD tables — one row, one `it()`. Held contract deltas are `it.fails` (expected red; when the delta lands the flip forces you to unmark) or `it.todo` when the schema/function does not exist yet.

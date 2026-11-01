@@ -7,7 +7,7 @@ const migrations = await readD1Migrations(
   fileURLToPath(new URL("./migrations", import.meta.url)),
 );
 const seedSql = readFileSync(
-  new URL("../../seed/seed.sql", import.meta.url),
+  new URL("./test/seed.sql", import.meta.url),
   "utf8",
 )
   .split("\n")
