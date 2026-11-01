@@ -585,7 +585,18 @@ function render() {
     const pinEl = document.getElementById("pin");
     decide("approve", note || undefined, pinEl ? pinEl.value : undefined);
   });
+  if (state.confirm) {
+    (document.getElementById("pin") || document.getElementById("confirm")).focus();
+  }
 }
+
+document.addEventListener("keydown", (e) => {
+  if (!state.confirm) return;
+  if (e.key === "Escape") { state.confirm = null; render(); }
+  if (e.key === "Enter" && document.activeElement && document.activeElement.id === "pin") {
+    document.getElementById("confirm").click();
+  }
+});
 
 refresh().catch((e) => { $root.innerHTML = '<div class="empty">Failed to load: ' + esc(e.message) + "</div>"; });
 </script>
