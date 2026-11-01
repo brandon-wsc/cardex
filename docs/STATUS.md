@@ -1,0 +1,29 @@
+# Cardex — Project status
+
+> **Last updated:** 2026-11-01
+> **Overall:** pre-alpha. `wrangler dev` serves the remote MCP over a seeded local D1.
+
+This file is what exists in the tree today. Architecture and phases live in [ROADMAP](./ROADMAP.md).
+
+## Summary
+
+| Area | Status |
+|------|--------|
+| README | Run/dev, connect, non-goals |
+| `AGENTS.md`, `CONTEXT.md`, PRD v0.3, roadmap, ADRs, test policy | In tree |
+| Worker | `packages/mcp-worker` — remote MCP (`createMcpHandler`, streamable HTTP at `/mcp`) over D1, seven tools at the v0.3 contract; plus `/maintainer` (bearer) and `/admin` (Access) per ADR 0002 |
+| D1 schema | `packages/mcp-worker/migrations/0001`–`0004` — cards, rates, terms (12 kinds), `term_merchants`, join tables, aliases, `reports`, `proposals` |
+| Seed | `seed/seed.sql` — synthetic. Cited seed (popular-cards-first, real `source_url`s) is a P2 milestone |
+| Contract deltas | Shipped — `card_ids`, `as_of`, `limit` 100, rate `unit`, `last_verified_at`, `seed_as_of`, `reports` + `report_issue`, audited term kinds |
+| `skills/cardex` | Written — connect + tool guide + per-kind settle checklist at the v0.3 contract |
+| `skills/cardex-maintainer` | Written — connect, patch grammar, triage loop, evidence rules for the proposal loop ([ADR 0002](./adr/0002-maintenance-surface.md)) |
+| Maintenance surface | Built — `proposals` table, `/maintainer` bearer-token MCP (`list_reports` + `propose_change`, patch whitelist validated), `/admin` portal + API (Access header + `ADMIN_EMAIL` check, optional `ADMIN_PIN`). Ops not done: real secrets, Access policy, deploy |
+| `docs/ai-workflow.md` | Stub |
+| `LICENSE` | Named in the README as MIT. File not in the tree |
+| Deploy | Live — `cardex.brandonhk.com` (custom domain, workers.dev disabled), prod D1 `d0616cb0…` migrated+seeded, `MAINTAINER_TOKEN`/`ADMIN_PIN` secrets set, Cloudflare Access fronts `/admin` (email OTP, owner only) |
+| CI | Pull requests only. [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) checks branch name, PR title, commit subjects — and runs vitest + typecheck |
+| Tests | vitest in workerd + real D1 — 55 specs on the PRD tables + 18 on the proposal lifecycle (`maintain.ts`). Policy is [TESTING.md](./TESTING.md) |
+
+## Decisions
+
+Recorded in [docs/adr/](./adr/) — [0001](./adr/0001-product-shape.md) locks the product shape: facts only, human-approved maintenance, public read MCP, playbook as the surface. [0002](./adr/0002-maintenance-surface.md) supersedes its write path: D1 is the truth, approvals happen in a portal over structured proposals, and the maintenance agent's only credential is a `/maintainer` token. Do not restate them here unless the status of a decision changes (shipped, held, superseded).

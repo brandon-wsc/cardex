@@ -1,0 +1,33 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "cardex",
+  "main": "src/index.ts",
+  // Set on the day this Worker was created (AGENTS.md); 2026-10-26 is the
+  // newest date the pinned workerd binary supports.
+  "compatibility_date": "2026-10-26",
+  "compatibility_flags": ["nodejs_compat"],
+  // Preview hostnames would bypass the Access app fronting /admin — off.
+  "preview_urls": false,
+  // Custom domain on the brandonhk.com zone; Access fronts /admin on it.
+  "routes": [
+    { "pattern": "cardex.brandonhk.com", "custom_domain": true }
+  ],
+  "observability": {
+    "enabled": true,
+    "traces": { "enabled": true }
+  },
+  // src/admin.html is imported as a text module for the /admin portal.
+  "rules": [{ "type": "Text", "globs": ["**/*.html"] }],
+  // ADMIN_EMAIL is deliberately NOT a var — it is a secret
+  // (`wrangler secret put ADMIN_EMAIL`) so the owner address never lands
+  // in committed config. Cloudflare Access is the real boundary; this is
+  // the second check inside the Worker.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "cardex-db",
+      "database_id": "d0616cb0-2def-4466-8568-8abd53ae41e8",
+      "migrations_dir": "migrations"
+    }
+  ]
+}
