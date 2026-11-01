@@ -151,6 +151,39 @@ describe("proposeChange", () => {
     if (!res.ok) expect(res.error).toBe("invalid_proposal");
   });
 
+  it("rejects a non-http(s) evidence_url", async () => {
+    for (const evidence_url of [
+      "javascript:alert(1)",
+      "data:text/html,<script>alert(1)</script>",
+      "ftp://example.com/x",
+      "not-a-url",
+    ]) {
+      const res = await proposeChange(tenv.DB, { ...good, evidence_url });
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error).toBe("invalid_proposal");
+    }
+  });
+
+  it("rejects overlong free text and oversized patch lists", async () => {
+    for (const input of [
+      { summary: "s".repeat(501) },
+      { excerpt: "e".repeat(4001) },
+      { proposed_by: "p".repeat(101) },
+      { evidence_url: "https://example.com/" + "a".repeat(2048) },
+    ]) {
+      const res = await proposeChange(tenv.DB, { ...good, ...input });
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error).toBe("invalid_proposal");
+    }
+
+    const many = await proposeChange(tenv.DB, {
+      ...good,
+      patches: Array.from({ length: 51 }, () => good.patches[0]),
+    });
+    expect(many.ok).toBe(false);
+    if (!many.ok) expect(many.error).toBe("invalid_proposal");
+  });
+
   it("rejects when any patch fails validation", async () => {
     const res = await proposeChange(tenv.DB, {
       ...good,

@@ -18,12 +18,12 @@ This file is what exists in the tree today. Architecture and phases live in [ROA
 | Contract deltas | Shipped — `card_ids`, `as_of`, `limit` 100, rate `unit`, `last_verified_at`, `seed_as_of`, `reports` + `report_issue`, audited term kinds |
 | `skills/cardex` | Written — connect + tool guide + per-kind settle checklist at the v0.4 contract |
 | `skills/cardex-maintainer` | Written — connect, patch grammar, triage loop, evidence rules for the proposal loop ([ADR 0002](./adr/0002-maintenance-surface.md)) |
-| Maintenance surface | Built — `proposals` table, `/maintainer` bearer-token MCP (`list_reports` + `propose_change`, patch whitelist validated), `/admin` portal + API (Access header + `ADMIN_EMAIL` check, optional `ADMIN_PIN`). Ops not done: real secrets, Access policy, deploy |
+| Maintenance surface | Built — `proposals` table, `/maintainer` bearer-token MCP (`list_reports` + `propose_change`, patch whitelist validated), `/admin` portal + API (Access header + `ADMIN_EMAIL` check, optional `ADMIN_PIN`). Intake bounded: `evidence_url` must be http(s) on both write paths and renders as a link only for http(s) in the portal; free-text fields and patch count capped. Ops not done: real secrets, Access policy, deploy |
 | `docs/ai-workflow.md` | Stub |
 | `LICENSE` | MIT — file in the tree |
 | Deploy | Live — `cardex.brandonhk.com` (custom domain, workers.dev disabled), prod D1 `d0616cb0…` migrated+seeded, `MAINTAINER_TOKEN` secret set (`ADMIN_PIN` unset — approve relies on Access alone), Cloudflare Access fronts `/admin` (email OTP, owner only) |
 | CI/CD | [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) on PRs: branch/title/commit conventions + site build (`astro check`) + vitest + typecheck. [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) on merges touching `packages/mcp-worker`, `packages/site`, or `skills/cardex`: builds the site, applies prod D1 migrations then `wrangler deploy`; also `workflow_dispatch` |
-| Tests | vitest in workerd + real D1 — 60 specs on the PRD tables + 4 wire-level (`server.ts` strict input) + 22 on the proposal lifecycle (`maintain.ts`). Policy is [TESTING.md](./TESTING.md) |
+| Tests | vitest in workerd + real D1 — 66 specs on the PRD tables + 4 wire-level (`server.ts` strict input) + 24 on the proposal lifecycle (`maintain.ts`). Policy is [TESTING.md](./TESTING.md) |
 
 ## Decisions
 

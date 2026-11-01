@@ -97,6 +97,30 @@ function fmtTs(iso?: string) {
   return iso.slice(0, 16).replace("T", " ") + "Z";
 }
 
+// evidence_url arrives from public report_issue / maintainer proposals —
+// untrusted. Only http(s) renders as a link; anything else shows as plain
+// text so a javascript: URL can never execute in the admin origin.
+function safeHref(u?: string): string | undefined {
+  if (!u) return undefined;
+  try {
+    const p = new URL(u).protocol;
+    return p === "http:" || p === "https:" ? u : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function evidenceLink(url?: string) {
+  if (!url) return "—";
+  const href = safeHref(url);
+  if (!href) return <span class="muted">{url}</span>;
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer">
+      link ↗
+    </a>
+  );
+}
+
 function chip(status: string) {
   return <span class={"chip " + status}>{status}</span>;
 }
@@ -283,15 +307,11 @@ export default function AdminApp() {
         <td class="mono" style="text-align:right">
           {p.patch_count} op{p.patch_count === 1 ? "" : "s"}
         </td>
-        <td class="mono">
-          <a
-            href={p.evidence_url}
-            target="_blank"
-            rel="noopener"
-            onClick={(e) => e.stopPropagation()}
-          >
-            link ↗
-          </a>
+        <td
+          class="mono"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {evidenceLink(p.evidence_url)}
         </td>
         <td class="mono muted">
           {decidedList ? fmtTs(p.decided_at) : fmtAge(p.created_at)}
@@ -352,15 +372,7 @@ export default function AdminApp() {
                 </td>
                 <td class="mono">{r.field}</td>
                 <td class="mono">{r.claimed_value}</td>
-                <td class="mono">
-                  {r.evidence_url ? (
-                    <a href={r.evidence_url} target="_blank" rel="noopener">
-                      link ↗
-                    </a>
-                  ) : (
-                    "—"
-                  )}
-                </td>
+                <td class="mono">{evidenceLink(r.evidence_url)}</td>
                 <td class="muted">{r.note || "—"}</td>
                 <td class="mono muted">{fmtTs(r.reported_at)}</td>
               </tr>
@@ -421,9 +433,17 @@ export default function AdminApp() {
         <div class="card evidence">
           <h3>Evidence</h3>
           {p.excerpt ? <blockquote>{p.excerpt}</blockquote> : null}
-          <a href={p.evidence_url} target="_blank" rel="noopener">
-            {p.evidence_url}
-          </a>
+          {safeHref(p.evidence_url) ? (
+            <a
+              href={p.evidence_url}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {p.evidence_url}
+            </a>
+          ) : (
+            <span class="muted">{p.evidence_url}</span>
+          )}
         </div>
         <div class="card">
           <h3>

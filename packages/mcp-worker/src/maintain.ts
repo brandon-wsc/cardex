@@ -3,6 +3,8 @@
 // every write happens inside one D1 batch at apply time. Proposals carry
 // structured patches — never raw SQL.
 
+import { isHttpUrl } from "./query.js";
+
 export type Scalar = string | number | null;
 
 export interface Patch {
@@ -227,12 +229,59 @@ interface ProposalInput {
   patches?: unknown[];
 }
 
+const PROPOSAL_MAX = {
+  url: 2048,
+  summary: 500,
+  excerpt: 4000,
+  proposed_by: 100,
+  patches: 50,
+};
+
+function proposalBoundsError(input: {
+  summary: string;
+  evidence_url: string;
+  excerpt?: string;
+  proposed_by?: string;
+}): string | null {
+  if (input.summary.length > PROPOSAL_MAX.summary) return "summary too long";
+  if (
+    input.excerpt !== undefined &&
+    input.excerpt.length > PROPOSAL_MAX.excerpt
+  )
+    return "excerpt too long";
+  if (
+    input.proposed_by !== undefined &&
+    input.proposed_by.length > PROPOSAL_MAX.proposed_by
+  )
+    return "proposed_by too long";
+  if (
+    input.evidence_url.length > PROPOSAL_MAX.url ||
+    !isHttpUrl(input.evidence_url)
+  )
+    return "evidence_url must be an http(s) URL of at most 2048 chars";
+  return null;
+}
+
 export async function proposeChange(db: D1Database, input: ProposalInput) {
   if (!input.summary || !input.evidence_url) {
     return fail("invalid_proposal", "summary and evidence_url are required");
   }
-  if (!Array.isArray(input.patches) || input.patches.length === 0) {
-    return fail("invalid_proposal", "patches must be a non-empty array");
+  const bounds = proposalBoundsError({
+    summary: input.summary,
+    evidence_url: input.evidence_url,
+    excerpt: input.excerpt,
+    proposed_by: input.proposed_by,
+  });
+  if (bounds) return fail("invalid_proposal", bounds);
+  if (
+    !Array.isArray(input.patches) ||
+    input.patches.length === 0 ||
+    input.patches.length > PROPOSAL_MAX.patches
+  ) {
+    return fail(
+      "invalid_proposal",
+      `patches must be a non-empty array of at most ${PROPOSAL_MAX.patches} ops`,
+    );
   }
   const allErrors: string[] = [];
   for (const [i, raw] of input.patches.entries()) {

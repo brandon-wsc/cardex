@@ -11,6 +11,41 @@ const MAX_LIMIT = 100;
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+// Public intake writes (report_issue here, propose_change in maintain.ts)
+// carry free text into tables the admin portal renders. Evidence URLs must
+// be http(s): a javascript: href would execute in the admin origin, so it
+// is rejected at write time rather than stored.
+export function isHttpUrl(s: string): boolean {
+  try {
+    const p = new URL(s).protocol;
+    return p === "http:" || p === "https:";
+  } catch {
+    return false;
+  }
+}
+
+const INTAKE_MAX = { url: 2048, field: 100, claimed_value: 500, note: 2000 };
+
+function reportBoundsError(input: {
+  field: string;
+  claimed_value: string;
+  note?: string;
+  evidence_url?: string;
+}): string | null {
+  if (input.field.length > INTAKE_MAX.field) return "field too long";
+  if (input.claimed_value.length > INTAKE_MAX.claimed_value)
+    return "claimed_value too long";
+  if (input.note !== undefined && input.note.length > INTAKE_MAX.note)
+    return "note too long";
+  if (
+    input.evidence_url !== undefined &&
+    (input.evidence_url.length > INTAKE_MAX.url ||
+      !isHttpUrl(input.evidence_url))
+  )
+    return "evidence_url must be an http(s) URL of at most 2048 chars";
+  return null;
+}
+
 export interface Assumptions {
   month_to_date_rebate_hkd?: number;
   month_to_date_spend_hkd?: number;
@@ -742,6 +777,14 @@ export async function reportIssue(
     );
   }
   const [targetKind, targetId, table] = targets[0];
+
+  const bounds = reportBoundsError({
+    field: input.field,
+    claimed_value: input.claimed_value,
+    note: input.note,
+    evidence_url: input.evidence_url,
+  });
+  if (bounds) return fail("invalid_report", bounds);
 
   const exists = await db
     .prepare(`SELECT id FROM ${table} WHERE id = ?`)

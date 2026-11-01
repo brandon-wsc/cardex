@@ -97,6 +97,8 @@ Failures are `{ ok: false, error, detail? }` plus the same provenance. They are 
 
 `report_issue` asks for evidence (`evidence_url`) and its description tells callers not to include personal data. It is a suggestion box that feeds the maintenance loop — never a write path to facts ([ADR 0001](adr/0001-product-shape.md)).
 
+Public intake is bounded. `evidence_url`, when present, must be an `http:`/`https:` URL of at most 2048 characters — the admin portal renders it as a link, so other schemes are rejected rather than stored. Free text is capped: `field` ≤ 100, `claimed_value` ≤ 500, `note` ≤ 2000 characters.
+
 ## 5. score_candidates
 
 Inputs:
@@ -153,6 +155,7 @@ A cleared exclusion is the caller saying "this does not apply", not Cardex decid
 | Cap or exclusion the caller did not settle | Row still returned. The gap is in `unknown_exclusions` |
 | Report accepted | `ok: true`, `report_id`. Lands in quarantine, never in query tables |
 | Report missing target, `field`, or `claimed_value` | `ok: false`, `error: "invalid_report"` |
+| Report with a non-http(s) `evidence_url` or an over-limit field | `ok: false`, `error: "invalid_report"` |
 
 ## 7. Seed Strategy
 
@@ -167,7 +170,7 @@ The **cited seed** is the next milestone and follows a different rule: cover the
 Facts stay true through a loop, not a crawl ([ADR 0002](adr/0002-maintenance-surface.md)):
 
 1. **Triage** — the maintenance agent (grokbot) runs scheduled passes: re-check terms whose `effective_to` is near or `last_verified_at` is oldest, read the `reports` quarantine, plus whatever the owner points it at.
-2. **Propose** — it calls `propose_change` on the `/maintainer` endpoint with evidence: target id, old → new value, `source_url`, excerpt. The proposal lands as a `pending` row carrying structured patches — never raw SQL.
+2. **Propose** — it calls `propose_change` on the `/maintainer` endpoint with evidence: target id, old → new value, `source_url`, excerpt. The proposal lands as a `pending` row carrying structured patches — never raw SQL. Proposal intake is bounded like `report_issue`: `evidence_url` must be `http:`/`https:` (≤ 2048 chars), `summary` ≤ 500, `excerpt` ≤ 4000, `proposed_by` ≤ 100 chars, and a proposal carries at most 50 patches. Violations are `invalid_proposal`.
 3. **Approve** — the owner reviews the proposal in the `/admin` portal and approves or rejects it. The approve is the only write path to facts.
 4. **Apply** — on approval the Worker applies the whitelisted patches in a transaction and marks the proposal `applied`.
 
