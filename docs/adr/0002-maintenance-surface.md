@@ -24,7 +24,7 @@ ADR 0001 made `seed/seed.sql` the source of truth and pull requests the approval
 ### Three surfaces, three credentials
 
 1. `POST /mcp` — public, unauthenticated. Unchanged from 0001.
-2. `POST /maintainer` — a second MCP handler on the same Worker, gated by `Authorization: Bearer` checked against a `MAINTAINER_TOKEN` Worker secret. Exposes `list_reports`, `propose_change`, and fact reads — insert-only into `proposals`; it cannot touch facts tables.
+2. `POST /maintainer` — a second MCP handler on the same Worker, gated by `Authorization: Bearer` checked against a `MAINTAINER_TOKEN` Worker secret. Originally exposed `list_reports`, `propose_change`, and fact reads — insert-only into `proposals`; it cannot touch facts tables. **Report reads were removed by [ADR 0007](0007-owner-only-report-triage.md).**
 3. `/admin` + `/admin/api/*` — the same Worker serves a minimal portal. Cloudflare Access (email OTP, owner's address only) fronts the path; the Worker also verifies `Cf-Access-Authenticated-User-Email` as a second check. An optional PIN on the approve action is a cheap extra factor — the real separation is the policy split, not the PIN.
 4. The maintenance agent holds **no Cloudflare account credential** — no API token with D1 or Workers scope. Its only credential is `MAINTAINER_TOKEN`, whose only capability is inserting proposals.
 
