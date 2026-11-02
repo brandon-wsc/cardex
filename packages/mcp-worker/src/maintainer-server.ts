@@ -1,8 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
-import { listReports, proposeChange } from "./maintain.js";
-import { registerReadTools } from "./server.js";
+import { proposeChange } from "./maintain.js";
+import { registerReadTools, strictInput } from "./server.js";
 
 function payload(value: object) {
   return {
@@ -11,7 +11,7 @@ function payload(value: object) {
   };
 }
 
-const patch = z.strictObject({
+const patch = strictInput({
   op: z.enum(["insert", "update", "delete"]),
   table: z.string(),
   id: z.string(),
@@ -23,9 +23,8 @@ const patch = z.strictObject({
     .optional(),
 });
 
-// /maintainer's MCP surface (ADR 0002): fact reads plus the two maintenance
-// tools. The only write capability is inserting rows into proposals — the
-// token holder can never touch facts, reports, or proposal status.
+// /maintainer's MCP surface: fact reads plus proposals. Public reports are
+// reviewed through /admin, never exposed to the maintenance agent.
 export function buildMaintainerServer(db: D1Database): McpServer {
   const server = new McpServer({
     name: "cardex-maintainer",
@@ -34,22 +33,11 @@ export function buildMaintainerServer(db: D1Database): McpServer {
   registerReadTools(server, db);
 
   server.registerTool(
-    "list_reports",
-    {
-      description:
-        "Quarantined issue reports submitted by public callers, newest first. Use them as leads: verify against the issuer page before proposing a change.",
-      inputSchema: z.strictObject({ limit: z.number().int().optional() }),
-      annotations: { readOnlyHint: true },
-    },
-    async (args) => payload(await listReports(db, args)),
-  );
-
-  server.registerTool(
     "propose_change",
     {
       description:
         "Propose a fact change for owner review. Patches are structured ops — {op: insert|update|delete, table, id, key?, set?} — whitelisted to facts tables and named columns; raw SQL is rejected simultaneously with everything else. Evidence URL is required. The owner approves or rejects in the portal; nothing here writes facts directly.",
-      inputSchema: z.strictObject({
+      inputSchema: strictInput({
         proposed_by: z.string().optional(),
         summary: z.string(),
         evidence_url: z.string(),

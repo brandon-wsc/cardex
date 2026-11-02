@@ -40,7 +40,7 @@ Wallet state lives in the caller's memory. Cardex stores none of it ([ADR 0001](
 
 - Every list tool takes `limit` (default 5, max 100, clamped).
 - Records carry ids so the next call can be `get_card` / `get_term`.
-- Every payload carries `provenance` and `seed_as_of`, so a caller knows how stale an answer could be.
+- Every payload carries `provenance` and `seed_as_of`, so a caller knows how stale an answer could be. `provenance` is computed per payload from the returned records — see §4 — and each rate and term row carries its own `source_url`, `last_verified_at`, and `illustrative` flag ([ADR 0005](adr/0005-record-provenance.md)).
 
 ## 3. Data Model
 
@@ -76,16 +76,18 @@ Rates and terms both carry `effective_from`/`effective_to` — promo uplifts exp
 Shared envelope on every success and failure:
 
 ```json
-{ "provenance": { "kind": "synthetic-seed", "illustrative": true, "note": "…" }, "seed_as_of": "2026-10-31" }
+{ "provenance": { "kind": "synthetic-seed" | "mixed-seed" | "cited-seed", "illustrative": true | false, "note": "…" }, "seed_as_of": "2026-10-31" }
 ```
+
+`provenance` is computed per payload, not a fixed constant. A rate or term record is **verified** when `source_url` is a real URL — anything but the seed placeholder host `example.invalid` — and `last_verified_at` is set; every other record is `illustrative: true`. The envelope summarizes the fact records the payload returned: `cited-seed` (`illustrative: false`) when all are verified, `mixed-seed` (`illustrative: true`) when some are, and `synthetic-seed` (`illustrative: true`) when all are — or when the payload carries no fact records at all (errors, empty pages, tag and alias lists, report acknowledgements). The per-record `illustrative` flag is the truth; the envelope is the summary.
 
 `limit` above 100 is clamped. The payload echoes `limit_requested` and `clamped: true`. `limit` below 1 is `invalid_limit`. Omitted `limit` becomes 5. There is no offset by design — the catalog is small, and follow-up reads are by `id`.
 
-Tool inputs are strict objects: an unrecognized key (`tag` instead of `tag_id`, `cards` instead of `card_ids`) is a protocol-level `InvalidParams` error, never a silently dropped filter.
+Tool inputs are strict objects: an unrecognized key (`tag` instead of `tag_id`, `cards` instead of `card_ids`) is a protocol-level `InvalidParams` error, never a silently dropped filter. The error names the rejected keys and lists the valid ones.
 
 | Tool | Input | Returns |
 |---|---|---|
-| `lookup_rates` | `tag_id?`, `card_ids?: string[]`, `issuer?`, `as_of?`, `limit?` — at least one of `tag_id` / `card_ids` / `issuer` is required | Matching rates, all filters AND. Each row: rate id, card id and name, issuer, kind, value, unit, tag ids, term ids. `total` is the pre-limit count. The payload echoes the applied filters as `filters: { tag_id, card_ids, issuer, issuer_canonical, as_of }`. `issuer` compares against the canonical `cards.issuer` string (normalized) or resolves through the issuer alias map via the same `aliasHits` rule as `resolve_alias` — exact, or either-contains when both sides are ≥2 characters — never catalog-wide substring; `issuer_canonical` lists the canonical issuer names the input resolved to. Unknown `tag_id` → empty page plus `unknown_tag_id` |
+| `lookup_rates` | `tag_id?`, `card_ids?: string[]`, `issuer?`, `as_of?`, `limit?` — at least one of `tag_id` / `card_ids` / `issuer` is required | Matching rates, all filters AND. Each row: rate id, card id and name, issuer, kind, value, unit, tag ids, term ids, `source_url`, `last_verified_at`, `illustrative`. `total` is the pre-limit count. The payload echoes the applied filters as `filters: { tag_id, card_ids, issuer, issuer_canonical, as_of }`. `issuer` compares against the canonical `cards.issuer` string (normalized) or resolves through the issuer alias map via the same `aliasHits` rule as `resolve_alias` — exact, or either-contains when both sides are ≥2 characters — never catalog-wide substring; `issuer_canonical` lists the canonical issuer names the input resolved to. Unknown `tag_id` → empty page plus `unknown_tag_id` |
 | `get_card` | `id` | One card, its rate summaries, the term ids those rates cite. Unknown id → `not_found` |
 | `get_term` | `id` | One term. Unknown id → `not_found` |
 | `list_tags` | `limit?` | Tag id + label |
@@ -103,7 +105,8 @@ Public intake is bounded. `evidence_url`, when present, must be an `http:`/`http
 
 Inputs:
 
-- `amount_hkd` — must be > 0, else `invalid_amount`.
+- `amount_hkd` or `amount` — exactly one is required and must be > 0, else `invalid_amount`. `amount_hkd` is already in HKD; `amount` is denominated in `currency` ([ADR 0006](adr/0006-score-currency.md)).
+- `currency` — an ISO 4217 three-letter code, normalized to upper case. Absent means the caller asserted nothing about billing currency; the spend is still treated as HKD units. A value that is not three letters → `invalid_currency`. `assumptions.hkd_per_foreign_unit` — HKD per one unit of `currency`; required when `amount` is given with a non-HKD `currency`, else `missing_fx_rate`. The spend converts as `amount × rate`, rounded to cents, before any scoring. `amount_hkd` with a non-HKD `currency` means the caller converted the amount itself.
 - `card_ids?` — restricts scoring to those cards. This is the held-set path after the user confirms their wallet; Cardex never learns why the set was chosen. Alias hits contribute their `card_ids` to the same scope.
 - Tags come from `tag_ids` and from `alias` (via the same match as `resolve_alias`). No tags at all → `missing_spend`. Resolved tag ids that do not exist are echoed as `unknown_tag_ids` — the call still scores the tags that resolved, and an all-unknown list returns `ok` with empty `candidates`. Same ok-plus-flag contract as `lookup_rates`' `unknown_tag_id`.
 - `as_of` — filters windowed terms. Default today.
@@ -130,12 +133,14 @@ For each matching rate:
 | `merchant_list`, `merchant` **absent** | `unknown_exclusions` includes `merchant_list:<term id>` |
 | `merchant_list`, `merchant` hits a whitelist member | Cleared silently |
 | `merchant_list`, `merchant` misses all members | Still `unknown_exclusions` — a miss proves nothing. `merchant_checked` echoes the input |
-| `fx_fee` or any other kind not settled | `unknown_exclusions` includes `<kind>:<term id>` |
+| `fx_fee`, `currency` explicit `HKD` | Cleared silently — HKD billing cannot trigger the fee |
+| `fx_fee`, `currency` absent or non-HKD | `unknown_exclusions` includes `fx_fee:<term id>` — there is no numeric fee field to deduct, so the caller costs it |
+| Any other kind not settled | `unknown_exclusions` includes `<kind>:<term id>` |
 | Term outside its effective window at `as_of` | Not applied. `unknown_exclusions` includes `term_outside_window:<term id>` |
 | Exclusion key **not** in `checked_exclusions` | Leave the number. List the key in `unknown_exclusions` |
 | Exclusion key **in** `checked_exclusions` | Treat it as cleared. Do not list it |
 
-Every row echoes `failed_terms` (deterministic failures — distinct from `unknown_exclusions`, which means "the caller must verify"), `exclusive_group`, and `priority`. Rows are ordered by `card_id`, then `rate_id`. There is no `winner`, no rank, and no "best" field. The caller sorts if it wants to.
+Every row echoes `failed_terms` (deterministic failures — distinct from `unknown_exclusions`, which means "the caller must verify"), `exclusive_group`, `priority`, and the rate's `source_url`, `last_verified_at`, and `illustrative`. The payload echoes the effective `amount_hkd`, `currency`, and `fx_rate` (the `hkd_per_foreign_unit` used, or `null`). Rows are ordered by `card_id`, then `rate_id`. There is no `winner`, no rank, and no "best" field. The caller sorts if it wants to.
 
 A cleared exclusion is the caller saying "this does not apply", not Cardex deciding the spend is eligible.
 
@@ -152,6 +157,9 @@ A cleared exclusion is the caller saying "this does not apply", not Cardex decid
 | Alias matches nothing | `ok: true`, `matches: []` |
 | `limit` above 100 | Clamped, `clamped: true` |
 | Score with no tag and no usable alias | `ok: false`, `error: "missing_spend"` |
+| Score with both or neither of `amount_hkd` / `amount`, or a non-positive amount | `ok: false`, `error: "invalid_amount"` |
+| Score `currency` that is not three letters | `ok: false`, `error: "invalid_currency"` |
+| Score non-HKD `amount` without `hkd_per_foreign_unit` | `ok: false`, `error: "missing_fx_rate"` |
 | Cap or exclusion the caller did not settle | Row still returned. The gap is in `unknown_exclusions` |
 | Report accepted | `ok: true`, `report_id`. Lands in quarantine, never in query tables |
 | Report missing target, `field`, or `claimed_value` | `ok: false`, `error: "invalid_report"` |
@@ -162,7 +170,7 @@ A cleared exclusion is the caller saying "this does not apply", not Cardex decid
 
 ## 7. Seed Strategy
 
-Current seed is **synthetic**: four cards, a handful of rates, every number invented for the shape, `provenance.illustrative: true`, `source_url` placeholder. Do not cite these figures.
+Current seed is **synthetic**: a handful of cards and rates, every number invented for the shape, every record `illustrative: true`, `source_url` placeholder. Do not cite these figures.
 
 The **cited seed** is the next milestone and follows a different rule: cover the cards most people actually hold — roughly the 15–20 most-held HK cards (the power-law head), not the whole market. Every value carries a real `source_url` and `last_verified_at`. The owner signs off each figure by approving the proposal that carries it ([ADR 0002](adr/0002-maintenance-surface.md)).
 
@@ -172,14 +180,14 @@ The **cited seed** is the next milestone and follows a different rule: cover the
 
 Facts stay true through a loop, not a crawl ([ADR 0002](adr/0002-maintenance-surface.md)):
 
-1. **Triage** — the maintenance agent (grokbot) runs scheduled passes: re-check terms whose `effective_to` is near or `last_verified_at` is oldest, read the `reports` quarantine, plus whatever the owner points it at.
+1. **Triage** — the owner reviews public `report_issue` submissions in `/admin` and independently verifies any leads before assigning work. The maintenance agent (grokbot) may run scheduled checks against issuer sources and work from owner-selected tasks; it cannot read the `reports` quarantine through `/maintainer`.
 2. **Propose** — it calls `propose_change` on the `/maintainer` endpoint with evidence: target id, old → new value, `source_url`, excerpt. The proposal lands as a `pending` row carrying structured patches — never raw SQL. Proposal intake is bounded like `report_issue`: `evidence_url` must be `http:`/`https:` (≤ 2048 chars), `summary` ≤ 500 and `excerpt` ≤ 4000 chars, a proposal carries at most 50 patches, and the queue holds at most 100 pending proposals — over the cap is `invalid_proposal` until the owner reviews. Other violations are `invalid_proposal` too. `proposed_by` is recorded as the maintainer credential's identity — the caller's own claim is ignored, so one token can never impersonate another proposer.
 3. **Approve** — the owner reviews the proposal in the `/admin` portal and approves or rejects it. The approve is the only write path to facts.
 4. **Apply** — on approval the Worker applies the whitelisted patches in a transaction and marks the proposal `applied`.
 
 Until the portal ships, steps 3–4 collapse into the owner applying approved changes with `wrangler d1 execute --remote` — the manual path that exists today.
 
-`report_issue` submissions join the same triage queue. `skills/cardex-maintainer` is the agent's runbook — a separate artifact from the caller-facing playbook.
+`report_issue` submissions remain in the admin queue. `/admin/api/reports` serves the portal; `/maintainer` exposes fact reads and `propose_change`, not `list_reports`. The owner may hand a verified task to the agent, but does not forward raw reports as instructions. `skills/cardex-maintainer` is the agent's runbook — a separate artifact from the caller-facing playbook.
 
 ## 9. Suggested Tech (v1)
 

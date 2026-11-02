@@ -128,9 +128,14 @@ function fmtAge(iso) {
   return Math.round(h / 24) + "d ago";
 }
 
+const pad2 = (n) => String(n).padStart(2, "0");
+const localDate = (d) =>
+  `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+
 function fmtTs(iso) {
   if (!iso) return "—";
-  return iso.slice(0, 16).replace("T", " ") + "Z";
+  const d = new Date(iso);
+  return `${localDate(d)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
 function lookupFact(table, id) {
@@ -138,4 +143,4 @@ function lookupFact(table, id) {
   return bucket && Object.prototype.hasOwnProperty.call(bucket, id) ? bucket[id] : undefined;
 }
 
-Object.assign(window, { FACTS, PROPOSALS, REPORTS, fmtAge, fmtTs, lookupFact });
+Object.assign(window, { FACTS, PROPOSALS, REPORTS, fmtAge, fmtTs, localDate, lookupFact });

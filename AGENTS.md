@@ -40,7 +40,7 @@ Remote MCP server of structured Hong Kong credit-card facts. Callers are other a
 
 - **Test first.** A change to tool behavior (`query.ts`, migrations, scoring) lands with its failing test first: write the vitest spec, watch it fail, implement, go green. Spec names state behavior in BDD style — one test per PRD §5/§6 table row. No gherkin layer — the PRD tables are the spec.
 - **Owner review gates.** D1 schema (`migrations/`, wrangler DB config) and any UI surface require the owner's explicit review before merge — an agent may draft them, never self-approve. Fact changes are approved in the `/admin` portal over structured proposals ([ADR 0002](docs/adr/0002-maintenance-surface.md)).
-- **MCP surface.** Streamable HTTP, stateless — whatever the pinned `@modelcontextprotocol/server` 2.x implements. No legacy SSE transport, no stdio variant in v1. The supported standard moves by dependency update, never by ad-hoc contract edits. Three surfaces per [ADR 0002](docs/adr/0002-maintenance-surface.md): `POST /mcp` public, `POST /maintainer` bearer-token (`MAINTAINER_TOKEN`; `list_reports` + `propose_change` + fact reads — proposals only, never facts), `/admin` + `/admin/api/*` behind Cloudflare Access with a `Cf-Access-Authenticated-User-Email` + `ADMIN_EMAIL` check and optional `ADMIN_PIN`. Patches are structured `{op, table, id, key?, set?}` whitelisted in `maintain.ts` — never raw SQL. The whitelist covers tables only; column sets are read live from `PRAGMA table_info`, so a new column on a facts table is patchable with no code change (a new table still needs an explicit whitelist entry).
+- **MCP surface.** Streamable HTTP, stateless — whatever the pinned `@modelcontextprotocol/server` 2.x implements. No legacy SSE transport, no stdio variant in v1. The supported standard moves by dependency update, never by ad-hoc contract edits. Three surfaces per [ADR 0002](docs/adr/0002-maintenance-surface.md) and [ADR 0007](docs/adr/0007-owner-only-report-triage.md): `POST /mcp` public, `POST /maintainer` bearer-token (`MAINTAINER_TOKEN`; `propose_change` + fact reads — no report reads or fact writes), `/admin` + `/admin/api/*` behind Cloudflare Access with a `Cf-Access-Authenticated-User-Email` + `ADMIN_EMAIL` check and optional `ADMIN_PIN`. Patches are structured `{op, table, id, key?, set?}` whitelisted in `maintain.ts` — never raw SQL. The whitelist covers tables only; column sets are read live from `PRAGMA table_info`, so a new column on a facts table is patchable with no code change (a new table still needs an explicit whitelist entry).
 
 ## Worker
 
@@ -114,11 +114,12 @@ Follow the [Conventional Branch](https://conventionalbranch.org/) purpose prefix
 - **Title** — same format as commit subjects (`type(scope): summary`, ≤72 chars, ASCII-only); use the dominant change's type/scope. The `conventions` job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) rejects a PR whose branch, title, or commit subjects do not match.
 - **Body** — follow `.github/pull_request_template.md`: `## Summary` (what + why), `#### Test plan`, plus the `ADR:` / `Breaking:` lines. CI does not read the body.
 - **Merge method** — merge commit only, once branch protection exists: commit subjects land on `main` individually; the PR title does not.
+- **Integration branches** — `dev`, `develop`, `main`, `master` are exempt from the head-branch check, so `dev` → `main` promotions and backmerges open straight from the integration branch (a `release/` branch still works if a stabilization line is wanted).
 
 ## Feature work
 
 - **Do not commit to, merge into, or push `main`.** Work on a feature branch. The repo owner updates `main` and handles PRs.
-- **New feature / fix → fresh branch off latest `main`.** Never reuse a merged or unrelated branch — one branch + PR per change.
+- **New feature / fix → fresh branch off latest `dev`.** Never reuse a merged or unrelated branch — one branch + PR per change.
 - **New feature → ADR.** A feature that adds or changes a product contract or architectural decision gets `docs/adr/NNNN-<slug>.md` (next number) before or with the code — supersede the old ADR rather than rewriting it. Pure bug fixes, docs-only, and chore/tooling changes do not need one. The prototype's fixture seed does not need a new ADR; it is specified in the PRD.
 
 ## When reviewing changes

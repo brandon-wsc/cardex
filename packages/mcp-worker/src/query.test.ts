@@ -914,3 +914,226 @@ describe("audit-driven term kinds", () => {
     expect(reg.ok && reg.term.register_by).toBe("2026-10-31");
   });
 });
+
+// ADR 0005: illustrative is per-record — a rate or term is verified when
+// source_url is a real URL (not the example.invalid placeholder) and
+// last_verified_at is set. The envelope summarizes the returned rows.
+describe("per-record provenance — ADR 0005", () => {
+  async function insertVerifiedDiningRate() {
+    await tenv.DB.prepare(
+      "INSERT INTO cards (id, name, issuer, network) " +
+        "VALUES ('card_bea', 'BEA Visa Signature', 'BEA', 'visa')",
+    ).run();
+    await tenv.DB.prepare(
+      "INSERT INTO rates (id, card_id, kind, value, unit, source_url, " +
+        "last_verified_at, effective_from, effective_to, exclusive_group, priority) " +
+        "VALUES ('rate_bea_dining', 'card_bea', 'rebate_percent', 3.6, 'percent', " +
+        "'https://www.hkbea.com.example-check/terms', '2026-10-30', NULL, NULL, NULL, NULL)",
+    ).run();
+    await tenv.DB.prepare(
+      "INSERT INTO rate_tags (rate_id, tag_id) VALUES ('rate_bea_dining', 'dining')",
+    ).run();
+  }
+
+  it("marks fixture rows illustrative and echoes source fields on each rate row", async () => {
+    const res = await lookupRates(tenv.DB, { tag_id: "dining", limit: 100 });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.provenance).toMatchObject({
+      kind: "synthetic-seed",
+      illustrative: true,
+    });
+    for (const row of res.records) {
+      expect(row.illustrative).toBe(true);
+      expect(row.source_url).toContain("example.invalid");
+      expect(row.last_verified_at).toBe("2026-10-01");
+    }
+  });
+
+  it("reads cited-seed when every returned record is verified", async () => {
+    await insertVerifiedDiningRate();
+    const res = await lookupRates(tenv.DB, { card_ids: ["card_bea"] });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.provenance).toMatchObject({
+      kind: "cited-seed",
+      illustrative: false,
+    });
+    expect(res.records).toHaveLength(1);
+    expect(res.records[0].illustrative).toBe(false);
+    expect(res.records[0].source_url).toBe(
+      "https://www.hkbea.com.example-check/terms",
+    );
+    expect(res.records[0].last_verified_at).toBe("2026-10-30");
+  });
+
+  it("reads mixed-seed when the page mixes verified and illustrative rows", async () => {
+    await insertVerifiedDiningRate();
+    const res = await lookupRates(tenv.DB, { tag_id: "dining", limit: 100 });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.provenance).toMatchObject({ kind: "mixed-seed", illustrative: true });
+    const verified = res.records.find((r) => r.rate_id === "rate_bea_dining");
+    const invented = res.records.find((r) => r.rate_id === "rate_hsbc_dining");
+    expect(verified?.illustrative).toBe(false);
+    expect(invented?.illustrative).toBe(true);
+  });
+
+  it("flags get_term and score_candidates rows per record", async () => {
+    const invented = await getTerm(tenv.DB, "term_dbs_quota");
+    expect(invented.ok && invented.term.illustrative).toBe(true);
+    expect(invented.ok && invented.provenance.kind).toBe("synthetic-seed");
+
+    await tenv.DB.prepare(
+      "INSERT INTO terms (id, card_id, kind, text, source_url, last_verified_at) " +
+        "VALUES ('term_bea_check', 'card_citi_cash', 'eligibility', 'Verified term.', " +
+        "'https://www.hkbea.com.example-check/terms', '2026-10-30')",
+    ).run();
+    const verified = await getTerm(tenv.DB, "term_bea_check");
+    expect(verified.ok && verified.term.illustrative).toBe(false);
+    expect(verified.ok && verified.provenance.kind).toBe("cited-seed");
+
+    await insertVerifiedDiningRate();
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      tag_ids: ["dining"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const row = res.candidates.find((c) => c.rate_id === "rate_bea_dining");
+    expect(row?.illustrative).toBe(false);
+    expect(row?.source_url).toBe("https://www.hkbea.com.example-check/terms");
+    expect(row?.last_verified_at).toBe("2026-10-30");
+    expect(res.provenance).toMatchObject({ kind: "mixed-seed" });
+  });
+
+  it("marks a record missing either evidence column as illustrative", async () => {
+    await tenv.DB.prepare(
+      "INSERT INTO rates (id, card_id, kind, value, unit, source_url, " +
+        "last_verified_at, effective_from, effective_to, exclusive_group, priority) " +
+        "VALUES ('rate_unverified', 'card_citi_cash', 'rebate_percent', 2, 'percent', " +
+        "'https://www.citibank.com.hk/real-terms', NULL, NULL, NULL, NULL, NULL)",
+    ).run();
+    await tenv.DB.prepare(
+      "INSERT INTO rate_tags (rate_id, tag_id) VALUES ('rate_unverified', 'dining')",
+    ).run();
+    const res = await lookupRates(tenv.DB, { tag_id: "dining", limit: 100 });
+    if (!res.ok) return;
+    const row = res.records.find((r) => r.rate_id === "rate_unverified");
+    expect(row?.illustrative).toBe(true);
+  });
+});
+
+// ADR 0006: amount is either HKD (`amount_hkd`) or foreign (`amount` +
+// `currency` + assumptions.hkd_per_foreign_unit). fx_fee settles on the
+// caller's currency assertion: explicit HKD clears it; absent or non-HKD
+// keeps it in unknown_exclusions for the caller to cost.
+describe("score currency — ADR 0006", () => {
+  it("converts a non-HKD amount before scoring and echoes the fx inputs", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount: 100,
+      currency: "USD",
+      tag_ids: ["dining"],
+      card_ids: ["card_aeon"],
+      assumptions: { hkd_per_foreign_unit: 7.8 },
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.amount_hkd).toBe(780);
+    expect(res.currency).toBe("USD");
+    expect(res.fx_rate).toBe(7.8);
+    const row = res.candidates.find((c) => c.rate_id === "rate_aeon_dining");
+    expect(row?.calculated_rebate_hkd).toBe(23.4);
+  });
+
+  it("rejects a non-HKD amount without hkd_per_foreign_unit", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount: 100,
+      currency: "USD",
+      tag_ids: ["dining"],
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toBe("missing_fx_rate");
+  });
+
+  it("requires exactly one of amount_hkd and amount", async () => {
+    const both = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      amount: 100,
+      currency: "USD",
+      tag_ids: ["dining"],
+      assumptions: { hkd_per_foreign_unit: 7.8 },
+    });
+    expect(both.ok).toBe(false);
+    if (!both.ok) expect(both.error).toBe("invalid_amount");
+
+    const neither = await scoreCandidates(tenv.DB, {
+      tag_ids: ["dining"],
+    } as Parameters<typeof scoreCandidates>[1]);
+    expect(neither.ok).toBe(false);
+    if (!neither.ok) expect(neither.error).toBe("invalid_amount");
+  });
+
+  it("rejects a currency that is not three letters", async () => {
+    for (const currency of ["US", "USDX", "H1D"]) {
+      const res = await scoreCandidates(tenv.DB, {
+        amount_hkd: 800,
+        currency,
+        tag_ids: ["dining"],
+      });
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error).toBe("invalid_currency");
+    }
+  });
+
+  it("normalizes the currency code for the echo and fx_fee logic", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount: 100,
+      currency: "usd",
+      tag_ids: ["dining"],
+      assumptions: { hkd_per_foreign_unit: 7.8 },
+    });
+    expect(res.ok && res.currency).toBe("USD");
+  });
+
+  it("clears fx_fee on an explicit HKD currency but keeps it for non-HKD", async () => {
+    const hkd = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "HKD",
+      tag_ids: ["overseas"],
+    });
+    expect(hkd.ok).toBe(true);
+    if (hkd.ok) {
+      const citi = hkd.candidates.find((c) => c.rate_id === "rate_citi_overseas");
+      expect(citi?.unknown_exclusions).not.toContain(
+        "fx_fee:term_citi_fx_fee",
+      );
+    }
+
+    const usd = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "USD",
+      tag_ids: ["overseas"],
+    });
+    expect(usd.ok).toBe(true);
+    if (usd.ok) {
+      const citi = usd.candidates.find((c) => c.rate_id === "rate_citi_overseas");
+      expect(citi?.unknown_exclusions).toContain("fx_fee:term_citi_fx_fee");
+      expect(usd.currency).toBe("USD");
+      expect(usd.fx_rate).toBeNull();
+    }
+  });
+
+  it("keeps fx_fee unknown when currency is absent, as before", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      tag_ids: ["overseas"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const citi = res.candidates.find((c) => c.rate_id === "rate_citi_overseas");
+    expect(citi?.unknown_exclusions).toContain("fx_fee:term_citi_fx_fee");
+    expect(res.currency).toBe("HKD");
+    expect(res.fx_rate).toBeNull();
+  });
+});

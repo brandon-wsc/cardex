@@ -113,4 +113,31 @@ describe("strict tool input", () => {
       await server.close();
     }
   });
+
+  it("lists the valid keys on an unrecognized-key error", async () => {
+    const { client, server } = await connect();
+    try {
+      // "tag" for tag_id is the documented footgun — the error should say
+      // what was rejected and what the tool actually takes.
+      const res = await client.callTool({
+        name: "lookup_rates",
+        arguments: { tag: "online" },
+      });
+      expect(res.isError).toBe(true);
+      const text = errorText(res);
+      expect(text).toContain('"tag"');
+      expect(text).toContain("tag_id");
+      expect(text).toContain("card_ids");
+
+      const scored = await client.callTool({
+        name: "score_candidates",
+        arguments: { amount_hkd: 800, cards: ["card_hsbc_red"] },
+      });
+      expect(scored.isError).toBe(true);
+      expect(errorText(scored)).toContain("card_ids");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
 });

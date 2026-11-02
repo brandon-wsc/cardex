@@ -1,10 +1,53 @@
 import { ISSUER_ALIASES, NETWORK_ALIASES } from "./aliases";
 
-const PROVENANCE = {
-  kind: "synthetic-seed" as const,
-  illustrative: true as const,
+// ADR 0005: illustrative is per-record — a rate or term is verified when
+// source_url is a real URL (not the example.invalid placeholder host the
+// synthetic seed fabricates) and last_verified_at is set. The envelope
+// provenance summarizes the fact records each payload returned.
+const PLACEHOLDER_HOST = "example.invalid";
+
+export interface Provenance {
+  kind: "synthetic-seed" | "mixed-seed" | "cited-seed";
+  illustrative: boolean;
+  note: string;
+}
+
+const PROVENANCE: Provenance = {
+  kind: "synthetic-seed",
+  illustrative: true,
   note: "Invented numbers for tool shape. Not current issuer terms. Confirm with the issuer.",
 };
+
+function isIllustrative(
+  sourceUrl: string | null,
+  verifiedAt: string | null,
+): boolean {
+  if (!sourceUrl || !verifiedAt) return true;
+  try {
+    const host = new URL(sourceUrl).hostname;
+    return host === PLACEHOLDER_HOST || host.endsWith(`.${PLACEHOLDER_HOST}`);
+  } catch {
+    return true;
+  }
+}
+
+function provenanceFor(records: { illustrative: boolean }[]): Provenance {
+  if (records.length === 0 || records.every((r) => r.illustrative)) {
+    return PROVENANCE;
+  }
+  if (records.every((r) => !r.illustrative)) {
+    return {
+      kind: "cited-seed",
+      illustrative: false,
+      note: "All returned records carry a real source_url and last_verified_at.",
+    };
+  }
+  return {
+    kind: "mixed-seed",
+    illustrative: true,
+    note: "Some returned records are unverified — see each record's illustrative flag.",
+  };
+}
 
 const DEFAULT_LIMIT = 5;
 const MAX_LIMIT = 100;
@@ -51,6 +94,7 @@ export interface Assumptions {
   month_to_date_rebate_hkd?: number;
   month_to_date_spend_hkd?: number;
   hkd_per_point?: number;
+  hkd_per_foreign_unit?: number;
   checked_exclusions?: string[];
 }
 
@@ -58,14 +102,16 @@ type FailureCode =
   | "not_found"
   | "invalid_limit"
   | "invalid_amount"
+  | "invalid_currency"
   | "invalid_date"
   | "invalid_report"
   | "missing_filter"
-  | "missing_spend";
+  | "missing_spend"
+  | "missing_fx_rate";
 
 export interface Failure {
   ok: false;
-  provenance: typeof PROVENANCE;
+  provenance: Provenance;
   error: FailureCode;
   detail?: string;
 }
@@ -249,6 +295,9 @@ function rateRow(
     term_ids: termIds,
     exclusive_group: rate.exclusive_group,
     priority: rate.priority,
+    source_url: rate.source_url,
+    last_verified_at: rate.last_verified_at,
+    illustrative: isIllustrative(rate.source_url, rate.last_verified_at),
   };
 }
 
@@ -331,7 +380,7 @@ export async function lookupRates(
     if (!tag) {
       return {
         ok: true as const,
-        provenance: PROVENANCE,
+        provenance: provenanceFor([]),
         seed_as_of: await seedDate(db),
         ...page,
         filters,
@@ -373,14 +422,15 @@ export async function lookupRates(
     .bind(...params, page.limit)
     .all<RateRow & { card_name: string; issuer: string }>();
 
+  const records = await rateRowsWithRefs(db, results);
   return {
     ok: true as const,
-    provenance: PROVENANCE,
+    provenance: provenanceFor(records),
     seed_as_of: await seedDate(db),
     ...page,
     filters,
     total: totalRow?.n ?? 0,
-    records: await rateRowsWithRefs(db, results),
+    records,
   };
 }
 
@@ -404,7 +454,7 @@ export async function getCard(db: D1Database, id: string) {
   const rates = await rateRowsWithRefs(db, results);
   return {
     ok: true as const,
-    provenance: PROVENANCE,
+    provenance: provenanceFor(rates),
     seed_as_of: await seedDate(db),
     card,
     rates,
@@ -415,7 +465,13 @@ export async function getCard(db: D1Database, id: string) {
 export async function getTerm(db: D1Database, id: string) {
   const term = await db.prepare("SELECT * FROM terms WHERE id = ?").bind(id).first<TermRow>();
   if (!term) return fail("not_found", id);
-  return { ok: true as const, provenance: PROVENANCE, seed_as_of: await seedDate(db), term };
+  const illustrative = isIllustrative(term.source_url, term.last_verified_at);
+  return {
+    ok: true as const,
+    provenance: provenanceFor([{ illustrative }]),
+    seed_as_of: await seedDate(db),
+    term: { ...term, illustrative },
+  };
 }
 
 export async function listTags(db: D1Database, input: { limit?: number } = {}) {
@@ -520,7 +576,9 @@ export async function resolveAlias(
 export async function scoreCandidates(
   db: D1Database,
   input: {
-    amount_hkd: number;
+    amount_hkd?: number;
+    amount?: number;
+    currency?: string;
     tag_ids?: string[];
     card_ids?: string[];
     alias?: string;
@@ -532,7 +590,35 @@ export async function scoreCandidates(
 ) {
   const page = applyLimit(input.limit);
   if ("ok" in page) return page;
-  if (!(input.amount_hkd > 0)) return fail("invalid_amount", "amount_hkd must be positive");
+
+  // ADR 0006: the spend is either already HKD (amount_hkd) or foreign
+  // (amount in currency units, converted by the caller-declared
+  // hkd_per_foreign_unit). Cardex never picks an FX rate itself.
+  const hasAmountHkd = input.amount_hkd !== undefined;
+  const hasAmount = input.amount !== undefined;
+  if (hasAmountHkd === hasAmount) {
+    return fail("invalid_amount", "supply exactly one of amount_hkd or amount");
+  }
+  const spend = (hasAmountHkd ? input.amount_hkd : input.amount)!;
+  if (!(spend > 0)) return fail("invalid_amount", "amount must be positive");
+
+  const currency = (input.currency ?? "HKD").trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(currency)) {
+    return fail("invalid_currency", "currency must be a three-letter code");
+  }
+  const assumptions = input.assumptions ?? {};
+  const fxRate = assumptions.hkd_per_foreign_unit ?? null;
+  let amountHkd = spend;
+  if (currency !== "HKD" && hasAmount) {
+    if (fxRate === null || !(fxRate > 0)) {
+      return fail(
+        "missing_fx_rate",
+        "non-HKD amount needs assumptions.hkd_per_foreign_unit",
+      );
+    }
+    amountHkd = round2(spend * fxRate);
+  }
+
   const asOf = checkAsOf(input.as_of);
   if (typeof asOf !== "string") return asOf;
 
@@ -611,7 +697,6 @@ export async function scoreCandidates(
     merchantTermIds,
   );
 
-  const assumptions = input.assumptions ?? {};
   const checked = new Set(assumptions.checked_exclusions ?? []);
 
   const inWindow = (row: { effective_from: string | null; effective_to: string | null }) =>
@@ -625,13 +710,13 @@ export async function scoreCandidates(
     let calculated: number | null = null;
 
     if (rate.kind === "rebate_percent") {
-      calculated = round2((input.amount_hkd * rate.value) / 100);
+      calculated = round2((amountHkd * rate.value) / 100);
     } else if (assumptions.hkd_per_point === undefined) {
       unknown.push("points_value");
     } else if (rate.unit === "points_per_hkd") {
-      calculated = round2(input.amount_hkd * rate.value * assumptions.hkd_per_point);
+      calculated = round2(amountHkd * rate.value * assumptions.hkd_per_point);
     } else if (rate.unit === "hkd_per_mile" || rate.unit === "hkd_per_point") {
-      calculated = round2((input.amount_hkd / rate.value) * assumptions.hkd_per_point);
+      calculated = round2((amountHkd / rate.value) * assumptions.hkd_per_point);
     } else {
       unknown.push(`points_unit:${rate.unit}`);
     }
@@ -669,7 +754,7 @@ export async function scoreCandidates(
           continue;
         }
         if (term.period === "per_transaction") {
-          if (input.amount_hkd < term.threshold_hkd) {
+          if (amountHkd < term.threshold_hkd) {
             failed.push(`min_spend_unmet:${term.id}`);
             calculated = null;
           }
@@ -680,7 +765,7 @@ export async function scoreCandidates(
           unknown.push(key);
           continue;
         }
-        if (mtdSpend + input.amount_hkd < term.threshold_hkd) {
+        if (mtdSpend + amountHkd < term.threshold_hkd) {
           failed.push(`min_spend_unmet:${term.id}`);
           calculated = null;
         }
@@ -703,6 +788,13 @@ export async function scoreCandidates(
         }
         continue;
       }
+      // fx_fee settles on the caller's currency assertion (ADR 0006): an
+      // explicit HKD bill cannot trigger the fee, so the term clears
+      // silently. Absent or non-HKD keeps it unknown — terms carry no
+      // numeric fee field, so the caller costs it.
+      if (term.kind === "fx_fee" && input.currency !== undefined && currency === "HKD") {
+        continue;
+      }
       // Any other kind (fx_fee, registration_required, channel, mcc, quota,
       // geo, targeted, eligibility, and kinds added later) is a term the
       // caller must settle: it is cleared by listing `<kind>:<term id>` in
@@ -723,10 +815,14 @@ export async function scoreCandidates(
       failed_terms: failed,
       exclusive_group: rate.exclusive_group,
       priority: rate.priority,
+      source_url: rate.source_url,
+      last_verified_at: rate.last_verified_at,
+      illustrative: isIllustrative(rate.source_url, rate.last_verified_at),
       assumptions_used: {
         month_to_date_rebate_hkd: assumptions.month_to_date_rebate_hkd ?? null,
         month_to_date_spend_hkd: assumptions.month_to_date_spend_hkd ?? null,
         hkd_per_point: assumptions.hkd_per_point ?? null,
+        hkd_per_foreign_unit: fxRate,
         checked_exclusions: [...checked],
       },
     };
@@ -734,9 +830,11 @@ export async function scoreCandidates(
 
   return {
     ok: true as const,
-    provenance: PROVENANCE,
+    provenance: provenanceFor(candidates),
     seed_as_of: await seedDate(db),
-    amount_hkd: input.amount_hkd,
+    amount_hkd: amountHkd,
+    currency,
+    fx_rate: fxRate,
     tag_ids: tagList,
     ...(unknownTagIds.length > 0 ? { unknown_tag_ids: unknownTagIds } : {}),
     as_of: asOf,

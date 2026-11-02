@@ -76,6 +76,41 @@ describe("maintainer auth", () => {
 });
 
 describe("admin identity", () => {
+  it("keeps report review behind admin identity", async () => {
+    const noIdentity = await call("/admin/api/reports", undefined, {
+      DEV_ADMIN_EMAIL: undefined,
+    });
+    expect(noIdentity.status).toBe(401);
+
+    const owner = await call(
+      "/admin/api/reports",
+      { headers: { "Cf-Access-Authenticated-User-Email": "owner@example.com" } },
+      { DEV_ADMIN_EMAIL: undefined },
+    );
+    expect(owner.status).toBe(200);
+    const body = await owner.json() as { reports: { id: string }[] };
+    expect(body.reports.map((report) => report.id)).toContain("rpt_seed_001");
+  });
+
+  it("honors limit and offset on the reports list and returns its total", async () => {
+    const page = await call("/admin/api/reports?limit=1&offset=1");
+    const body = (await page.json()) as {
+      total: number;
+      reports: unknown[];
+    };
+    expect(body.total).toBe(1);
+    expect(body.reports).toHaveLength(0);
+  });
+
+  it("honors the before/before_id keyset cursor on the reports list", async () => {
+    const page = await call(
+      "/admin/api/reports" +
+        "?before=2026-10-31T16%3A44%3A00Z&before_id=rpt_seed_001",
+    );
+    const body = (await page.json()) as { reports: unknown[] };
+    expect(body.reports).toHaveLength(0);
+  });
+
   it("falls back to the dev identity when Access JWT is not configured", async () => {
     const res = await call("/admin/api/me");
     expect(res.status).toBe(200);

@@ -18,6 +18,11 @@ jobs:
       - name: Head branch is type/slug
         run: |
           branch='${{ github.head_ref }}'
+          # Long-lived integration branches legitimately head promotion and
+          # backmerge PRs (dev -> main, main -> dev); they are not type/slug.
+          if printf '%s' "$branch" | grep -qxE 'dev|develop|main|master'; then
+            exit 0
+          fi
           if ! printf '%s' "$branch" | grep -qE '^(feat|feature|bugfix|fix|hotfix|release|chore)/[a-z0-9]+([.-][a-z0-9]+)*$'; then
             echo "::error::branch '$branch' must match type/slug per Conventional Branch —"
             echo "(feat|feature|bugfix|fix|hotfix|release|chore)/lowercase-hyphen-slug"
