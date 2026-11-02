@@ -71,7 +71,7 @@ The skill is what teaches your assistant to connect, which tool to reach for, an
 { "mcpServers": { "cardex": { "url": "https://cardex.brandonhk.com/mcp" } } }
 ```
 
-Two more surfaces share the Worker ([ADR 0002](docs/adr/0002-maintenance-surface.md)): `POST /maintainer`, a bearer-token MCP the maintenance agent uses to read quarantined reports and file structured proposals (runbook: [`skills/cardex-maintainer`](skills/cardex-maintainer/SKILL.md)); and `/admin`, a Cloudflare Access portal where the owner approves or rejects proposals. Only approved proposals ever write facts. Everything else on the hostname is the public site.
+Two more surfaces share the Worker ([ADR 0002](docs/adr/0002-maintenance-surface.md), [ADR 0007](docs/adr/0007-owner-only-report-triage.md)): `POST /maintainer`, a bearer-token MCP the maintenance agent uses for fact reads and structured proposals (runbook: [`skills/cardex-maintainer`](skills/cardex-maintainer/SKILL.md)); and `/admin`, a Cloudflare Access portal where the owner reviews quarantined reports and approves or rejects proposals. Only approved proposals ever write facts. Everything else on the hostname is the public site.
 
 ## What Cardex is
 
@@ -168,7 +168,7 @@ This repo was built by coding agents under the conventions in [AGENTS.md](AGENTS
 │   └── site/             # Astro: public pages, /llms.txt, /skill.md, /admin island → Worker static assets
 ├── skills/
 │   ├── cardex/           # Agent Skill: the caller playbook (the product surface)
-│   └── cardex-maintainer/# Agent Skill: triage reports + file proposals via /maintainer
+│   └── cardex-maintainer/# Agent Skill: verify sources + file proposals via /maintainer
 ├── seed/
 │   └── seed.sql          # Synthetic sample data (invented numbers, not issuer terms)
 ├── docs/

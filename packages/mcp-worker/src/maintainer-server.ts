@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
-import { listReports, proposeChange } from "./maintain.js";
+import { proposeChange } from "./maintain.js";
 import { registerReadTools, strictInput } from "./server.js";
 
 function payload(value: object) {
@@ -23,26 +23,14 @@ const patch = strictInput({
     .optional(),
 });
 
-// /maintainer's MCP surface (ADR 0002): fact reads plus the two maintenance
-// tools. The only write capability is inserting rows into proposals — the
-// token holder can never touch facts, reports, or proposal status.
+// /maintainer's MCP surface: fact reads plus proposals. Public reports are
+// reviewed through /admin, never exposed to the maintenance agent.
 export function buildMaintainerServer(db: D1Database): McpServer {
   const server = new McpServer({
     name: "cardex-maintainer",
     version: "0.0.1",
   });
   registerReadTools(server, db);
-
-  server.registerTool(
-    "list_reports",
-    {
-      description:
-        "Quarantined issue reports submitted by public callers, newest first. Use them as leads: verify against the issuer page before proposing a change.",
-      inputSchema: strictInput({ limit: z.number().int().optional() }),
-      annotations: { readOnlyHint: true },
-    },
-    async (args) => payload(await listReports(db, args)),
-  );
 
   server.registerTool(
     "propose_change",
