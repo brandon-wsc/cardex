@@ -171,7 +171,20 @@ async function handleAdminApi(
     return json({ email, pin_required: !!env.ADMIN_PIN });
   }
   if (path === "/reports" && request.method === "GET") {
-    return json(await listReports(env.DB, {}));
+    const num = (key: string) => {
+      const raw = url.searchParams.get(key);
+      if (raw === null) return undefined;
+      const n = Number(raw);
+      return Number.isFinite(n) ? n : undefined;
+    };
+    return json(
+      await listReports(env.DB, {
+        limit: num("limit"),
+        offset: num("offset"),
+        before: url.searchParams.get("before") ?? undefined,
+        beforeId: url.searchParams.get("before_id") ?? undefined,
+      }),
+    );
   }
   if (path.startsWith("/proposals")) {
     return handleProposalRoutes(request, env, url, email, path);
