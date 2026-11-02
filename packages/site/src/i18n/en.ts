@@ -86,7 +86,7 @@ export const en: UI = {
       { topic: "Where numbers come from", plain: "Memory, or whatever comparison articles it finds", cardex: "Curated terms, each with a source link and a last-checked date" },
       { topic: "Fine print", plain: "Caps, registration and excluded spend often left out", cardex: "Listed one by one; anything unverified is flagged for you to check" },
       { topic: "Rankings", plain: "Many comparison articles are affiliate content", cardex: "Cardex doesn't rank. Your assistant compares for your spend" },
-      { topic: "Local names", plain: "May not know what 茶餐廳 or 銀聯 means", cardex: "茶餐廳, 匯豐, 銀聯: say it the way you normally would" },
+      { topic: "Local names", plain: "May not know what a cha chaan teng or UnionPay is", cardex: "Cha chaan teng, HSBC, UnionPay: say it the way you normally would" },
     ],
   },
   faq: {
