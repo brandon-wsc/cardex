@@ -40,7 +40,7 @@ Wallet state lives in the caller's memory. Cardex stores none of it ([ADR 0001](
 
 - Every list tool takes `limit` (default 5, max 100, clamped).
 - Records carry ids so the next call can be `get_card` / `get_term`.
-- Every payload carries `provenance` and `seed_as_of`, so a caller knows how stale an answer could be.
+- Every payload carries `provenance` and `seed_as_of`, so a caller knows how stale an answer could be. `provenance` is computed per payload from the returned records — see §4 — and each rate and term row carries its own `source_url`, `last_verified_at`, and `illustrative` flag ([ADR 0005](adr/0005-record-provenance.md)).
 
 ## 3. Data Model
 
@@ -76,8 +76,10 @@ Rates and terms both carry `effective_from`/`effective_to` — promo uplifts exp
 Shared envelope on every success and failure:
 
 ```json
-{ "provenance": { "kind": "synthetic-seed", "illustrative": true, "note": "…" }, "seed_as_of": "2026-10-31" }
+{ "provenance": { "kind": "synthetic-seed" | "mixed-seed" | "cited-seed", "illustrative": true | false, "note": "…" }, "seed_as_of": "2026-10-31" }
 ```
+
+`provenance` is computed per payload, not a fixed constant. A rate or term record is **verified** when `source_url` is a real URL — anything but the seed placeholder host `example.invalid` — and `last_verified_at` is set; every other record is `illustrative: true`. The envelope summarizes the fact records the payload returned: `cited-seed` (`illustrative: false`) when all are verified, `mixed-seed` (`illustrative: true`) when some are, and `synthetic-seed` (`illustrative: true`) when all are — or when the payload carries no fact records at all (errors, empty pages, tag and alias lists, report acknowledgements). The per-record `illustrative` flag is the truth; the envelope is the summary.
 
 `limit` above 100 is clamped. The payload echoes `limit_requested` and `clamped: true`. `limit` below 1 is `invalid_limit`. Omitted `limit` becomes 5. There is no offset by design — the catalog is small, and follow-up reads are by `id`.
 
@@ -85,7 +87,7 @@ Tool inputs are strict objects: an unrecognized key (`tag` instead of `tag_id`, 
 
 | Tool | Input | Returns |
 |---|---|---|
-| `lookup_rates` | `tag_id?`, `card_ids?: string[]`, `issuer?`, `as_of?`, `limit?` — at least one of `tag_id` / `card_ids` / `issuer` is required | Matching rates, all filters AND. Each row: rate id, card id and name, issuer, kind, value, unit, tag ids, term ids. `total` is the pre-limit count. The payload echoes the applied filters as `filters: { tag_id, card_ids, issuer, issuer_canonical, as_of }`. `issuer` compares against the canonical `cards.issuer` string (normalized) or resolves through the issuer alias map via the same `aliasHits` rule as `resolve_alias` — exact, or either-contains when both sides are ≥2 characters — never catalog-wide substring; `issuer_canonical` lists the canonical issuer names the input resolved to. Unknown `tag_id` → empty page plus `unknown_tag_id` |
+| `lookup_rates` | `tag_id?`, `card_ids?: string[]`, `issuer?`, `as_of?`, `limit?` — at least one of `tag_id` / `card_ids` / `issuer` is required | Matching rates, all filters AND. Each row: rate id, card id and name, issuer, kind, value, unit, tag ids, term ids, `source_url`, `last_verified_at`, `illustrative`. `total` is the pre-limit count. The payload echoes the applied filters as `filters: { tag_id, card_ids, issuer, issuer_canonical, as_of }`. `issuer` compares against the canonical `cards.issuer` string (normalized) or resolves through the issuer alias map via the same `aliasHits` rule as `resolve_alias` — exact, or either-contains when both sides are ≥2 characters — never catalog-wide substring; `issuer_canonical` lists the canonical issuer names the input resolved to. Unknown `tag_id` → empty page plus `unknown_tag_id` |
 | `get_card` | `id` | One card, its rate summaries, the term ids those rates cite. Unknown id → `not_found` |
 | `get_term` | `id` | One term. Unknown id → `not_found` |
 | `list_tags` | `limit?` | Tag id + label |
@@ -135,7 +137,7 @@ For each matching rate:
 | Exclusion key **not** in `checked_exclusions` | Leave the number. List the key in `unknown_exclusions` |
 | Exclusion key **in** `checked_exclusions` | Treat it as cleared. Do not list it |
 
-Every row echoes `failed_terms` (deterministic failures — distinct from `unknown_exclusions`, which means "the caller must verify"), `exclusive_group`, and `priority`. Rows are ordered by `card_id`, then `rate_id`. There is no `winner`, no rank, and no "best" field. The caller sorts if it wants to.
+Every row echoes `failed_terms` (deterministic failures — distinct from `unknown_exclusions`, which means "the caller must verify"), `exclusive_group`, `priority`, and the rate's `source_url`, `last_verified_at`, and `illustrative`. Rows are ordered by `card_id`, then `rate_id`. There is no `winner`, no rank, and no "best" field. The caller sorts if it wants to.
 
 A cleared exclusion is the caller saying "this does not apply", not Cardex deciding the spend is eligible.
 
@@ -162,7 +164,7 @@ A cleared exclusion is the caller saying "this does not apply", not Cardex decid
 
 ## 7. Seed Strategy
 
-Current seed is **synthetic**: four cards, a handful of rates, every number invented for the shape, `provenance.illustrative: true`, `source_url` placeholder. Do not cite these figures.
+Current seed is **synthetic**: a handful of cards and rates, every number invented for the shape, every record `illustrative: true`, `source_url` placeholder. Do not cite these figures.
 
 The **cited seed** is the next milestone and follows a different rule: cover the cards most people actually hold — roughly the 15–20 most-held HK cards (the power-law head), not the whole market. Every value carries a real `source_url` and `last_verified_at`. The owner signs off each figure by approving the proposal that carries it ([ADR 0002](adr/0002-maintenance-surface.md)).
 
