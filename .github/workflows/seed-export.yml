@@ -2,7 +2,9 @@ name: Seed export
 
 # Rebuild seed/seed.sql from prod D1 every night and park the diff on a PR —
 # doubles as an off-site facts backup (git history) beyond D1's 30-day
-# Time Travel window. Never commits to main directly.
+# Time Travel window. `main` is the deploy/stable line, so the export
+# branches off `dev` and the PR targets `dev` for human review before
+# merge; never commits to a long-lived branch directly.
 #
 # Required repo secrets:
 #   CLOUDFLARE_API_TOKEN   - a *user* API token (My Profile -> API Tokens,
@@ -31,6 +33,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # `main` is the deploy/stable line; export runs off `dev`.
+          # fetch-depth 0 so origin/chore/seed-refresh exists for the
+          # --force-with-lease check.
+          ref: dev
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
         with:
           version: 11.20.0
@@ -60,8 +68,8 @@ jobs:
           git add seed/seed.sql
           git commit -m "chore(seed): refresh facts snapshot from prod"
           git push --force-with-lease origin "$branch"
-          if ! gh pr list --head "$branch" --state open --json number --jq '.[0].number' | grep -q .; then
-            gh pr create --base main --head "$branch" \
+          if ! gh pr list --head "$branch" --base dev --state open --json number --jq '.[0].number' | grep -q .; then
+            gh pr create --base dev --head "$branch" \
               --title "chore(seed): refresh facts snapshot from prod" \
               --body "$(cat <<'EOF'
           ## Summary
