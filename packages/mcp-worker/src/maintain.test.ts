@@ -232,6 +232,72 @@ describe("listReports / listProposals / getProposal", () => {
     expect(res.reports.map((r) => r.id)).toEqual(["rpt_seed_001"]);
   });
 
+  it("listReports pages by offset and reports the unfiltered total", async () => {
+    await tenv.DB.batch(
+      Array.from({ length: 60 }, (_, i) =>
+        tenv.DB.prepare(
+          `INSERT INTO reports (id, target_kind, target_id, field, ` +
+            `claimed_value, reported_at) VALUES (?, 'card', 'card_dbs', ` +
+            `'name', 'x', ?)`,
+        ).bind(
+          `rpt_fill_${i}`,
+          `2026-10-10T${String(i % 24).padStart(2, "0")}:00:00Z`,
+        ),
+      ),
+    );
+
+    const first = await listReports(tenv.DB, { limit: 50 });
+    expect(first.total).toBe(61);
+    expect(first.reports).toHaveLength(50);
+
+    const rest = await listReports(tenv.DB, { limit: 50, offset: 50 });
+    expect(rest.total).toBe(61);
+    expect(rest.reports).toHaveLength(11);
+  });
+
+  it("listReports keyset-pages past rows that arrive mid-export", async () => {
+    await tenv.DB.batch(
+      Array.from({ length: 60 }, (_, i) =>
+        tenv.DB.prepare(
+          `INSERT INTO reports (id, target_kind, target_id, field, ` +
+            `claimed_value, reported_at) VALUES (?, 'card', 'card_dbs', ` +
+            `'name', 'x', ?)`,
+        ).bind(
+          `rpt_fill_${String(i).padStart(3, "0")}`,
+          `2026-10-10T00:00:${String(i).padStart(2, "0")}Z`,
+        ),
+      ),
+    );
+
+    const first = await listReports(tenv.DB, { limit: 50 });
+    if (!first.ok) return;
+
+    // A report lands between pages — the offset page would repeat the tail
+    // row; the cursor page must not.
+    await tenv.DB.prepare(
+      `INSERT INTO reports (id, target_kind, target_id, field, ` +
+        `claimed_value, reported_at) VALUES ('rpt_new', 'card', ` +
+        `'card_dbs', 'name', 'x', '2027-01-01T00:00:00Z')`,
+    ).run();
+
+    const last = first.reports[first.reports.length - 1];
+    const rest = await listReports(tenv.DB, {
+      limit: 50,
+      before: last.reported_at as string,
+      beforeId: last.id as string,
+    });
+    expect(rest.total).toBe(62);
+    expect(rest.reports.map((r) => r.id)).not.toContain(last.id);
+
+    const seen = new Set([
+      ...first.reports.map((r) => r.id),
+      ...rest.reports.map((r) => r.id),
+    ]);
+    expect(seen.size).toBe(61);
+    expect(seen.has("rpt_new")).toBe(false);
+    expect(seen.has("rpt_seed_001")).toBe(true);
+  });
+
   it("listProposals filters by status", async () => {
     const res = await listProposals(tenv.DB, { status: "pending" });
     expect(res.ok).toBe(true);

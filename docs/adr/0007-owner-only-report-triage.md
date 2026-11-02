@@ -10,7 +10,7 @@ Public callers can submit arbitrary text and evidence URLs through `report_issue
 
 ## Decision
 
-Remove `list_reports` from `/maintainer`. The owner reviews quarantined reports through the existing authenticated `/admin/api/reports` portal endpoint, verifies leads independently, and may assign a specific task to the agent. The maintainer retains fact reads and `propose_change` but has no report-read tool. Public report intake and admin review are unchanged. Human-only export is separate future work; reports remain excluded from the generated seed snapshot.
+Remove `list_reports` from `/maintainer`. The owner reviews quarantined reports through the existing authenticated `/admin/api/reports` portal endpoint, verifies leads independently, and may assign a specific task to the agent. The maintainer retains fact reads and `propose_change` but has no report-read tool. Public report intake and admin review are unchanged. The portal ships a human-only JSON export — a paged download over the same authenticated endpoint — and reports remain excluded from the generated seed snapshot.
 
 ## Consequences
 

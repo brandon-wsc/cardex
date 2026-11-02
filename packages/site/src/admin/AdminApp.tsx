@@ -32,6 +32,7 @@ interface Report {
 }
 interface ReportsRes {
   reports?: Report[];
+  total?: number;
 }
 interface Patch {
   op: string;
@@ -92,9 +93,14 @@ function fmtAge(iso?: string) {
   return Math.round(h / 24) + "d ago";
 }
 
+const pad2 = (n: number) => String(n).padStart(2, "0");
+const localDate = (d: Date) =>
+  `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+
 function fmtTs(iso?: string) {
   if (!iso) return "—";
-  return iso.slice(0, 16).replace("T", " ") + "Z";
+  const d = new Date(iso);
+  return `${localDate(d)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
 // evidence_url arrives from public report_issue / maintainer proposals —
@@ -207,6 +213,8 @@ export default function AdminApp() {
   const [queue, setQueue] = useState<ProposalRow[]>([]);
   const [decided, setDecided] = useState<ProposalRow[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
+  const [reportsTotal, setReportsTotal] = useState(0);
+  const [exportBusy, setExportBusy] = useState(false);
   const [detail, setDetail] = useState<ProposalDetail | null>(null);
   const [detailBusy, setDetailBusy] = useState(false);
   const [confirm, setConfirm] = useState<{
@@ -237,6 +245,7 @@ export default function AdminApp() {
       ),
     );
     setReports(reportsRes.reports || []);
+    setReportsTotal(reportsRes.total ?? 0);
   }
 
   async function openDetail(id: string) {
@@ -346,6 +355,50 @@ export default function AdminApp() {
         </table>
       </div>
     );
+  }
+
+  // Owner-only export: the Access session already authenticated the fetch,
+  // so the download pages through the same /reports endpoint until the
+  // queue is exhausted — no new endpoint, no extra credential. Keyset
+  // paging keeps the export stable if a report lands mid-download.
+  async function fetchAllReports(): Promise<Report[]> {
+    const all: Report[] = [];
+    for (;;) {
+      const last = all[all.length - 1];
+      const cursor = last?.reported_at
+        ? `&before=${encodeURIComponent(last.reported_at)}` +
+          `&before_id=${encodeURIComponent(last.id)}`
+        : last
+          ? `&offset=${all.length}`
+          : "";
+      const res = await api<ReportsRes>(`/reports?limit=100${cursor}`);
+      const batch = res.reports ?? [];
+      all.push(...batch);
+      if (batch.length < 100) break;
+    }
+    return all;
+  }
+
+  async function exportReports() {
+    setExportBusy(true);
+    try {
+      const all = await fetchAllReports();
+      const blob = new Blob([JSON.stringify(all, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `cardex-reports-${localDate(new Date())}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      showToast(
+        "Export failed: " + (e instanceof Error ? e.message : String(e)),
+      );
+    } finally {
+      setExportBusy(false);
+    }
   }
 
   function reportsTable() {
@@ -507,9 +560,26 @@ export default function AdminApp() {
       <>
         <h2 class="page-title">Quarantined reports</h2>
         <p class="page-sub">
-          Public submissions via report_issue — triage leads for the maintenance
-          agent.
+          Public submissions via report_issue — owner-triaged leads; the
+          maintenance agent never sees them.
         </p>
+        {reports.length > 0 ? (
+          <div class="toolbar">
+            <button
+              class="btn"
+              id="export-reports"
+              disabled={exportBusy}
+              onClick={() => void exportReports()}
+            >
+              {exportBusy ? "Exporting…" : "Export JSON"}
+            </button>
+            {reportsTotal > reports.length ? (
+              <span class="faint" style="margin-left:10px">
+                Showing newest {reports.length} of {reportsTotal}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
         {reportsTable()}
       </>
     );

@@ -149,10 +149,27 @@ function HistoryTable({ proposals, onOpen }) {
   );
 }
 
-function ReportsTable({ reports }) {
+function ReportsTable({ reports, total = reports.length }) {
+  const exportReports = () => {
+    const blob = new Blob([JSON.stringify(reports, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `cardex-reports-${localDate(new Date())}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
   return (
     <div>
-      <p className="page-sub">Read-only quarantine from <span className="mono">report_issue</span> — feeds grokbot's triage, never touches facts.</p>
+      <p className="page-sub">Public submissions via <span className="mono">report_issue</span> — owner-triaged leads; the maintenance agent never sees them.</p>
+      {reports.length > 0 && (
+        <div className="toolbar">
+          <button className="btn" onClick={exportReports}>Export JSON</button>
+          {total > reports.length && (
+            <span className="faint" style={{ marginLeft: 10 }}>Showing newest {reports.length} of {total}</span>
+          )}
+        </div>
+      )}
       <table className="list">
         <thead>
           <tr><th>Target</th><th>Field</th><th>Claimed value</th><th>Evidence</th><th>Note</th><th>Reported</th></tr>

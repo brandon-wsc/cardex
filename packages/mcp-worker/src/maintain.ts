@@ -310,17 +310,38 @@ export async function proposeChange(db: D1Database, input: ProposalInput) {
   return { ok: true as const, proposal_id: id };
 }
 
-export async function listReports(db: D1Database, input: { limit?: number }) {
+export async function listReports(
+  db: D1Database,
+  input: {
+    limit?: number;
+    offset?: number;
+    before?: string;
+    beforeId?: string;
+  },
+) {
   const limit = Math.min(Math.max(input.limit ?? 50, 1), 100);
+  const offset = Math.max(input.offset ?? 0, 0);
+  const count = await db
+    .prepare(`SELECT COUNT(*) AS n FROM reports`)
+    .first<{ n: number }>();
+  const keyset = input.before
+    ? input.beforeId
+      ? {
+          where: `WHERE reported_at < ? OR (reported_at = ? AND id < ?) `,
+          binds: [input.before, input.before, input.beforeId],
+        }
+      : { where: `WHERE reported_at < ? `, binds: [input.before] }
+    : { where: ``, binds: [] as string[] };
   const { results } = await db
     .prepare(
       `SELECT id, target_kind, target_id, field, claimed_value, ` +
         `evidence_url, note, reported_at FROM reports ` +
-        `ORDER BY reported_at DESC LIMIT ?`,
+        keyset.where +
+        `ORDER BY reported_at DESC, id DESC LIMIT ? OFFSET ?`,
     )
-    .bind(limit)
+    .bind(...keyset.binds, limit, offset)
     .all();
-  return { ok: true as const, reports: results };
+  return { ok: true as const, total: count?.n ?? 0, reports: results };
 }
 
 export async function listProposals(
