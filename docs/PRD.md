@@ -83,7 +83,7 @@ Shared envelope on every success and failure:
 
 `limit` above 100 is clamped. The payload echoes `limit_requested` and `clamped: true`. `limit` below 1 is `invalid_limit`. Omitted `limit` becomes 5. There is no offset by design — the catalog is small, and follow-up reads are by `id`.
 
-Tool inputs are strict objects: an unrecognized key (`tag` instead of `tag_id`, `cards` instead of `card_ids`) is a protocol-level `InvalidParams` error, never a silently dropped filter.
+Tool inputs are strict objects: an unrecognized key (`tag` instead of `tag_id`, `cards` instead of `card_ids`) is a protocol-level `InvalidParams` error, never a silently dropped filter. The error names the rejected keys and lists the valid ones.
 
 | Tool | Input | Returns |
 |---|---|---|
@@ -105,7 +105,8 @@ Public intake is bounded. `evidence_url`, when present, must be an `http:`/`http
 
 Inputs:
 
-- `amount_hkd` — must be > 0, else `invalid_amount`.
+- `amount_hkd` or `amount` — exactly one is required and must be > 0, else `invalid_amount`. `amount_hkd` is already in HKD; `amount` is denominated in `currency` ([ADR 0006](adr/0006-score-currency.md)).
+- `currency` — an ISO 4217 three-letter code, normalized to upper case. Absent means the caller asserted nothing about billing currency; the spend is still treated as HKD units. A value that is not three letters → `invalid_currency`. `assumptions.hkd_per_foreign_unit` — HKD per one unit of `currency`; required when `amount` is given with a non-HKD `currency`, else `missing_fx_rate`. The spend converts as `amount × rate`, rounded to cents, before any scoring. `amount_hkd` with a non-HKD `currency` means the caller converted the amount itself.
 - `card_ids?` — restricts scoring to those cards. This is the held-set path after the user confirms their wallet; Cardex never learns why the set was chosen. Alias hits contribute their `card_ids` to the same scope.
 - Tags come from `tag_ids` and from `alias` (via the same match as `resolve_alias`). No tags at all → `missing_spend`. Resolved tag ids that do not exist are echoed as `unknown_tag_ids` — the call still scores the tags that resolved, and an all-unknown list returns `ok` with empty `candidates`. Same ok-plus-flag contract as `lookup_rates`' `unknown_tag_id`.
 - `as_of` — filters windowed terms. Default today.
@@ -132,12 +133,14 @@ For each matching rate:
 | `merchant_list`, `merchant` **absent** | `unknown_exclusions` includes `merchant_list:<term id>` |
 | `merchant_list`, `merchant` hits a whitelist member | Cleared silently |
 | `merchant_list`, `merchant` misses all members | Still `unknown_exclusions` — a miss proves nothing. `merchant_checked` echoes the input |
-| `fx_fee` or any other kind not settled | `unknown_exclusions` includes `<kind>:<term id>` |
+| `fx_fee`, `currency` explicit `HKD` | Cleared silently — HKD billing cannot trigger the fee |
+| `fx_fee`, `currency` absent or non-HKD | `unknown_exclusions` includes `fx_fee:<term id>` — there is no numeric fee field to deduct, so the caller costs it |
+| Any other kind not settled | `unknown_exclusions` includes `<kind>:<term id>` |
 | Term outside its effective window at `as_of` | Not applied. `unknown_exclusions` includes `term_outside_window:<term id>` |
 | Exclusion key **not** in `checked_exclusions` | Leave the number. List the key in `unknown_exclusions` |
 | Exclusion key **in** `checked_exclusions` | Treat it as cleared. Do not list it |
 
-Every row echoes `failed_terms` (deterministic failures — distinct from `unknown_exclusions`, which means "the caller must verify"), `exclusive_group`, `priority`, and the rate's `source_url`, `last_verified_at`, and `illustrative`. Rows are ordered by `card_id`, then `rate_id`. There is no `winner`, no rank, and no "best" field. The caller sorts if it wants to.
+Every row echoes `failed_terms` (deterministic failures — distinct from `unknown_exclusions`, which means "the caller must verify"), `exclusive_group`, `priority`, and the rate's `source_url`, `last_verified_at`, and `illustrative`. The payload echoes the effective `amount_hkd`, `currency`, and `fx_rate` (the `hkd_per_foreign_unit` used, or `null`). Rows are ordered by `card_id`, then `rate_id`. There is no `winner`, no rank, and no "best" field. The caller sorts if it wants to.
 
 A cleared exclusion is the caller saying "this does not apply", not Cardex deciding the spend is eligible.
 
@@ -154,6 +157,9 @@ A cleared exclusion is the caller saying "this does not apply", not Cardex decid
 | Alias matches nothing | `ok: true`, `matches: []` |
 | `limit` above 100 | Clamped, `clamped: true` |
 | Score with no tag and no usable alias | `ok: false`, `error: "missing_spend"` |
+| Score with both or neither of `amount_hkd` / `amount`, or a non-positive amount | `ok: false`, `error: "invalid_amount"` |
+| Score `currency` that is not three letters | `ok: false`, `error: "invalid_currency"` |
+| Score non-HKD `amount` without `hkd_per_foreign_unit` | `ok: false`, `error: "missing_fx_rate"` |
 | Cap or exclusion the caller did not settle | Row still returned. The gap is in `unknown_exclusions` |
 | Report accepted | `ok: true`, `report_id`. Lands in quarantine, never in query tables |
 | Report missing target, `field`, or `claimed_value` | `ok: false`, `error: "invalid_report"` |

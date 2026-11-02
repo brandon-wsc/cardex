@@ -94,6 +94,7 @@ export interface Assumptions {
   month_to_date_rebate_hkd?: number;
   month_to_date_spend_hkd?: number;
   hkd_per_point?: number;
+  hkd_per_foreign_unit?: number;
   checked_exclusions?: string[];
 }
 
@@ -101,10 +102,12 @@ type FailureCode =
   | "not_found"
   | "invalid_limit"
   | "invalid_amount"
+  | "invalid_currency"
   | "invalid_date"
   | "invalid_report"
   | "missing_filter"
-  | "missing_spend";
+  | "missing_spend"
+  | "missing_fx_rate";
 
 export interface Failure {
   ok: false;
@@ -573,7 +576,9 @@ export async function resolveAlias(
 export async function scoreCandidates(
   db: D1Database,
   input: {
-    amount_hkd: number;
+    amount_hkd?: number;
+    amount?: number;
+    currency?: string;
     tag_ids?: string[];
     card_ids?: string[];
     alias?: string;
@@ -585,7 +590,35 @@ export async function scoreCandidates(
 ) {
   const page = applyLimit(input.limit);
   if ("ok" in page) return page;
-  if (!(input.amount_hkd > 0)) return fail("invalid_amount", "amount_hkd must be positive");
+
+  // ADR 0006: the spend is either already HKD (amount_hkd) or foreign
+  // (amount in currency units, converted by the caller-declared
+  // hkd_per_foreign_unit). Cardex never picks an FX rate itself.
+  const hasAmountHkd = input.amount_hkd !== undefined;
+  const hasAmount = input.amount !== undefined;
+  if (hasAmountHkd === hasAmount) {
+    return fail("invalid_amount", "supply exactly one of amount_hkd or amount");
+  }
+  const spend = (hasAmountHkd ? input.amount_hkd : input.amount)!;
+  if (!(spend > 0)) return fail("invalid_amount", "amount must be positive");
+
+  const currency = (input.currency ?? "HKD").trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(currency)) {
+    return fail("invalid_currency", "currency must be a three-letter code");
+  }
+  const assumptions = input.assumptions ?? {};
+  const fxRate = assumptions.hkd_per_foreign_unit ?? null;
+  let amountHkd = spend;
+  if (currency !== "HKD" && hasAmount) {
+    if (fxRate === null || !(fxRate > 0)) {
+      return fail(
+        "missing_fx_rate",
+        "non-HKD amount needs assumptions.hkd_per_foreign_unit",
+      );
+    }
+    amountHkd = round2(spend * fxRate);
+  }
+
   const asOf = checkAsOf(input.as_of);
   if (typeof asOf !== "string") return asOf;
 
@@ -664,7 +697,6 @@ export async function scoreCandidates(
     merchantTermIds,
   );
 
-  const assumptions = input.assumptions ?? {};
   const checked = new Set(assumptions.checked_exclusions ?? []);
 
   const inWindow = (row: { effective_from: string | null; effective_to: string | null }) =>
@@ -678,13 +710,13 @@ export async function scoreCandidates(
     let calculated: number | null = null;
 
     if (rate.kind === "rebate_percent") {
-      calculated = round2((input.amount_hkd * rate.value) / 100);
+      calculated = round2((amountHkd * rate.value) / 100);
     } else if (assumptions.hkd_per_point === undefined) {
       unknown.push("points_value");
     } else if (rate.unit === "points_per_hkd") {
-      calculated = round2(input.amount_hkd * rate.value * assumptions.hkd_per_point);
+      calculated = round2(amountHkd * rate.value * assumptions.hkd_per_point);
     } else if (rate.unit === "hkd_per_mile" || rate.unit === "hkd_per_point") {
-      calculated = round2((input.amount_hkd / rate.value) * assumptions.hkd_per_point);
+      calculated = round2((amountHkd / rate.value) * assumptions.hkd_per_point);
     } else {
       unknown.push(`points_unit:${rate.unit}`);
     }
@@ -722,7 +754,7 @@ export async function scoreCandidates(
           continue;
         }
         if (term.period === "per_transaction") {
-          if (input.amount_hkd < term.threshold_hkd) {
+          if (amountHkd < term.threshold_hkd) {
             failed.push(`min_spend_unmet:${term.id}`);
             calculated = null;
           }
@@ -733,7 +765,7 @@ export async function scoreCandidates(
           unknown.push(key);
           continue;
         }
-        if (mtdSpend + input.amount_hkd < term.threshold_hkd) {
+        if (mtdSpend + amountHkd < term.threshold_hkd) {
           failed.push(`min_spend_unmet:${term.id}`);
           calculated = null;
         }
@@ -754,6 +786,13 @@ export async function scoreCandidates(
         if (!members.some((member) => aliasHits(merchant, member))) {
           unknown.push(key);
         }
+        continue;
+      }
+      // fx_fee settles on the caller's currency assertion (ADR 0006): an
+      // explicit HKD bill cannot trigger the fee, so the term clears
+      // silently. Absent or non-HKD keeps it unknown — terms carry no
+      // numeric fee field, so the caller costs it.
+      if (term.kind === "fx_fee" && input.currency !== undefined && currency === "HKD") {
         continue;
       }
       // Any other kind (fx_fee, registration_required, channel, mcc, quota,
@@ -783,6 +822,7 @@ export async function scoreCandidates(
         month_to_date_rebate_hkd: assumptions.month_to_date_rebate_hkd ?? null,
         month_to_date_spend_hkd: assumptions.month_to_date_spend_hkd ?? null,
         hkd_per_point: assumptions.hkd_per_point ?? null,
+        hkd_per_foreign_unit: fxRate,
         checked_exclusions: [...checked],
       },
     };
@@ -792,7 +832,9 @@ export async function scoreCandidates(
     ok: true as const,
     provenance: provenanceFor(candidates),
     seed_as_of: await seedDate(db),
-    amount_hkd: input.amount_hkd,
+    amount_hkd: amountHkd,
+    currency,
+    fx_rate: fxRate,
     tag_ids: tagList,
     ...(unknownTagIds.length > 0 ? { unknown_tag_ids: unknownTagIds } : {}),
     as_of: asOf,

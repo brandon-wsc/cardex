@@ -37,7 +37,7 @@ Both `accept` entries are required. The response is a single SSE frame: take the
 
 Every list tool takes filters and `limit` (default 5, max 100 — higher is clamped and the payload echoes `limit_requested` + `clamped`). Every filter takes `as_of` (default: today, `YYYY-MM-DD`); records outside their effective window are dropped from lists and scores but stay fetchable by `id`. Follow up with `get_card` / `get_term` by `id`; tools never return the whole catalog. Each payload echoes `seed_as_of` — the date the underlying data was last refreshed.
 
-Inputs are strict: an unrecognized argument key is a protocol `InvalidParams` error, never a silently dropped filter. A typo like `tag` for `tag_id` fails the call — it does not quietly widen your query.
+Inputs are strict: an unrecognized argument key is a protocol `InvalidParams` error, never a silently dropped filter. A typo like `tag` for `tag_id` fails the call — it does not quietly widen your query. The error names the rejected keys and lists the valid ones.
 
 | Tool | Call it when | Key args |
 | --- | --- | --- |
@@ -46,7 +46,7 @@ Inputs are strict: an unrecognized argument key is a protocol `InvalidParams` er
 | `get_card` | You need one card's details and its rate summaries | `id` |
 | `get_term` | A rate cites `term_ids` you cannot evaluate | `id` |
 | `list_tags` | You need the canonical spend tags | `limit` |
-| `score_candidates` | You want the rebate math for a spend under your own assumptions | `amount_hkd`, `tag_ids`, `card_ids`, `alias`, `merchant`, `assumptions`, `as_of`, `limit` |
+| `score_candidates` | You want the rebate math for a spend under your own assumptions | `amount_hkd` **or** `amount` + `currency`, `tag_ids`, `card_ids`, `alias`, `merchant`, `assumptions`, `as_of`, `limit` |
 | `report_issue` | The user (or you) believes a fact is wrong or stale | one of `card_id`/`rate_id`/`term_id`, `field`, `claimed_value`, `evidence_url`, `note` |
 
 Typical flow: `resolve_alias` the spend → `lookup_rates` (scoped to the user's confirmed `card_ids` if comparing held cards) → `get_term` any `term_ids` you can't check → `score_candidates` with explicit `assumptions`.
@@ -69,6 +69,7 @@ Each `score_candidates` row has three lists-worth of signals. Read all of them b
 - `unknown_exclusions` — conditions Cardex **cannot verify**: `<kind>:<term id>` entries, `cap_remaining:<id>`, `points_value`, `term_outside_window:<id>`. These mean "verify before you quote," not "the rate fails."
 - `exclusive_group` + `priority` — rows sharing an `exclusive_group` cannot stack. Keep the best `priority` per group before ranking; do not add competing rates together.
 - `merchant_checked` — echoes the `merchant` you passed, so the user can see what was checked.
+- `currency` / `fx_rate` / `amount_hkd` — the payload echoes the billing currency, the `hkd_per_foreign_unit` used, and the effective HKD spend. Non-HKD spends convert as `amount × hkd_per_foreign_unit`; Cardex never picks an FX rate — you declare it.
 
 ## Settling terms
 
@@ -77,10 +78,10 @@ Each `score_candidates` row has three lists-worth of signals. Read all of them b
 | Kind | What it is | What settles it |
 | --- | --- | --- |
 | `cap` | Rebate ceiling per period | `month_to_date_rebate_hkd` — Cardex clamps automatically when provided |
-| `min_spend` | Spend floor before the rate applies | Per-transaction floors auto-check against `amount_hkd` (fail → `min_spend_unmet`). Cumulative floors need `month_to_date_spend_hkd`; without it the term stays unknown |
+| `min_spend` | Spend floor before the rate applies | Per-transaction floors auto-check against the spend's HKD amount (fail → `min_spend_unmet`). Cumulative floors need `month_to_date_spend_hkd`; without it the term stays unknown |
 | `merchant_list` | Named-merchant whitelist | Pass `merchant`. A hit clears it; **a miss keeps it unknown** — fuzzy matching can prove membership, never non-membership. Check `merchant_checked` and consider asking the user for the receipt name |
 | `exclusion` | A condition that kills the rate | `checked_exclusions` with the `exclusion_key` — only when the user confirms it does not apply |
-| `fx_fee` | Foreign-currency fee | `checked_exclusions` with `fx_fee:<term id>` to settle, or net the fee from the rebate yourself |
+| `fx_fee` | Foreign-currency fee | Pass `currency`. Explicit `HKD` clears it; non-HKD leaves it in `unknown_exclusions` — the terms carry no fee figure, so net it from the rebate yourself or settle via `checked_exclusions` |
 | `registration_required` | Opt-in / promo code needed | Ask the user if they registered; settle via `checked_exclusions` |
 | `channel` / `mcc` | Booking channel / merchant category | You judge from the spend context and the term `text` |
 | `quota` | First-N registrants (FCFS) | Cannot be verified — quota usage is not public. Warn the user it may be full |
@@ -111,4 +112,4 @@ A term stays in `unknown_exclusions` until you settle it. Quoting a number with 
 - **`lookup_rates` needs a filter.** At least one of `tag_id` / `card_ids` / `issuer` — an empty call is `{ "ok": false, "error": "missing_filter" }`, not the whole catalog. The page echoes the applied `filters` (`tag_id`, `card_ids`, `issuer`, `issuer_canonical`, `as_of`); read it back before trusting the rows.
 - **`issuer` is not substring.** Pass a canonical issuer name or a known alias (`hsbc`, `sc`, `匯豐`) — resolved like `resolve_alias` (normalized exact, or either-contains when both sides are ≥2 chars). `issuer_canonical` shows what it resolved to. A stray `issuer:"a"` matches nothing, which is the point: check the echo and `total` before ranking.
 - **Unresolved tags are flagged.** `score_candidates` echoes `unknown_tag_ids` for tag ids that do not exist; all-unknown → `ok` with empty `candidates`. Same flag-not-error contract as `unknown_tag_id` on `lookup_rates`.
-- **Not found is a payload,** not an exception: `{ "ok": false, "error": "not_found" }`. Same for `invalid_date`, `invalid_limit`, `invalid_amount`, `missing_filter`, and `missing_spend`.
+- **Not found is a payload,** not an exception: `{ "ok": false, "error": "not_found" }`. Same for `invalid_date`, `invalid_limit`, `invalid_amount`, `invalid_currency`, `missing_filter`, `missing_spend`, and `missing_fx_rate`.
