@@ -114,6 +114,7 @@ Follow the [Conventional Branch](https://conventionalbranch.org/) purpose prefix
 - **Title** — same format as commit subjects (`type(scope): summary`, ≤72 chars, ASCII-only); use the dominant change's type/scope. The `conventions` job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) rejects a PR whose branch, title, or commit subjects do not match.
 - **Body** — follow `.github/pull_request_template.md`: `## Summary` (what + why), `#### Test plan`, plus the `ADR:` / `Breaking:` lines. CI does not read the body.
 - **Merge method** — merge commit only, once branch protection exists: commit subjects land on `main` individually; the PR title does not.
+- **Integration branches** — `dev`, `develop`, `main`, `master` are exempt from the head-branch check, so `dev` → `main` promotions and backmerges open straight from the integration branch (a `release/` branch still works if a stabilization line is wanted).
 
 ## Feature work
 
