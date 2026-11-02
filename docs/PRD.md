@@ -180,14 +180,14 @@ The **cited seed** is the next milestone and follows a different rule: cover the
 
 Facts stay true through a loop, not a crawl ([ADR 0002](adr/0002-maintenance-surface.md)):
 
-1. **Triage** — the maintenance agent (grokbot) runs scheduled passes: re-check terms whose `effective_to` is near or `last_verified_at` is oldest, read the `reports` quarantine, plus whatever the owner points it at.
+1. **Triage** — the owner reviews public `report_issue` submissions in `/admin` and independently verifies any leads before assigning work. The maintenance agent (grokbot) may run scheduled checks against issuer sources and work from owner-selected tasks; it cannot read the `reports` quarantine through `/maintainer`.
 2. **Propose** — it calls `propose_change` on the `/maintainer` endpoint with evidence: target id, old → new value, `source_url`, excerpt. The proposal lands as a `pending` row carrying structured patches — never raw SQL. Proposal intake is bounded like `report_issue`: `evidence_url` must be `http:`/`https:` (≤ 2048 chars), `summary` ≤ 500 and `excerpt` ≤ 4000 chars, a proposal carries at most 50 patches, and the queue holds at most 100 pending proposals — over the cap is `invalid_proposal` until the owner reviews. Other violations are `invalid_proposal` too. `proposed_by` is recorded as the maintainer credential's identity — the caller's own claim is ignored, so one token can never impersonate another proposer.
 3. **Approve** — the owner reviews the proposal in the `/admin` portal and approves or rejects it. The approve is the only write path to facts.
 4. **Apply** — on approval the Worker applies the whitelisted patches in a transaction and marks the proposal `applied`.
 
 Until the portal ships, steps 3–4 collapse into the owner applying approved changes with `wrangler d1 execute --remote` — the manual path that exists today.
 
-`report_issue` submissions join the same triage queue. `skills/cardex-maintainer` is the agent's runbook — a separate artifact from the caller-facing playbook.
+`report_issue` submissions remain in the admin queue. `/admin/api/reports` serves the portal; `/maintainer` exposes fact reads and `propose_change`, not `list_reports`. The owner may hand a verified task to the agent, but does not forward raw reports as instructions. `skills/cardex-maintainer` is the agent's runbook — a separate artifact from the caller-facing playbook.
 
 ## 9. Suggested Tech (v1)
 
