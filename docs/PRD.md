@@ -114,7 +114,7 @@ Inputs:
 - `assumptions.month_to_date_rebate_hkd` — rebate already earned this period, used only to apply a cap.
 - `assumptions.month_to_date_spend_hkd` — eligible spend already made this period, used only to check cumulative `min_spend` gates.
 - `assumptions.hkd_per_point` — how the caller values one unit (point or mile) of a `points` rate's `unit`.
-- `assumptions.checked_exclusions` — keys the caller asserts do **not** apply. Clears any term by `<kind>:<term id>` (and plain `exclusion_key` for exclusions).
+- `assumptions.checked_exclusions` — keys the caller asserts do **not** apply. Clears any term by `<kind>:<term id>` (and plain `exclusion_key` for exclusions). Keys that matched no scored term are echoed on the envelope as `unmatched_checked_exclusions`.
 
 For each matching rate:
 
@@ -142,7 +142,20 @@ For each matching rate:
 
 Every row echoes `failed_terms` (deterministic failures — distinct from `unknown_exclusions`, which means "the caller must verify"), `exclusive_group`, `priority`, the rate's `effective_from`/`effective_to` window, and the rate's `source_url`, `last_verified_at`, and `illustrative`. The payload echoes the effective `amount_hkd`, `currency`, and `fx_rate` (the `hkd_per_foreign_unit` used, or `null`). Rows are ordered by `card_id`, then `rate_id`. There is no `winner`, no rank, and no "best" field. The caller sorts if it wants to.
 
-A cleared exclusion is the caller saying "this does not apply", not Cardex deciding the spend is eligible.
+Each row also carries `conditions` — one entry per term the rate cites, in `term_ids` order: `{ term_id, kind, key, status }`. `key` is the `checked_exclusions` token that settles the condition (`<kind>:<term id>`; for an `exclusion`, the `exclusion_key` — `exclusion:<term id>` also settles it). `status` is one of ([ADR 0009](adr/0009-candidate-conditions.md)):
+
+| Status | Meaning |
+|---|---|
+| `passed` | Verified satisfied — min_spend met, merchant_list hit, fx_fee cleared by explicit `HKD` |
+| `applied` | Evaluated and adjusted the number — a cap clamped `calculated_rebate_hkd` |
+| `failed` | Verified **not** satisfied — the row's `failed_terms` entry |
+| `unchecked` | The tool cannot verify it — the row's `unknown_exclusions` entry |
+| `caller_settled` | Cleared by a matching `checked_exclusions` assertion |
+| `outside_window` | Inactive at `as_of`; not applied |
+
+When `checked_exclusions` contains keys that matched no term on any scored rate, the envelope lists them as `unmatched_checked_exclusions` — a mistyped or stale key is surfaced, never silently ignored. The field is omitted when every asserted key was consumed.
+
+A cleared exclusion is the caller saying "this does not apply", not Cardex deciding the spend is eligible — `caller_settled` records an assertion, not a verification.
 
 ## 6. States
 

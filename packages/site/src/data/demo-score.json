@@ -31,6 +31,14 @@
         "cap_remaining:term_aeon_online_cap"
       ],
       "failed_terms": [],
+      "conditions": [
+        {
+          "term_id": "term_aeon_online_cap",
+          "kind": "cap",
+          "key": "cap:term_aeon_online_cap",
+          "status": "unchecked"
+        }
+      ],
       "effective_from": "2026-09-01",
       "effective_to": "2027-02-28",
       "exclusive_group": null,
@@ -59,6 +67,26 @@
         "octopus_topup"
       ],
       "failed_terms": [],
+      "conditions": [
+        {
+          "term_id": "term_hsbc_dining_cap",
+          "kind": "cap",
+          "key": "cap:term_hsbc_dining_cap",
+          "status": "unchecked"
+        },
+        {
+          "term_id": "term_hsbc_merchant_list",
+          "kind": "merchant_list",
+          "key": "merchant_list:term_hsbc_merchant_list",
+          "status": "passed"
+        },
+        {
+          "term_id": "term_hsbc_octopus",
+          "kind": "exclusion",
+          "key": "octopus_topup",
+          "status": "unchecked"
+        }
+      ],
       "effective_from": "2026-07-01",
       "effective_to": "2026-12-31",
       "exclusive_group": "hsbc_red",
