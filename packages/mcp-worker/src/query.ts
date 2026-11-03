@@ -729,15 +729,38 @@ export async function scoreCandidates(
   );
 
   const checked = new Set(assumptions.checked_exclusions ?? []);
+  // ADR 0009: an asserted key is "consumed" when it settles a term on any
+  // scored rate. Keys nobody consumed are flagged on the envelope — a typo
+  // or stale id must surface, never settle silently.
+  const consumed = new Set<string>();
+  const consume = (key: string): boolean => {
+    if (!checked.has(key)) return false;
+    consumed.add(key);
+    return true;
+  };
 
   const inWindow = (row: { effective_from: string | null; effective_to: string | null }) =>
     (!row.effective_from || row.effective_from <= asOf) &&
     (!row.effective_to || row.effective_to >= asOf);
 
+  type ConditionStatus =
+    | "passed"
+    | "applied"
+    | "failed"
+    | "unchecked"
+    | "caller_settled"
+    | "outside_window";
+
   // eslint-disable-next-line complexity -- per-term-kind evaluation state machine
   const candidates = results.map((rate) => {
     const unknown: string[] = [];
     const failed: string[] = [];
+    const conditions: {
+      term_id: string;
+      kind: string;
+      key: string;
+      status: ConditionStatus;
+    }[] = [];
     let calculated: number | null = null;
 
     if (rate.kind === "rebate_percent") {
@@ -755,52 +778,85 @@ export async function scoreCandidates(
     for (const termId of termIdsByRate.get(rate.id) ?? []) {
       const term = termsById.get(termId);
       if (!term) continue;
+      // key is the checked_exclusions token that settles the condition;
+      // status mirrors the evaluation into the row's audit trail (ADR 0009).
+      const key =
+        term.kind === "exclusion" && term.exclusion_key
+          ? term.exclusion_key
+          : `${term.kind}:${term.id}`;
+      const condition = (status: ConditionStatus) =>
+        conditions.push({ term_id: term.id, kind: term.kind, key, status });
+
       if (!inWindow(term)) {
         unknown.push(`term_outside_window:${term.id}`);
+        condition("outside_window");
         continue;
       }
       if (term.kind === "cap") {
-        if (checked.has(`cap:${term.id}`)) continue;
-        if (assumptions.month_to_date_rebate_hkd === undefined) {
-          unknown.push(`cap_remaining:${term.id}`);
+        if (consume(`cap:${term.id}`)) {
+          condition("caller_settled");
           continue;
         }
-        if (calculated === null || term.cap_hkd === null) continue;
+        if (assumptions.month_to_date_rebate_hkd === undefined) {
+          unknown.push(`cap_remaining:${term.id}`);
+          condition("unchecked");
+          continue;
+        }
+        if (calculated === null || term.cap_hkd === null) {
+          condition("passed");
+          continue;
+        }
         const remaining = Math.max(0, term.cap_hkd - assumptions.month_to_date_rebate_hkd);
         calculated = round2(Math.min(calculated, remaining));
+        condition("applied");
         continue;
       }
       if (term.kind === "exclusion") {
-        if (checked.has(`exclusion:${term.id}`)) continue;
-        if (term.exclusion_key && !checked.has(term.exclusion_key)) {
-          unknown.push(term.exclusion_key);
+        const settled =
+          consume(`exclusion:${term.id}`) ||
+          (term.exclusion_key !== null && consume(term.exclusion_key));
+        if (settled) {
+          condition("caller_settled");
+          continue;
         }
+        if (term.exclusion_key) unknown.push(term.exclusion_key);
+        condition("unchecked");
         continue;
       }
       // min_spend is checkable: per-transaction gates compare with the amount;
       // cumulative gates compare with the caller's month_to_date_spend_hkd.
       if (term.kind === "min_spend") {
-        const key = `min_spend:${term.id}`;
-        if (checked.has(key)) continue;
+        if (consume(`min_spend:${term.id}`)) {
+          condition("caller_settled");
+          continue;
+        }
         if (term.threshold_hkd === null) {
           unknown.push(key);
+          condition("unchecked");
           continue;
         }
         if (term.period === "per_transaction") {
           if (amountHkd < term.threshold_hkd) {
             failed.push(`min_spend_unmet:${term.id}`);
             calculated = null;
+            condition("failed");
+          } else {
+            condition("passed");
           }
           continue;
         }
         const mtdSpend = assumptions.month_to_date_spend_hkd;
         if (mtdSpend === undefined) {
           unknown.push(key);
+          condition("unchecked");
           continue;
         }
         if (mtdSpend + amountHkd < term.threshold_hkd) {
           failed.push(`min_spend_unmet:${term.id}`);
           calculated = null;
+          condition("failed");
+        } else {
+          condition("passed");
         }
         continue;
       }
@@ -808,32 +864,44 @@ export async function scoreCandidates(
       // but never non-membership: a hit clears the term, a miss keeps it
       // unknown, and the payload echoes merchant_checked.
       if (term.kind === "merchant_list") {
-        const key = `merchant_list:${term.id}`;
-        if (checked.has(key)) continue;
+        if (consume(`merchant_list:${term.id}`)) {
+          condition("caller_settled");
+          continue;
+        }
         const merchant = input.merchant;
         if (merchant === undefined) {
           unknown.push(key);
+          condition("unchecked");
           continue;
         }
         const members = merchantsByTerm.get(term.id) ?? [];
         if (!members.some((member) => aliasHits(merchant, member))) {
           unknown.push(key);
+          condition("unchecked");
+          continue;
         }
+        condition("passed");
         continue;
       }
       // fx_fee settles on the caller's currency assertion (ADR 0006): an
-      // explicit HKD bill cannot trigger the fee, so the term clears
-      // silently. Absent or non-HKD keeps it unknown — terms carry no
-      // numeric fee field, so the caller costs it.
+      // explicit HKD bill cannot trigger the fee, so the term passes.
+      // Absent or non-HKD keeps it unknown — terms carry no numeric fee
+      // field, so the caller costs it.
       if (term.kind === "fx_fee" && input.currency !== undefined && currency === "HKD") {
+        consume(`fx_fee:${term.id}`);
+        condition("passed");
         continue;
       }
       // Any other kind (fx_fee, registration_required, channel, mcc, quota,
       // geo, targeted, eligibility, and kinds added later) is a term the
       // caller must settle: it is cleared by listing `<kind>:<term id>` in
       // checked_exclusions.
-      const key = `${term.kind}:${term.id}`;
-      if (!checked.has(key)) unknown.push(key);
+      if (consume(`${term.kind}:${term.id}`)) {
+        condition("caller_settled");
+        continue;
+      }
+      unknown.push(`${term.kind}:${term.id}`);
+      condition("unchecked");
     }
 
     return {
@@ -846,6 +914,7 @@ export async function scoreCandidates(
       calculated_rebate_hkd: calculated,
       unknown_exclusions: unknown,
       failed_terms: failed,
+      conditions,
       effective_from: rate.effective_from,
       effective_to: rate.effective_to,
       exclusive_group: rate.exclusive_group,
@@ -863,6 +932,7 @@ export async function scoreCandidates(
     };
   });
 
+  const unmatchedChecked = [...checked].filter((k) => !consumed.has(k)).sort();
   return {
     ok: true as const,
     provenance: provenanceFor(candidates),
@@ -872,6 +942,9 @@ export async function scoreCandidates(
     fx_rate: fxRate,
     tag_ids: tagList,
     ...(unknownTagIds.length > 0 ? { unknown_tag_ids: unknownTagIds } : {}),
+    ...(unmatchedChecked.length > 0
+      ? { unmatched_checked_exclusions: unmatchedChecked }
+      : {}),
     as_of: asOf,
     merchant_checked: input.merchant ?? null,
     ...page,

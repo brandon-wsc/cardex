@@ -1390,6 +1390,167 @@ describe("checked_exclusions — PRD §5", () => {
   });
 });
 
+// ADR 0009: every term a scored rate cites gets a visible status — passed,
+// applied, failed, unchecked, caller_settled, outside_window. Nothing a term
+// evaluates to may drop silently, and a checked_exclusions key that matched
+// nothing is flagged on the envelope.
+describe("candidate conditions — ADR 0009", () => {
+  function findCondition(
+    row: { conditions?: { term_id: string; kind: string; key: string; status: string }[] },
+    termId: string,
+  ) {
+    return row.conditions?.find((c) => c.term_id === termId);
+  }
+
+  it("lists every cited term with its settle key and status", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const hsbc = res.candidates.find((c) => c.rate_id === "rate_hsbc_dining");
+    expect(hsbc?.conditions?.map((c) => c.term_id)).toEqual([
+      "term_hsbc_dining_cap",
+      "term_hsbc_merchant_list",
+      "term_hsbc_octopus",
+    ]);
+    expect(findCondition(hsbc!, "term_hsbc_dining_cap")).toMatchObject({
+      kind: "cap",
+      key: "cap:term_hsbc_dining_cap",
+      status: "unchecked",
+    });
+    // Exclusion conditions key on the exclusion_key callers actually pass.
+    expect(findCondition(hsbc!, "term_hsbc_octopus")).toMatchObject({
+      kind: "exclusion",
+      key: "octopus_topup",
+      status: "unchecked",
+    });
+  });
+
+  it("marks verified gates passed", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+      merchant: "sushiro",
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const dbs = res.candidates.find((c) => c.rate_id === "rate_dbs_dining_high");
+    expect(findCondition(dbs!, "term_dbs_min_spend")?.status).toBe("passed");
+    const hsbc = res.candidates.find((c) => c.rate_id === "rate_hsbc_dining");
+    expect(findCondition(hsbc!, "term_hsbc_merchant_list")?.status).toBe(
+      "passed",
+    );
+  });
+
+  it("marks fx_fee passed on an explicit HKD currency", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "HKD",
+      tag_ids: ["overseas"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const citi = res.candidates.find((c) => c.rate_id === "rate_citi_overseas");
+    expect(findCondition(citi!, "term_citi_fx_fee")?.status).toBe("passed");
+  });
+
+  it("marks an applied cap applied, including clamp-to-zero", async () => {
+    for (const [mtd, expected] of [
+      [250, 50],
+      [400, 0],
+    ] as const) {
+      const res = await scoreCandidates(tenv.DB, {
+        amount_hkd: 800,
+        tag_ids: ["dining"],
+        assumptions: { month_to_date_rebate_hkd: mtd },
+      });
+      expect(res.ok).toBe(true);
+      if (!res.ok) return;
+      const hsbc = res.candidates.find((c) => c.rate_id === "rate_hsbc_dining");
+      expect(hsbc?.calculated_rebate_hkd).toBe(expected);
+      expect(findCondition(hsbc!, "term_hsbc_dining_cap")?.status).toBe(
+        "applied",
+      );
+    }
+  });
+
+  it("marks an unmet min_spend failed", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 100,
+      tag_ids: ["dining"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const dbs = res.candidates.find((c) => c.rate_id === "rate_dbs_dining_high");
+    expect(findCondition(dbs!, "term_dbs_min_spend")?.status).toBe("failed");
+    expect(dbs?.failed_terms).toContain("min_spend_unmet:term_dbs_min_spend");
+  });
+
+  it("marks caller-asserted terms caller_settled by either settle token", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+      assumptions: {
+        checked_exclusions: [
+          "cap:term_hsbc_dining_cap",
+          "exclusion:term_hsbc_octopus",
+        ],
+      },
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const hsbc = res.candidates.find((c) => c.rate_id === "rate_hsbc_dining");
+    expect(findCondition(hsbc!, "term_hsbc_dining_cap")?.status).toBe(
+      "caller_settled",
+    );
+    expect(findCondition(hsbc!, "term_hsbc_octopus")?.status).toBe(
+      "caller_settled",
+    );
+  });
+
+  it("marks an inactive term outside_window", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      tag_ids: ["overseas"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const citi = res.candidates.find((c) => c.rate_id === "rate_citi_overseas");
+    expect(findCondition(citi!, "term_citi_expired_cap")?.status).toBe(
+      "outside_window",
+    );
+    expect(citi?.unknown_exclusions).toContain(
+      "term_outside_window:term_citi_expired_cap",
+    );
+  });
+
+  it("flags checked_exclusions keys that matched nothing, omits the field when all consume", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+      assumptions: {
+        checked_exclusions: ["octopus_topup", "cap:term_typo"],
+      },
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(
+      (res as { unmatched_checked_exclusions?: string[] })
+        .unmatched_checked_exclusions,
+    ).toEqual(["cap:term_typo"]);
+
+    const clean = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+      assumptions: { checked_exclusions: ["octopus_topup"] },
+    });
+    expect(clean.ok).toBe(true);
+    if (clean.ok) expect(clean).not.toHaveProperty("unmatched_checked_exclusions");
+  });
+});
+
 describe("cap clamp — PRD §5", () => {
   it("clamps to zero, never negative, when month-to-date exhausts the cap", async () => {
     const res = await scoreCandidates(tenv.DB, {
