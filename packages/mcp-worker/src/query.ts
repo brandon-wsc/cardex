@@ -107,6 +107,7 @@ type FailureCode =
   | "invalid_report"
   | "missing_filter"
   | "missing_spend"
+  | "unmapped_merchant"
   | "missing_fx_rate";
 
 export interface Failure {
@@ -660,6 +661,23 @@ export async function scoreCandidates(
     }
   }
   if (spendTags.size === 0) {
+    // A merchant the alias map does not cover is a clarification, not a
+    // guess: echo it and hand back the real tag vocabulary so the caller
+    // can ask its user which class the spend belongs to.
+    if (input.merchant !== undefined) {
+      const { results: tagRows } = await db
+        .prepare("SELECT id FROM tags ORDER BY id")
+        .all<{ id: string }>();
+      return {
+        ...fail(
+          "unmapped_merchant",
+          `merchant ${JSON.stringify(input.merchant)} does not resolve to a spend tag — classify the spend with tag_ids or an alias`,
+          seed,
+        ),
+        merchant: input.merchant,
+        valid_tag_ids: tagRows.map((row) => row.id),
+      };
+    }
     return fail(
       "missing_spend",
       "supply tag_ids or an alias that resolves to a tag",

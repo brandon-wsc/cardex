@@ -240,6 +240,30 @@ describe("score_candidates", () => {
     expect(badAlias.ok).toBe(false);
   });
 
+  it("clarifies an unmapped merchant instead of generic missing_spend", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 4700,
+      merchant: "GoogaVision",
+    });
+    // The merchant is echoed and the caller gets the real tag vocabulary —
+    // Cardex never guesses the spend's category for it.
+    expect(res).toMatchObject({
+      ok: false,
+      error: "unmapped_merchant",
+      merchant: "GoogaVision",
+      valid_tag_ids: expect.arrayContaining(["online", "dining"]),
+    });
+  });
+
+  it("keeps missing_spend when the call has no merchant either", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 4700,
+      card_ids: ["card_aeon"],
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toBe("missing_spend");
+  });
+
   it("calculates rebate as amount × value / 100", async () => {
     const res = await scoreCandidates(tenv.DB, {
       amount_hkd: 800,
