@@ -112,6 +112,7 @@ type FailureCode =
 export interface Failure {
   ok: false;
   provenance: Provenance;
+  seed_as_of: string | null;
   error: FailureCode;
   detail?: string;
 }
@@ -194,10 +195,14 @@ interface AliasMatch extends AliasRow {
   networks: string[];
 }
 
-function fail(error: FailureCode, detail?: string): Failure {
+function fail(
+  error: FailureCode,
+  detail?: string,
+  seed: string | null = null,
+): Failure {
   return detail === undefined
-    ? { ok: false, provenance: PROVENANCE, error }
-    : { ok: false, provenance: PROVENANCE, error, detail };
+    ? { ok: false, provenance: PROVENANCE, seed_as_of: seed, error }
+    : { ok: false, provenance: PROVENANCE, seed_as_of: seed, error, detail };
 }
 
 async function seedDate(db: D1Database): Promise<string | null> {
@@ -207,12 +212,15 @@ async function seedDate(db: D1Database): Promise<string | null> {
   return row?.value ?? null;
 }
 
-export function applyLimit(requested: number | undefined): LimitApplied | Failure {
+export function applyLimit(
+  requested: number | undefined,
+  seed: string | null = null,
+): LimitApplied | Failure {
   if (requested === undefined) {
     return { limit: DEFAULT_LIMIT, limit_requested: null, clamped: false };
   }
   if (!Number.isInteger(requested) || requested < 1) {
-    return fail("invalid_limit", "limit must be a positive integer");
+    return fail("invalid_limit", "limit must be a positive integer", seed);
   }
   if (requested > MAX_LIMIT) {
     return { limit: MAX_LIMIT, limit_requested: requested, clamped: true };
@@ -220,10 +228,13 @@ export function applyLimit(requested: number | undefined): LimitApplied | Failur
   return { limit: requested, limit_requested: requested, clamped: false };
 }
 
-function checkAsOf(asOf: string | undefined): string | Failure {
+function checkAsOf(
+  asOf: string | undefined,
+  seed: string | null = null,
+): string | Failure {
   if (asOf === undefined) return new Date().toISOString().slice(0, 10);
   if (!ISO_DATE.test(asOf)) {
-    return fail("invalid_date", "as_of must be a YYYY-MM-DD date");
+    return fail("invalid_date", "as_of must be a YYYY-MM-DD date", seed);
   }
   return asOf;
 }
@@ -349,9 +360,10 @@ export async function lookupRates(
     limit?: number;
   },
 ) {
-  const page = applyLimit(input.limit);
+  const seed = await seedDate(db);
+  const page = applyLimit(input.limit, seed);
   if ("ok" in page) return page;
-  const asOf = checkAsOf(input.as_of);
+  const asOf = checkAsOf(input.as_of, seed);
   if (typeof asOf !== "string") return asOf;
 
   // A filter-less call must not default to a catalog dump — the caller
@@ -363,6 +375,7 @@ export async function lookupRates(
     return fail(
       "missing_filter",
       "pass at least one of tag_id, card_ids, or issuer",
+      seed,
     );
   }
   const issuer = issuerQuery ? resolveIssuers(issuerQuery) : null;
@@ -381,7 +394,7 @@ export async function lookupRates(
       return {
         ok: true as const,
         provenance: provenanceFor([]),
-        seed_as_of: await seedDate(db),
+        seed_as_of: seed,
         ...page,
         filters,
         total: 0,
@@ -426,7 +439,7 @@ export async function lookupRates(
   return {
     ok: true as const,
     provenance: provenanceFor(records),
-    seed_as_of: await seedDate(db),
+    seed_as_of: seed,
     ...page,
     filters,
     total: totalRow?.n ?? 0,
@@ -435,11 +448,12 @@ export async function lookupRates(
 }
 
 export async function getCard(db: D1Database, id: string) {
+  const seed = await seedDate(db);
   const card = await db
     .prepare("SELECT id, name, issuer, network FROM cards WHERE id = ?")
     .bind(id)
     .first<CardRow>();
-  if (!card) return fail("not_found", id);
+  if (!card) return fail("not_found", id, seed);
 
   const { results } = await db
     .prepare(
@@ -455,7 +469,7 @@ export async function getCard(db: D1Database, id: string) {
   return {
     ok: true as const,
     provenance: provenanceFor(rates),
-    seed_as_of: await seedDate(db),
+    seed_as_of: seed,
     card,
     rates,
     term_ids: [...new Set(rates.flatMap((rate) => rate.term_ids))],
@@ -463,19 +477,21 @@ export async function getCard(db: D1Database, id: string) {
 }
 
 export async function getTerm(db: D1Database, id: string) {
+  const seed = await seedDate(db);
   const term = await db.prepare("SELECT * FROM terms WHERE id = ?").bind(id).first<TermRow>();
-  if (!term) return fail("not_found", id);
+  if (!term) return fail("not_found", id, seed);
   const illustrative = isIllustrative(term.source_url, term.last_verified_at);
   return {
     ok: true as const,
     provenance: provenanceFor([{ illustrative }]),
-    seed_as_of: await seedDate(db),
+    seed_as_of: seed,
     term: { ...term, illustrative },
   };
 }
 
 export async function listTags(db: D1Database, input: { limit?: number } = {}) {
-  const page = applyLimit(input.limit);
+  const seed = await seedDate(db);
+  const page = applyLimit(input.limit, seed);
   if ("ok" in page) return page;
   const totalRow = await db.prepare("SELECT count(*) AS n FROM tags").first<{ n: number }>();
   const { results } = await db
@@ -485,7 +501,7 @@ export async function listTags(db: D1Database, input: { limit?: number } = {}) {
   return {
     ok: true as const,
     provenance: PROVENANCE,
-    seed_as_of: await seedDate(db),
+    seed_as_of: seed,
     ...page,
     total: totalRow?.n ?? 0,
     records: results,
@@ -539,7 +555,8 @@ export async function resolveAlias(
   db: D1Database,
   input: { query: string; limit?: number },
 ) {
-  const page = applyLimit(input.limit);
+  const seed = await seedDate(db);
+  const page = applyLimit(input.limit, seed);
   if ("ok" in page) return page;
   const hits = new Map<string, AliasMatch>();
   for (const alias of await matchingAliases(db, input.query)) {
@@ -558,7 +575,7 @@ export async function resolveAlias(
   return {
     ok: true as const,
     provenance: PROVENANCE,
-    seed_as_of: await seedDate(db),
+    seed_as_of: seed,
     query: input.query,
     ...page,
     total: merged.length,
@@ -588,7 +605,8 @@ export async function scoreCandidates(
     limit?: number;
   },
 ) {
-  const page = applyLimit(input.limit);
+  const seed = await seedDate(db);
+  const page = applyLimit(input.limit, seed);
   if ("ok" in page) return page;
 
   // ADR 0006: the spend is either already HKD (amount_hkd) or foreign
@@ -597,14 +615,20 @@ export async function scoreCandidates(
   const hasAmountHkd = input.amount_hkd !== undefined;
   const hasAmount = input.amount !== undefined;
   if (hasAmountHkd === hasAmount) {
-    return fail("invalid_amount", "supply exactly one of amount_hkd or amount");
+    return fail(
+      "invalid_amount",
+      "supply exactly one of amount_hkd or amount",
+      seed,
+    );
   }
   const spend = (hasAmountHkd ? input.amount_hkd : input.amount)!;
-  if (!(spend > 0)) return fail("invalid_amount", "amount must be positive");
+  if (!(spend > 0)) {
+    return fail("invalid_amount", "amount must be positive", seed);
+  }
 
   const currency = (input.currency ?? "HKD").trim().toUpperCase();
   if (!/^[A-Z]{3}$/.test(currency)) {
-    return fail("invalid_currency", "currency must be a three-letter code");
+    return fail("invalid_currency", "currency must be a three-letter code", seed);
   }
   const assumptions = input.assumptions ?? {};
   const fxRate = assumptions.hkd_per_foreign_unit ?? null;
@@ -614,12 +638,13 @@ export async function scoreCandidates(
       return fail(
         "missing_fx_rate",
         "non-HKD amount needs assumptions.hkd_per_foreign_unit",
+        seed,
       );
     }
     amountHkd = round2(spend * fxRate);
   }
 
-  const asOf = checkAsOf(input.as_of);
+  const asOf = checkAsOf(input.as_of, seed);
   if (typeof asOf !== "string") return asOf;
 
   // Alias hits contribute spend tags and card scope together — resolving
@@ -633,7 +658,11 @@ export async function scoreCandidates(
     }
   }
   if (spendTags.size === 0) {
-    return fail("missing_spend", "supply tag_ids or an alias that resolves to a tag");
+    return fail(
+      "missing_spend",
+      "supply tag_ids or an alias that resolves to a tag",
+      seed,
+    );
   }
   const tagList = [...spendTags];
 
@@ -729,6 +758,7 @@ export async function scoreCandidates(
         continue;
       }
       if (term.kind === "cap") {
+        if (checked.has(`cap:${term.id}`)) continue;
         if (assumptions.month_to_date_rebate_hkd === undefined) {
           unknown.push(`cap_remaining:${term.id}`);
           continue;
@@ -739,6 +769,7 @@ export async function scoreCandidates(
         continue;
       }
       if (term.kind === "exclusion") {
+        if (checked.has(`exclusion:${term.id}`)) continue;
         if (term.exclusion_key && !checked.has(term.exclusion_key)) {
           unknown.push(term.exclusion_key);
         }
@@ -831,7 +862,7 @@ export async function scoreCandidates(
   return {
     ok: true as const,
     provenance: provenanceFor(candidates),
-    seed_as_of: await seedDate(db),
+    seed_as_of: seed,
     amount_hkd: amountHkd,
     currency,
     fx_rate: fxRate,
@@ -865,6 +896,7 @@ export async function reportIssue(
     ] as const
   ).filter(([, id]) => id !== undefined);
 
+  const seed = await seedDate(db);
   if (
     targets.length !== 1 ||
     input.field === undefined ||
@@ -873,6 +905,7 @@ export async function reportIssue(
     return fail(
       "invalid_report",
       "supply exactly one of card_id, rate_id, term_id, plus field and claimed_value",
+      seed,
     );
   }
   const [targetKind, targetId, table] = targets[0];
@@ -883,7 +916,7 @@ export async function reportIssue(
     note: input.note,
     evidence_url: input.evidence_url,
   });
-  if (bounds) return fail("invalid_report", bounds);
+  if (bounds) return fail("invalid_report", bounds, seed);
 
   // Intake cap: unauthenticated writes to quarantine are rate-limited by
   // volume, not caller. Old rows age out of the window, so triage drains it.
@@ -892,14 +925,14 @@ export async function reportIssue(
     .bind(new Date(Date.now() - 86_400_000).toISOString())
     .first<{ n: number }>();
   if ((recent?.n ?? 0) >= REPORT_DAILY_CAP) {
-    return fail("invalid_report", "report queue is full — try again later");
+    return fail("invalid_report", "report queue is full — try again later", seed);
   }
 
   const exists = await db
     .prepare(`SELECT id FROM ${table} WHERE id = ?`)
     .bind(targetId)
     .first();
-  if (!exists) return fail("not_found", `${targetKind}:${targetId}`);
+  if (!exists) return fail("not_found", `${targetKind}:${targetId}`, seed);
 
   const reportId = `rpt_${crypto.randomUUID()}`;
   await db
@@ -922,7 +955,7 @@ export async function reportIssue(
   return {
     ok: true as const,
     provenance: PROVENANCE,
-    seed_as_of: await seedDate(db),
+    seed_as_of: seed,
     report_id: reportId,
   };
 }
