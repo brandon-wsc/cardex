@@ -2,14 +2,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
 import { proposeChange } from "./maintain.js";
-import { registerReadTools, strictInput } from "./server.js";
-
-function payload(value: object) {
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
-    structuredContent: value as Record<string, unknown>,
-  };
-}
+import { payload, registerReadTools, strictInput } from "./server.js";
 
 const patch = strictInput({
   op: z.enum(["insert", "update", "delete"]),
