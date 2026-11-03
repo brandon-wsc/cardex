@@ -107,7 +107,7 @@ export function registerReadTools(server: McpServer, db: D1Database): void {
   server.registerTool(
     "score_candidates",
     {
-      description: `Calculate rebate for a spend under explicit assumptions. Lists exclusions it could not check. Tag ids that do not resolve are echoed as unknown_tag_ids. Spend is amount_hkd, or amount + currency + assumptions.hkd_per_foreign_unit for non-HKD billing. Does not pick a winner. ${SEED_NOTE}`,
+      description: `Calculate rebate for a spend under explicit assumptions. Lists exclusions it could not check. Tag ids that do not resolve are echoed as unknown_tag_ids. A merchant that maps to no tag fails unmapped_merchant with the valid tag list — it is never guessed. Spend is amount_hkd, or amount + currency + assumptions.hkd_per_foreign_unit for non-HKD billing. Does not pick a winner. ${SEED_NOTE}`,
       inputSchema: strictInput({
         amount_hkd: z.number().optional(),
         amount: z.number().optional(),
