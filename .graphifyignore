@@ -1,0 +1,18 @@
+# graphify-only exclusions — these files stay tracked in git, but their
+# key-level extraction adds noise: YAML/JSON keys (steps, with,
+# compilerOptions, dependencies) become junk nodes and communities.
+
+# CI workflow YAML — `steps`/`with`/`env`/secret names as nodes
+.github/workflows/
+
+# Manifests and TS/build config — dependency + compilerOptions key nodes
+**/package.json
+**/tsconfig*.json
+pnpm-workspace.yaml
+.jscpd.json
+wrangler.jsonc
+
+# Generated artifacts and data snapshots — not navigable source
+docs/dup-baseline/
+packages/site/src/data/demo-score.json
+designs/**/_d_meta.json
