@@ -14,14 +14,13 @@ name: Graphify
 # reach the published site (an LLM-generated community label is text that
 # lands inside graph.html on our Pages domain).
 #
-# Required repo secrets (same as deploy.yml):
-#   CLOUDFLARE_API_TOKEN   - needs Account -> Cloudflare Pages -> Edit
-#   CLOUDFLARE_ACCOUNT_ID  - account holding the cardex-graph Pages project
+# Required repo secrets (same as deploy.yml — no extra scope needed):
+#   CLOUDFLARE_API_TOKEN   - Account -> Workers Scripts -> Edit
+#   CLOUDFLARE_ACCOUNT_ID
 #
-# The cardex-graph Pages project is created by the ensure-project step on
-# first run — `pages deploy` does NOT auto-create in non-interactive mode
-# (workers-sdk #2405). Deploys pass --branch=main so dev content lands on
-# production at https://cardex-graph.pages.dev rather than a preview alias.
+# Deploys to the cardex-graph static-assets Worker (graphify.wrangler.jsonc)
+# — a deliberately separate Worker + URL from the product. `wrangler
+# deploy` creates it on first run; serves at cardex-graph.workers.dev.
 
 on:
   push:
@@ -53,18 +52,14 @@ jobs:
         run: graphify update .
       - name: Add index redirect to graph.html
         run: printf '<!doctype html><meta http-equiv="refresh" content="0; url=graph.html">' > graphify-out/index.html
-      - name: Ensure cardex-graph Pages project exists
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if ! npx --yes wrangler@4.152.0 pages project list | grep -q cardex-graph; then
-            npx --yes wrangler@4.152.0 pages project create cardex-graph --production-branch=main
-          fi
-      - name: Deploy to Cloudflare Pages
+      - name: Deploy cardex-graph worker
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: "4.152.0"
-          command: pages deploy graphify-out --project-name=cardex-graph --branch=main
+          # This job installs no node/pnpm toolchain — npm keeps the action
+          # from shelling out to pnpm (the repo's packageManager) to install
+          # wrangler.
+          packageManager: npm
+          command: deploy --config graphify.wrangler.jsonc
