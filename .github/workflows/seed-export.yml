@@ -1,6 +1,6 @@
 name: Seed export
 
-# Rebuild seed/seed.sql from prod D1 every night and park the diff on a PR —
+# Rebuild seed/seed.sql from prod D1 monthly and park the diff on a PR —
 # doubles as an off-site facts backup (git history) beyond D1's 30-day
 # Time Travel window. `main` is the deploy/stable line, so the export
 # branches off `dev` and the PR targets `dev` for human review before
@@ -16,8 +16,8 @@ name: Seed export
 
 on:
   schedule:
-    # 02:37 HKT daily — off the top of the hour on purpose.
-    - cron: "37 18 * * *"
+    # 02:37 HKT on the 1st — off the top of the hour on purpose.
+    - cron: "37 18 1 * *"
   workflow_dispatch: {}
 
 concurrency:
@@ -74,7 +74,7 @@ jobs:
               --body "$(cat <<'EOF'
           ## Summary
 
-          Nightly `scripts/export-seed.sh` run: facts tables re-dumped from
+          Monthly `scripts/export-seed.sh` run: facts tables re-dumped from
           prod D1. Diff lines in `seed/seed.sql` are the audit trail of what
           changed since the last merge.
 
