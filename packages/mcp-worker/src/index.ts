@@ -29,6 +29,7 @@ declare global {
     MAINTAINER_TOKEN: string;
     ADMIN_EMAIL: string;
     DEV_ADMIN_EMAIL: string;
+    ALLOW_DEV_IDENTITY: string;
     ADMIN_PIN: string;
     ACCESS_TEAM: string;
     ACCESS_AUD: string;
@@ -80,11 +81,22 @@ function adminApiRequestGuard(
 
 // The real boundary is the Cloudflare Access app in front of /admin (email
 // OTP, owner only). When ACCESS_TEAM + ACCESS_AUD are configured the signed
-// Cf-Access-Jwt-Assertion is verified and is the only identity source —
-// the header path (and DEV_ADMIN_EMAIL) is off. Otherwise this falls back
-// to the verified identity header as a second layer and enforces the owner
-// address. DEV_ADMIN_EMAIL exists so local `wrangler dev` can exercise the
-// portal without Access; it stays unset in production.
+// Cf-Access-Jwt-Assertion is verified and is the only identity source.
+//
+// Without those secrets the header/DEV_ADMIN_EMAIL fallback must not mint
+// an identity on a routable hostname: Cf-Access-Authenticated-User-Email is
+// only trustworthy when Access injected it, and the Worker cannot tell a
+// request that bypassed the app. The fallback therefore fires only on
+// loopback hostnames (local `wrangler dev`) or behind ALLOW_DEV_IDENTITY,
+// an explicit opt-in for non-local dev setups — never in production.
+const DEV_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+function devIdentityAllowed(request: Request, env: Env): boolean {
+  if (env.ALLOW_DEV_IDENTITY === "true") return true;
+  const host = new URL(request.url).hostname;
+  return DEV_HOSTS.has(host) || host.endsWith(".localhost");
+}
+
 async function adminIdentity(
   request: Request,
   env: Env,
@@ -92,9 +104,11 @@ async function adminIdentity(
   const email =
     env.ACCESS_TEAM && env.ACCESS_AUD
       ? await accessIdentity(request, env)
-      : (request.headers.get("Cf-Access-Authenticated-User-Email") ??
-        env.DEV_ADMIN_EMAIL ??
-        null);
+      : devIdentityAllowed(request, env)
+        ? (request.headers.get("Cf-Access-Authenticated-User-Email") ??
+          env.DEV_ADMIN_EMAIL ??
+          null)
+        : null;
   if (!email) return null;
   if (env.ADMIN_EMAIL && email !== env.ADMIN_EMAIL) return null;
   return email;

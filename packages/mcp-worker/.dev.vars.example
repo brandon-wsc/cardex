@@ -22,3 +22,10 @@ DEV_ADMIN_EMAIL=owner@example.com
 # (including DEV_ADMIN_EMAIL) is disabled.
 # ACCESS_TEAM=your-team.cloudflareaccess.com
 # ACCESS_AUD=64hexaudtag
+
+# The header/DEV_ADMIN_EMAIL fallback already fires on localhost requests
+# (wrangler dev). Escape hatch for non-localhost dev setups (e.g. LAN or a
+# remote dev URL): set to "true" so the fallback applies off-loopback too.
+# Never set in production — routable admin identity must come from a
+# verified Access JWT.
+# ALLOW_DEV_IDENTITY=true
