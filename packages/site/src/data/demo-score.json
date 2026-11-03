@@ -1,16 +1,18 @@
 {
   "ok": true,
   "provenance": {
-    "kind": "synthetic-seed",
-    "illustrative": true,
-    "note": "Invented numbers for tool shape. Not current issuer terms. Confirm with the issuer."
+    "kind": "cited-seed",
+    "illustrative": false,
+    "note": "All returned records carry a real source_url and last_verified_at."
   },
   "seed_as_of": "2026-11-01",
   "amount_hkd": 280,
+  "currency": "HKD",
+  "fx_rate": null,
   "tag_ids": [
     "dining"
   ],
-  "as_of": "2026-11-01",
+  "as_of": "2026-11-03",
   "merchant_checked": "譚仔",
   "limit": 5,
   "limit_requested": null,
@@ -20,21 +22,27 @@
     {
       "rate_id": "rate_aeon_dining",
       "card_id": "card_aeon",
-      "card_name": "AEON Card WAKUWAKU",
+      "card_name": "AEON CARD WAKUWAKU",
       "kind": "rebate_percent",
       "value": 1,
       "unit": "percent",
       "calculated_rebate_hkd": 2.8,
       "unknown_exclusions": [
-        "cap_remaining:term_aeon_bonus_cap"
+        "cap_remaining:term_aeon_online_cap"
       ],
       "failed_terms": [],
+      "effective_from": "2026-09-01",
+      "effective_to": "2027-02-28",
       "exclusive_group": null,
       "priority": null,
+      "source_url": "https://www.aeon.com.hk/en/pdf/credit-card/AEONCARDWAKUWAKU_RBBD_EN.pdf",
+      "last_verified_at": "2026-11-01",
+      "illustrative": false,
       "assumptions_used": {
         "month_to_date_rebate_hkd": null,
         "month_to_date_spend_hkd": null,
         "hkd_per_point": null,
+        "hkd_per_foreign_unit": null,
         "checked_exclusions": []
       }
     },
@@ -51,12 +59,18 @@
         "octopus_topup"
       ],
       "failed_terms": [],
-      "exclusive_group": null,
-      "priority": null,
+      "effective_from": "2026-07-01",
+      "effective_to": "2026-12-31",
+      "exclusive_group": "hsbc_red",
+      "priority": 1,
+      "source_url": "https://www.hsbc.com.hk/credit-cards/products/red/",
+      "last_verified_at": "2026-11-03",
+      "illustrative": false,
       "assumptions_used": {
         "month_to_date_rebate_hkd": null,
         "month_to_date_spend_hkd": null,
         "hkd_per_point": null,
+        "hkd_per_foreign_unit": null,
         "checked_exclusions": []
       }
     }
