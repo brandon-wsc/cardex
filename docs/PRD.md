@@ -95,7 +95,7 @@ Tool inputs are strict objects: an unrecognized key (`tag` instead of `tag_id`, 
 | `score_candidates` | `amount_hkd`, `tag_ids?`, `card_ids?`, `alias?`, `merchant?`, `assumptions?`, `as_of?`, `limit?` | One row per matching rate. See §5 |
 | `report_issue` | exactly one of `card_id` / `rate_id` / `term_id`, `field`, `claimed_value`, `evidence_url?`, `note?` | `{ ok: true, report_id }`. Writes only to the reports table. There is no public read-back tool |
 
-Failures are `{ ok: false, error, detail? }` plus the same provenance. They are not a thrown stack.
+Failures are `{ ok: false, error, detail? }` plus the same provenance. They are not a thrown stack. A failure payload also sets the MCP `isError` flag, so a caller that only checks the protocol layer still sees the call failed. Partial successes — `ok: true` payloads carrying flags such as `unknown_tag_id`/`unknown_tag_ids` or `unmatched_checked_exclusions`, or an empty page — do **not** set `isError`: the tool answered, and the flag is part of the answer.
 
 `report_issue` asks for evidence (`evidence_url`) and its description tells callers not to include personal data. It is a suggestion box that feeds the maintenance loop — never a write path to facts ([ADR 0001](adr/0001-product-shape.md)).
 

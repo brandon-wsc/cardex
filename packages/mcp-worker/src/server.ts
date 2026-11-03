@@ -28,10 +28,16 @@ export function strictInput<S extends z.ZodRawShape>(shape: S) {
   });
 }
 
-function payload(value: object) {
+// A domain failure (ok:false) is an execution failure, so it also sets the
+// MCP isError flag — the structured payload still carries the error detail.
+// Partial successes (ok:true with unknown_tag_id(s) or unmatched keys) are
+// not flagged: the tool answered, and the flags are part of the answer.
+export function payload(value: object) {
+  const failed = "ok" in value && value.ok === false;
   return {
     content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
     structuredContent: value as Record<string, unknown>,
+    ...(failed ? { isError: true as const } : {}),
   };
 }
 
