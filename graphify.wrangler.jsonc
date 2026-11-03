@@ -1,0 +1,12 @@
+// Static-assets-only Worker serving the published knowledge graph.
+// Deliberately a separate Worker + URL from the product worker
+// (packages/mcp-worker): the graph is a dev tool published on every dev
+// push, while the product deploys on main — different lifecycles, and
+// the product's /mcp, /maintainer, /admin surfaces shouldn't carry the
+// dev tool's security considerations.
+// `wrangler deploy` creates the worker if missing — no provisioning step.
+{
+  "name": "cardex-graph",
+  "compatibility_date": "2025-01-01",
+  "assets": { "directory": "./graphify-out" },
+}
