@@ -1219,6 +1219,52 @@ describe("effective windows — PRD §3.3", () => {
       expect(card.rates.map((r) => r.rate_id)).toContain("rate_expired_promo");
     }
   });
+
+  it("exposes the window on every rate row so an expired row does not read as current", async () => {
+    await insertExpiredPromoRate();
+
+    // The unfiltered get_card audit path lists the expired promo — the
+    // dates are what let the caller see it is expired, not current.
+    const card = await getCard(tenv.DB, "card_aeon");
+    expect(card.ok).toBe(true);
+    if (!card.ok) return;
+    const promo = card.rates.find((r) => r.rate_id === "rate_expired_promo");
+    expect(promo?.effective_from).toBe("2026-01-01");
+    expect(promo?.effective_to).toBe("2026-02-01");
+    // An open-ended rate reports null on both ends.
+    const standing = card.rates.find((r) => r.rate_id === "rate_aeon_dining");
+    expect(standing?.effective_from).toBeNull();
+    expect(standing?.effective_to).toBeNull();
+
+    const lookup = await lookupRates(tenv.DB, {
+      tag_id: "dining",
+      as_of: "2026-01-15",
+      limit: 100,
+    });
+    expect(lookup.ok).toBe(true);
+    if (!lookup.ok) return;
+    const inWindow = lookup.records.find(
+      (r) => r.rate_id === "rate_expired_promo",
+    );
+    expect(inWindow?.effective_from).toBe("2026-01-01");
+    expect(inWindow?.effective_to).toBe("2026-02-01");
+  });
+
+  it("echoes the rate window on score_candidates rows", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    for (const row of res.candidates) {
+      expect(row).toHaveProperty("effective_from");
+      expect(row).toHaveProperty("effective_to");
+    }
+    const open = res.candidates.find((c) => c.rate_id === "rate_hsbc_dining");
+    expect(open?.effective_from).toBeNull();
+    expect(open?.effective_to).toBeNull();
+  });
 });
 
 // PRD §5: a points rate is valued per its unit — points_per_hkd multiplies,
