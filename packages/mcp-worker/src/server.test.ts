@@ -41,6 +41,29 @@ function errorText(res: unknown): string {
     .join("");
 }
 
+describe("public tool surface", () => {
+  it("exposes only the seven PRD tools — no report reads or proposals", async () => {
+    const { client, server } = await connect();
+    try {
+      const { tools } = await client.listTools();
+      expect(tools.map((t) => t.name).sort()).toEqual(
+        [
+          "get_card",
+          "get_term",
+          "list_tags",
+          "lookup_rates",
+          "report_issue",
+          "resolve_alias",
+          "score_candidates",
+        ].sort(),
+      );
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+});
+
 describe("strict tool input", () => {
   it("errors on a mistyped lookup_rates key instead of dumping the catalog", async () => {
     const { client, server } = await connect();
