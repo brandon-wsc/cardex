@@ -223,7 +223,7 @@ Dependencies are pinned. `.npmrc` refuses a release younger than 7 days.
 |---|---|
 | **P0** (done) | D1 schema + synthetic seed, the six tools, provenance on every payload, `limit` cap, `wrangler dev` + `pnpm demo` |
 | **P1** | Contract deltas — `card_ids`, `as_of`, `limit` → 100, rate `unit`, `last_verified_at`, `seed_as_of`, `reports` table + `report_issue`, expanded term kinds (post-audit); vitest + CI test job |
-| **P2** | Cited seed (popular-cards-first), real `database_id` + workers.dev route, playbook content in `skills/cardex`, `skills/cardex-maintainer` + the live maintenance loop — `/maintainer` endpoint, `proposals` table, `/admin` portal, nightly seed export ([ADR 0002](adr/0002-maintenance-surface.md)) |
+| **P2** | Cited seed (popular-cards-first), real `database_id` + workers.dev route, playbook content in `skills/cardex`, `skills/cardex-maintainer` + the live maintenance loop — `/maintainer` endpoint, `proposals` table, `/admin` portal, scheduled seed export ([ADR 0002](adr/0002-maintenance-surface.md)) |
 | **P3** | Rate limiting if abuse shows up, pasteable packaging for non-MCP clients, freshness cadence tuning |
 
 ## 11. Out of Scope
