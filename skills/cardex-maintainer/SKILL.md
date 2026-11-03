@@ -17,7 +17,7 @@ You keep Cardex facts fresh: verify against issuer sources and draft proposals. 
 {
   "mcpServers": {
     "cardex-maintainer": {
-      "url": "https://cardex.<account>.workers.dev/maintainer",
+      "url": "https://cardex.brandonhk.com/maintainer",
       "headers": { "Authorization": "Bearer <token>" }
     }
   }

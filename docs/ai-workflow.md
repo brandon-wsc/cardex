@@ -28,12 +28,14 @@ Facts move on a separate track from code: `report_issue` files a wrong-or-stale 
 
 ## Time
 
-**≈26 hours wall clock across two calendar days** — commit-derived, not a marketing number:
+**≈30 hours wall clock across two calendar days** — commit-derived, not a marketing number. The window is frozen at the `v0.4.0` release; it measures the MVP build this file describes:
 
 - Repo created / first recorded activity: **~2026-10-31 12:09 UTC**
-- Last merge on `main`: **2026-11-01 14:40 UTC** (PR #19)
+- Measurement end: **2026-11-01 17:45 UTC** — the `v0.4.0` release tag is the MVP line
 
-Caveat for anyone replicating the measurement: the prototype landed as a squash merge (PR #3 is the tree root), so day-one commits are not individually visible in `git log`. The honest span is repo-created → last merge. ~19 PRs and ~56 commits shipped inside that window.
+Caveat for anyone replicating the measurement: the prototype landed as a squash merge (PR #3 is the tree root), so day-one commits are not individually visible in `git log`. The honest span is repo-created → `v0.4.0`. 19 PRs and 98 commits shipped inside that window.
+
+Everything merged after `v0.4.0` — `score_candidates`, the maintenance-surface hardening, the tooling below — is post-MVP iteration on the same loop, not part of the number. Stretching the window to "however long the repo has been alive" would turn a checkable figure into a vibes claim.
 
 ## How it was checked
 
@@ -53,3 +55,13 @@ Caveat for anyone replicating the measurement: the prototype landed as a squash 
 - Conventional Commits / Branches enforced in CI, so the agent-generated history is greppable.
 
 The result is a repo where "built by AI in two days" is verifiable: read the ADRs for the decisions, `git log` for the pace, and this file for who (or what) did which part.
+
+## Since the brief — 2026-11 tooling
+
+Two wirings landed after the build above. Both are agent-facing infrastructure, not product surface; the retrospective above stays as it was.
+
+**Knowledge graph (graphify).** Every push to `dev` rebuilds an AST-only code graph and deploys it to a separate static-assets Worker ([`.github/workflows/graphify.yml`](../.github/workflows/graphify.yml) → [`graphify.wrangler.jsonc`](../graphify.wrangler.jsonc)); a daily job layers LLM semantic enrichment on top ([`graphify-semantic.yml`](../.github/workflows/graphify-semantic.yml) — the only workflow holding an LLM key). Trunk-only on purpose: PR content never reaches the published graph. Agents fetch `GRAPH_REPORT.md` / `graph.json` from `cardex-graph.unhinted.workers.dev` for architecture and impact questions instead of re-deriving the codebase locally — [`.agents/skills/graphify`](../.agents/skills/graphify/SKILL.md) is the pointer. The graph is a derived view; AGENTS.md, the PRD, and ADRs stay authoritative on disagreement.
+
+**Tickets (Linear).** Test-agent findings used to land as hand-edited notes — the bottleneck moved from writing code to writing down what the code should do. Now Hermes/Instinct and Grok Bot file Linear tickets over MCP themselves, and the owner triages the queue: decides what becomes work and what gets dropped. Nothing Linear lives in this repo — the wiring is MCP config on the agents' side, so there is no in-tree artifact to audit.
+
+When a ticket drives a change, its key goes in the branch slug — `fix/car-123-unmapped-merchant`. That already passes the `conventions` CI regex (digits are legal in slugs), while PR titles can't carry the uppercase key — so the branch is the canonical ticket↔code link and no CI change was needed. Unticketed work keeps a plain `type/slug`.

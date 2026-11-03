@@ -240,6 +240,30 @@ describe("score_candidates", () => {
     expect(badAlias.ok).toBe(false);
   });
 
+  it("clarifies an unmapped merchant instead of generic missing_spend", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 4700,
+      merchant: "GoogaVision",
+    });
+    // The merchant is echoed and the caller gets the real tag vocabulary —
+    // Cardex never guesses the spend's category for it.
+    expect(res).toMatchObject({
+      ok: false,
+      error: "unmapped_merchant",
+      merchant: "GoogaVision",
+      valid_tag_ids: expect.arrayContaining(["online", "dining"]),
+    });
+  });
+
+  it("keeps missing_spend when the call has no merchant either", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 4700,
+      card_ids: ["card_aeon"],
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toBe("missing_spend");
+  });
+
   it("calculates rebate as amount × value / 100", async () => {
     const res = await scoreCandidates(tenv.DB, {
       amount_hkd: 800,
@@ -1135,5 +1159,560 @@ describe("score currency — ADR 0006", () => {
     expect(citi?.unknown_exclusions).toContain("fx_fee:term_citi_fx_fee");
     expect(res.currency).toBe("HKD");
     expect(res.fx_rate).toBeNull();
+  });
+});
+
+// PRD §3.3: effective windows filter the list and score tools; an explicit
+// get_card / get_term by id is an audit fetch and returns the record
+// regardless of its window.
+describe("effective windows — PRD §3.3", () => {
+  async function insertExpiredPromoRate() {
+    await tenv.DB.prepare(
+      "INSERT INTO rates (id, card_id, kind, value, unit, source_url, " +
+        "last_verified_at, effective_from, effective_to, exclusive_group, priority) " +
+        "VALUES ('rate_expired_promo', 'card_aeon', 'rebate_percent', 10, 'percent', " +
+        "'https://example.invalid/aeon-promo', '2026-10-01', " +
+        "'2026-01-01', '2026-02-01', NULL, NULL)",
+    ).run();
+    await tenv.DB.prepare(
+      "INSERT INTO rate_tags (rate_id, tag_id) " +
+        "VALUES ('rate_expired_promo', 'dining')",
+    ).run();
+  }
+
+  it("drops an out-of-window rate from lookup_rates and score_candidates", async () => {
+    await insertExpiredPromoRate();
+
+    const lookup = await lookupRates(tenv.DB, { tag_id: "dining", limit: 100 });
+    expect(lookup.ok).toBe(true);
+    if (lookup.ok) {
+      expect(lookup.records.map((r) => r.rate_id)).not.toContain(
+        "rate_expired_promo",
+      );
+    }
+
+    const score = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      tag_ids: ["dining"],
+    });
+    expect(score.ok).toBe(true);
+    if (score.ok) {
+      expect(score.candidates.map((c) => c.rate_id)).not.toContain(
+        "rate_expired_promo",
+      );
+    }
+  });
+
+  it("returns the expired rate when as_of lands inside its window", async () => {
+    await insertExpiredPromoRate();
+
+    const lookup = await lookupRates(tenv.DB, {
+      tag_id: "dining",
+      as_of: "2026-01-15",
+      limit: 100,
+    });
+    expect(lookup.ok).toBe(true);
+    if (lookup.ok) {
+      expect(lookup.records.map((r) => r.rate_id)).toContain(
+        "rate_expired_promo",
+      );
+    }
+
+    const score = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      tag_ids: ["dining"],
+      as_of: "2026-01-15",
+    });
+    expect(score.ok).toBe(true);
+    if (!score.ok) return;
+    const promo = score.candidates.find(
+      (c) => c.rate_id === "rate_expired_promo",
+    );
+    expect(promo?.calculated_rebate_hkd).toBe(100);
+  });
+
+  it("returns an out-of-window record through the by-id fetch tools", async () => {
+    const term = await getTerm(tenv.DB, "term_citi_expired_cap");
+    expect(term.ok).toBe(true);
+    if (term.ok) expect(term.term.effective_to).toBe("2026-03-31");
+
+    await insertExpiredPromoRate();
+    const card = await getCard(tenv.DB, "card_aeon");
+    expect(card.ok).toBe(true);
+    if (card.ok) {
+      expect(card.rates.map((r) => r.rate_id)).toContain("rate_expired_promo");
+    }
+  });
+
+  it("exposes the window on every rate row so an expired row does not read as current", async () => {
+    await insertExpiredPromoRate();
+
+    // The unfiltered get_card audit path lists the expired promo — the
+    // dates are what let the caller see it is expired, not current.
+    const card = await getCard(tenv.DB, "card_aeon");
+    expect(card.ok).toBe(true);
+    if (!card.ok) return;
+    const promo = card.rates.find((r) => r.rate_id === "rate_expired_promo");
+    expect(promo?.effective_from).toBe("2026-01-01");
+    expect(promo?.effective_to).toBe("2026-02-01");
+    // An open-ended rate reports null on both ends.
+    const standing = card.rates.find((r) => r.rate_id === "rate_aeon_dining");
+    expect(standing?.effective_from).toBeNull();
+    expect(standing?.effective_to).toBeNull();
+
+    const lookup = await lookupRates(tenv.DB, {
+      tag_id: "dining",
+      as_of: "2026-01-15",
+      limit: 100,
+    });
+    expect(lookup.ok).toBe(true);
+    if (!lookup.ok) return;
+    const inWindow = lookup.records.find(
+      (r) => r.rate_id === "rate_expired_promo",
+    );
+    expect(inWindow?.effective_from).toBe("2026-01-01");
+    expect(inWindow?.effective_to).toBe("2026-02-01");
+  });
+
+  it("echoes the rate window on score_candidates rows", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    for (const row of res.candidates) {
+      expect(row).toHaveProperty("effective_from");
+      expect(row).toHaveProperty("effective_to");
+    }
+    const open = res.candidates.find((c) => c.rate_id === "rate_hsbc_dining");
+    expect(open?.effective_from).toBeNull();
+    expect(open?.effective_to).toBeNull();
+  });
+});
+
+// PRD §5: a points rate is valued per its unit — points_per_hkd multiplies,
+// hkd_per_mile divides. A unit the tool does not know is an honest flag,
+// never a guessed number.
+describe("points units — PRD §5", () => {
+  it("values an hkd_per_mile rate as amount ÷ value × hkd_per_point", async () => {
+    await tenv.DB.prepare(
+      "INSERT INTO rates (id, card_id, kind, value, unit, source_url, " +
+        "last_verified_at, effective_from, effective_to, exclusive_group, priority) " +
+        "VALUES ('rate_miles', 'card_aeon', 'points', 15, 'hkd_per_mile', " +
+        "'https://example.invalid/miles', '2026-10-01', NULL, NULL, NULL, NULL)",
+    ).run();
+    await tenv.DB.prepare(
+      "INSERT INTO rate_tags (rate_id, tag_id) VALUES ('rate_miles', 'dining')",
+    ).run();
+
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1500,
+      tag_ids: ["dining"],
+      assumptions: { hkd_per_point: 0.1 },
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const row = res.candidates.find((c) => c.rate_id === "rate_miles");
+    // 1500 HKD ÷ 15 per mile = 100 miles × HK$0.10 = 10.
+    expect(row?.calculated_rebate_hkd).toBe(10);
+    expect(row?.unknown_exclusions).not.toContain("points_value");
+  });
+
+  it("flags an unrecognized points unit instead of computing a guess", async () => {
+    await tenv.DB.prepare(
+      "INSERT INTO rates (id, card_id, kind, value, unit, source_url, " +
+        "last_verified_at, effective_from, effective_to, exclusive_group, priority) " +
+        "VALUES ('rate_odd_unit', 'card_aeon', 'points', 2, 'miles_per_hkd', " +
+        "'https://example.invalid/odd', '2026-10-01', NULL, NULL, NULL, NULL)",
+    ).run();
+    await tenv.DB.prepare(
+      "INSERT INTO rate_tags (rate_id, tag_id) " +
+        "VALUES ('rate_odd_unit', 'dining')",
+    ).run();
+
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1500,
+      tag_ids: ["dining"],
+      assumptions: { hkd_per_point: 0.1 },
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const row = res.candidates.find((c) => c.rate_id === "rate_odd_unit");
+    expect(row?.calculated_rebate_hkd).toBeNull();
+    expect(row?.unknown_exclusions).toContain("points_unit:miles_per_hkd");
+  });
+});
+
+// PRD §5: checked_exclusions clears any term by <kind>:<term id> — the
+// caller asserting "this does not apply" beats the settle-me flag even for
+// kinds the tool can check itself.
+describe("checked_exclusions — PRD §5", () => {
+  it("clears cap and exclusion terms by <kind>:<term id>", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+      assumptions: {
+        checked_exclusions: [
+          "cap:term_hsbc_dining_cap",
+          "exclusion:term_hsbc_octopus",
+        ],
+      },
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const hsbc = res.candidates.find((c) => c.rate_id === "rate_hsbc_dining");
+    expect(hsbc?.unknown_exclusions).not.toContain(
+      "cap_remaining:term_hsbc_dining_cap",
+    );
+    expect(hsbc?.unknown_exclusions).not.toContain("octopus_topup");
+  });
+
+  it("clears a checkable min_spend the caller settled", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 100,
+      tag_ids: ["dining"],
+      assumptions: { checked_exclusions: ["min_spend:term_dbs_min_spend"] },
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const row = res.candidates.find((c) => c.rate_id === "rate_dbs_dining_high");
+    // Below the HK$300 per-transaction gate, but the caller settled it.
+    expect(row?.failed_terms).not.toContain(
+      "min_spend_unmet:term_dbs_min_spend",
+    );
+    expect(row?.calculated_rebate_hkd).toBe(5);
+  });
+
+  it("clears a merchant_list the caller settled without naming a merchant", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+      assumptions: {
+        checked_exclusions: ["merchant_list:term_hsbc_merchant_list"],
+      },
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const row = res.candidates.find((c) => c.rate_id === "rate_hsbc_dining");
+    expect(row?.unknown_exclusions).not.toContain(
+      "merchant_list:term_hsbc_merchant_list",
+    );
+  });
+
+  it("surfaces an anchored rolling-window min_spend until settled", async () => {
+    // term_dbs_welcome gates on issuance + 60 days — spend inputs cannot
+    // prove it, so it rides the cumulative path and stays unknown.
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const row = res.candidates.find((c) => c.rate_id === "rate_dbs_dining_base");
+    expect(row?.unknown_exclusions).toContain("min_spend:term_dbs_welcome");
+  });
+});
+
+// ADR 0009: every term a scored rate cites gets a visible status — passed,
+// applied, failed, unchecked, caller_settled, outside_window. Nothing a term
+// evaluates to may drop silently, and a checked_exclusions key that matched
+// nothing is flagged on the envelope.
+describe("candidate conditions — ADR 0009", () => {
+  function findCondition(
+    row: { conditions?: { term_id: string; kind: string; key: string; status: string }[] },
+    termId: string,
+  ) {
+    return row.conditions?.find((c) => c.term_id === termId);
+  }
+
+  it("lists every cited term with its settle key and status", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const hsbc = res.candidates.find((c) => c.rate_id === "rate_hsbc_dining");
+    expect(hsbc?.conditions?.map((c) => c.term_id)).toEqual([
+      "term_hsbc_dining_cap",
+      "term_hsbc_merchant_list",
+      "term_hsbc_octopus",
+    ]);
+    expect(findCondition(hsbc!, "term_hsbc_dining_cap")).toMatchObject({
+      kind: "cap",
+      key: "cap:term_hsbc_dining_cap",
+      status: "unchecked",
+    });
+    // Exclusion conditions key on the exclusion_key callers actually pass.
+    expect(findCondition(hsbc!, "term_hsbc_octopus")).toMatchObject({
+      kind: "exclusion",
+      key: "octopus_topup",
+      status: "unchecked",
+    });
+  });
+
+  it("marks verified gates passed", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+      merchant: "sushiro",
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const dbs = res.candidates.find((c) => c.rate_id === "rate_dbs_dining_high");
+    expect(findCondition(dbs!, "term_dbs_min_spend")?.status).toBe("passed");
+    const hsbc = res.candidates.find((c) => c.rate_id === "rate_hsbc_dining");
+    expect(findCondition(hsbc!, "term_hsbc_merchant_list")?.status).toBe(
+      "passed",
+    );
+  });
+
+  it("marks fx_fee passed on an explicit HKD currency", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "HKD",
+      tag_ids: ["overseas"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const citi = res.candidates.find((c) => c.rate_id === "rate_citi_overseas");
+    expect(findCondition(citi!, "term_citi_fx_fee")?.status).toBe("passed");
+  });
+
+  it("marks an applied cap applied, including clamp-to-zero", async () => {
+    for (const [mtd, expected] of [
+      [250, 50],
+      [400, 0],
+    ] as const) {
+      const res = await scoreCandidates(tenv.DB, {
+        amount_hkd: 800,
+        tag_ids: ["dining"],
+        assumptions: { month_to_date_rebate_hkd: mtd },
+      });
+      expect(res.ok).toBe(true);
+      if (!res.ok) return;
+      const hsbc = res.candidates.find((c) => c.rate_id === "rate_hsbc_dining");
+      expect(hsbc?.calculated_rebate_hkd).toBe(expected);
+      expect(findCondition(hsbc!, "term_hsbc_dining_cap")?.status).toBe(
+        "applied",
+      );
+    }
+  });
+
+  it("marks an unmet min_spend failed", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 100,
+      tag_ids: ["dining"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const dbs = res.candidates.find((c) => c.rate_id === "rate_dbs_dining_high");
+    expect(findCondition(dbs!, "term_dbs_min_spend")?.status).toBe("failed");
+    expect(dbs?.failed_terms).toContain("min_spend_unmet:term_dbs_min_spend");
+  });
+
+  it("marks caller-asserted terms caller_settled by either settle token", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+      assumptions: {
+        checked_exclusions: [
+          "cap:term_hsbc_dining_cap",
+          "exclusion:term_hsbc_octopus",
+        ],
+      },
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const hsbc = res.candidates.find((c) => c.rate_id === "rate_hsbc_dining");
+    expect(findCondition(hsbc!, "term_hsbc_dining_cap")?.status).toBe(
+      "caller_settled",
+    );
+    expect(findCondition(hsbc!, "term_hsbc_octopus")?.status).toBe(
+      "caller_settled",
+    );
+  });
+
+  it("marks an inactive term outside_window", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      tag_ids: ["overseas"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const citi = res.candidates.find((c) => c.rate_id === "rate_citi_overseas");
+    expect(findCondition(citi!, "term_citi_expired_cap")?.status).toBe(
+      "outside_window",
+    );
+    expect(citi?.unknown_exclusions).toContain(
+      "term_outside_window:term_citi_expired_cap",
+    );
+  });
+
+  it("flags checked_exclusions keys that matched nothing, omits the field when all consume", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+      assumptions: {
+        checked_exclusions: ["octopus_topup", "cap:term_typo"],
+      },
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(
+      (res as { unmatched_checked_exclusions?: string[] })
+        .unmatched_checked_exclusions,
+    ).toEqual(["cap:term_typo"]);
+
+    const clean = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+      assumptions: { checked_exclusions: ["octopus_topup"] },
+    });
+    expect(clean.ok).toBe(true);
+    if (clean.ok) expect(clean).not.toHaveProperty("unmatched_checked_exclusions");
+  });
+});
+
+describe("cap clamp — PRD §5", () => {
+  it("clamps to zero, never negative, when month-to-date exhausts the cap", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+      assumptions: { month_to_date_rebate_hkd: 400 },
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const hsbc = res.candidates.find((c) => c.rate_id === "rate_hsbc_dining");
+    // cap_hkd 300 − 400 already earned → max(0, …) = 0, not −100.
+    expect(hsbc?.calculated_rebate_hkd).toBe(0);
+  });
+});
+
+// PRD §4: the shared envelope rides every payload — a failure is
+// { ok: false, error, detail? } plus the same provenance and seed_as_of.
+describe("shared envelope — PRD §4", () => {
+  it("carries provenance and seed_as_of on failure payloads", async () => {
+    const filtered = await lookupRates(tenv.DB, {});
+    expect(filtered.ok).toBe(false);
+    if (filtered.ok) return;
+    expect(filtered.provenance.kind).toBe("synthetic-seed");
+    expect(filtered.seed_as_of).toBe("2026-11-01");
+
+    const missing = await getTerm(tenv.DB, "term_nope");
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) {
+      expect(missing.provenance.kind).toBe("synthetic-seed");
+      expect(missing.seed_as_of).toBe("2026-11-01");
+    }
+  });
+});
+
+// Contract gaps against §4–§6 that the earlier describes did not pin.
+describe("score plumbing — PRD §4–§6", () => {
+  it("rejects a malformed as_of with invalid_date", async () => {
+    const lookup = await lookupRates(tenv.DB, {
+      tag_id: "dining",
+      as_of: "yesterday",
+    });
+    expect(lookup.ok).toBe(false);
+    if (!lookup.ok) expect(lookup.error).toBe("invalid_date");
+
+    const score = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+      as_of: "2026/01/01",
+    });
+    expect(score.ok).toBe(false);
+    if (!score.ok) expect(score.error).toBe("invalid_date");
+  });
+
+  it("pages scored rows by limit and reports the pre-limit total", async () => {
+    const paged = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+      limit: 2,
+    });
+    expect(paged.ok).toBe(true);
+    if (!paged.ok) return;
+    expect(paged.candidates).toHaveLength(2);
+    expect(paged.total).toBe(4);
+
+    const clamped = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+      limit: 500,
+    });
+    expect(clamped.ok && clamped.limit).toBe(100);
+    expect(clamped.ok && clamped.clamped).toBe(true);
+    if (clamped.ok) expect(clamped.limit_requested).toBe(500);
+  });
+
+  it("rejects an alias that resolves only to cards as missing_spend", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      alias: "hsbc red",
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toBe("missing_spend");
+  });
+
+  it("treats amount with no currency as HKD units", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount: 800,
+      tag_ids: ["dining"],
+      card_ids: ["card_aeon"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.amount_hkd).toBe(800);
+    expect(res.currency).toBe("HKD");
+    expect(res.fx_rate).toBeNull();
+  });
+
+  it("names no winner — the payload orders rows, the caller ranks", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res).not.toHaveProperty("winner");
+    expect(res).not.toHaveProperty("best");
+    for (const row of res.candidates) {
+      expect(row).not.toHaveProperty("rank");
+      expect(row).not.toHaveProperty("winner");
+    }
+  });
+});
+
+// PRD §4: alias matching is normalized — trim, lowercase, collapsed
+// spaces — then exact, or either-contains when both sides are ≥2 chars.
+describe("resolve_alias normalization — PRD §4", () => {
+  it("matches after trim, case-fold, and space collapse", async () => {
+    const res = await resolveAlias(tenv.DB, { query: "  HSBC   Red  " });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.matches.map((m) => m.text)).toContain("hsbc red");
+  });
+
+  it("refuses a single-character contains match", async () => {
+    const res = await resolveAlias(tenv.DB, { query: "z" });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.matches).toEqual([]);
+  });
+});
+
+describe("report targets — PRD §4", () => {
+  it("accepts a term target as well as card and rate", async () => {
+    const res = await reportIssue(tenv.DB, {
+      term_id: "term_dbs_quota",
+      field: "quota_n",
+      claimed_value: "15000",
+    });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.report_id).toMatch(/^rpt_/);
   });
 });

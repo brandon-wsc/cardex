@@ -43,3 +43,7 @@ _Avoid_: Default, guess
 **Unknown exclusion**:
 A term the score could not check. The caller decides what to do with it.
 _Avoid_: Edge case, caveat
+
+**Exclusive group**:
+A named set of rates that cannot stack on one spend — at most one row in the group earns. The caller keeps the applicable row with the best `priority` (1 wins). A rate with no group stacks freely.
+_Avoid_: Tier, combo, category bucket

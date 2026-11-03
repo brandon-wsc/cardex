@@ -48,7 +48,7 @@ Tool behavior is specified in [`docs/PRD.md`](PRD.md) and implemented in `packag
 2. **v1 Worker + synthetic seed** — done. D1 schema, `seed/seed.sql`, remote MCP via `createMcpHandler`, `wrangler dev` + `pnpm demo`. Current phase.
 3. **Contract deltas + tests** — `card_ids`, `as_of`, `limit` → 100, rate `unit`, `last_verified_at`, `seed_as_of`, `reports` + `report_issue`, term-kind audit → expanded term kinds; vitest + CI job.
 4. **Cited seed + deploy** — popular-cards-first coverage (~15–20 most-held HK cards), real `source_url`s + `last_verified_at`, real `database_id`, workers.dev route.
-5. **Playbook + maintenance live** — publish `skills/cardex`, write `skills/cardex-maintainer`, stand up the maintenance surface: `/maintainer` endpoint, `proposals` table, `/admin` portal behind Access, nightly seed export ([ADR 0002](adr/0002-maintenance-surface.md)).
+5. **Playbook + maintenance live** — publish `skills/cardex`, write `skills/cardex-maintainer`, stand up the maintenance surface: `/maintainer` endpoint, `proposals` table, `/admin` portal behind Access, scheduled seed export ([ADR 0002](adr/0002-maintenance-surface.md)).
 
 ## Out of scope
 

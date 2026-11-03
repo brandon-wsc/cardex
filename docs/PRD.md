@@ -52,7 +52,7 @@ Language is in [`CONTEXT.md`](../CONTEXT.md). This section is the v1 data model;
 |---|---|---|
 | **Tag** | `id`, `label`, `kind` | Canonical spend class. `kind` is `channel` or `category`. Tags overlap |
 | **Card** | `id`, `name`, `issuer`, `network` | A product, not someone's plastic |
-| **Rate** | `id`, `card_id`, `kind`, `value`, `unit`, `tag_ids`, `term_ids`, `exclusive_group`, `priority` | `kind` is `rebate_percent` or `points`. `value` + `unit` preserve the published figure and its unit (e.g. `4` + `hkd_per_mile`, `2` + `points_per_hkd`) — never a normalized bare float. Rates sharing an `exclusive_group` cannot stack; the caller keeps the best `priority` per group |
+| **Rate** | `id`, `card_id`, `kind`, `value`, `unit`, `tag_ids`, `term_ids`, `exclusive_group`, `priority` | `kind` is `rebate_percent` or `points`. `value` + `unit` preserve the published figure and its unit (e.g. `4` + `hkd_per_mile`, `2` + `points_per_hkd`) — never a normalized bare float. Rates sharing an `exclusive_group` never stack on one spend — the caller keeps the single applicable row with the best `priority` (1 is highest precedence, modelling issuer precedence clauses such as MMPOWER's fixed tier order). Rows tied on `priority` still cannot stack; the caller chooses among them (highest `calculated_rebate_hkd` is the sane pick). `exclusive_group` NULL means the rate belongs to no set — it can stack with grouped and ungrouped rows alike. `priority` orders rows inside a group only and is NULL for ungrouped rates |
 | **Term** | `id`, `card_id`, `kind`, `text`, `source_url`, `last_verified_at`, `effective_from`, `effective_to`, kind fields | Kinds are audited against real issuer mechanics ([term-kind-audit.md](term-kind-audit.md)): `cap`, `exclusion`, `fx_fee`, `min_spend`, `registration_required`, `channel`, `mcc`, `quota`, `merchant_list`, `geo`, `targeted`, `eligibility`. Kind fields are sparse: `cap_hkd`, `threshold_hkd` (min_spend), `quota_n`, `register_by`, `post_within_days`, `anchor` + `anchor_days` (rolling windows), `period`, `exclusion_key`. `merchant_list` members live in `term_merchants` |
 | **Alias** | `text`, `tag_ids`, `card_ids`, `issuers`, `networks` | Free text → those refs. Tag/card mappings live in D1 (`alias_tags`, `alias_cards`); issuer/network mappings live in `src/aliases.ts` — both sets are near-closed, so one file keeps the whole map reviewable. Values are canonical strings matching `cards.issuer` / `cards.network`. Any side may be empty |
 | **Report** | `id`, `target_id`, `field`, `claimed_value`, `evidence_url`, `note`, `reported_at` | Quarantine table. Query tools never read it; only the maintenance loop does |
@@ -87,15 +87,15 @@ Tool inputs are strict objects: an unrecognized key (`tag` instead of `tag_id`, 
 
 | Tool | Input | Returns |
 |---|---|---|
-| `lookup_rates` | `tag_id?`, `card_ids?: string[]`, `issuer?`, `as_of?`, `limit?` — at least one of `tag_id` / `card_ids` / `issuer` is required | Matching rates, all filters AND. Each row: rate id, card id and name, issuer, kind, value, unit, tag ids, term ids, `source_url`, `last_verified_at`, `illustrative`. `total` is the pre-limit count. The payload echoes the applied filters as `filters: { tag_id, card_ids, issuer, issuer_canonical, as_of }`. `issuer` compares against the canonical `cards.issuer` string (normalized) or resolves through the issuer alias map via the same `aliasHits` rule as `resolve_alias` — exact, or either-contains when both sides are ≥2 characters — never catalog-wide substring; `issuer_canonical` lists the canonical issuer names the input resolved to. Unknown `tag_id` → empty page plus `unknown_tag_id` |
-| `get_card` | `id` | One card, its rate summaries, the term ids those rates cite. Unknown id → `not_found` |
+| `lookup_rates` | `tag_id?`, `card_ids?: string[]`, `issuer?`, `as_of?`, `limit?` — at least one of `tag_id` / `card_ids` / `issuer` is required | Matching rates, all filters AND. Each row: rate id, card id and name, issuer, kind, value, unit, tag ids, term ids, `effective_from`, `effective_to` (§3.3 — `null` is open-ended), `exclusive_group`, `priority`, `source_url`, `last_verified_at`, `illustrative`. `total` is the pre-limit count. The payload echoes the applied filters as `filters: { tag_id, card_ids, issuer, issuer_canonical, as_of }`. `issuer` compares against the canonical `cards.issuer` string (normalized) or resolves through the issuer alias map via the same `aliasHits` rule as `resolve_alias` — exact, or either-contains when both sides are ≥2 characters — never catalog-wide substring; `issuer_canonical` lists the canonical issuer names the input resolved to. Unknown `tag_id` → empty page plus `unknown_tag_id` |
+| `get_card` | `id` | One card, all its rate rows in the `lookup_rates` shape — including out-of-window rows, whose `effective_from`/`effective_to` dates are what mark them as expired (§3.3) — and the term ids those rates cite. Unknown id → `not_found` |
 | `get_term` | `id` | One term. Unknown id → `not_found` |
 | `list_tags` | `limit?` | Tag id + label |
 | `resolve_alias` | `query`, `limit?` | Each hit: the alias text, tag ids, card ids, issuers, networks. DB aliases and the code-side issuer/network maps are merged by alias text. No hit → `matches: []`. Match is normalized (trim, lowercase, collapsed spaces): exact, or either string contains the other when both are at least 2 characters |
 | `score_candidates` | `amount_hkd`, `tag_ids?`, `card_ids?`, `alias?`, `merchant?`, `assumptions?`, `as_of?`, `limit?` | One row per matching rate. See §5 |
 | `report_issue` | exactly one of `card_id` / `rate_id` / `term_id`, `field`, `claimed_value`, `evidence_url?`, `note?` | `{ ok: true, report_id }`. Writes only to the reports table. There is no public read-back tool |
 
-Failures are `{ ok: false, error, detail? }` plus the same provenance. They are not a thrown stack.
+Failures are `{ ok: false, error, detail? }` plus the same provenance. They are not a thrown stack. A failure payload also sets the MCP `isError` flag, so a caller that only checks the protocol layer still sees the call failed. Partial successes — `ok: true` payloads carrying flags such as `unknown_tag_id`/`unknown_tag_ids` or `unmatched_checked_exclusions`, or an empty page — do **not** set `isError`: the tool answered, and the flag is part of the answer.
 
 `report_issue` asks for evidence (`evidence_url`) and its description tells callers not to include personal data. It is a suggestion box that feeds the maintenance loop — never a write path to facts ([ADR 0001](adr/0001-product-shape.md)).
 
@@ -108,13 +108,13 @@ Inputs:
 - `amount_hkd` or `amount` — exactly one is required and must be > 0, else `invalid_amount`. `amount_hkd` is already in HKD; `amount` is denominated in `currency` ([ADR 0006](adr/0006-score-currency.md)).
 - `currency` — an ISO 4217 three-letter code, normalized to upper case. Absent means the caller asserted nothing about billing currency; the spend is still treated as HKD units. A value that is not three letters → `invalid_currency`. `assumptions.hkd_per_foreign_unit` — HKD per one unit of `currency`; required when `amount` is given with a non-HKD `currency`, else `missing_fx_rate`. The spend converts as `amount × rate`, rounded to cents, before any scoring. `amount_hkd` with a non-HKD `currency` means the caller converted the amount itself.
 - `card_ids?` — restricts scoring to those cards. This is the held-set path after the user confirms their wallet; Cardex never learns why the set was chosen. Alias hits contribute their `card_ids` to the same scope.
-- Tags come from `tag_ids` and from `alias` (via the same match as `resolve_alias`). No tags at all → `missing_spend`. Resolved tag ids that do not exist are echoed as `unknown_tag_ids` — the call still scores the tags that resolved, and an all-unknown list returns `ok` with empty `candidates`. Same ok-plus-flag contract as `lookup_rates`' `unknown_tag_id`.
+- Tags come from `tag_ids` and from `alias` (via the same match as `resolve_alias`). No tags at all → `missing_spend`, or `unmapped_merchant` when `merchant` was passed — that failure echoes the merchant and lists `valid_tag_ids`, so the caller can ask its user to classify the spend; Cardex never guesses the category from the merchant name. Resolved tag ids that do not exist are echoed as `unknown_tag_ids` — the call still scores the tags that resolved, and an all-unknown list returns `ok` with empty `candidates`. Same ok-plus-flag contract as `lookup_rates`' `unknown_tag_id`.
 - `as_of` — filters windowed terms. Default today.
 - `merchant?` — a merchant name to check `merchant_list` whitelists against. Members carry every known name form (en/zh), so the caller passes the name as the user said it. A hit clears the term; a miss keeps it unknown (a fuzzy match can prove membership, never non-membership). The payload echoes `merchant_checked`.
 - `assumptions.month_to_date_rebate_hkd` — rebate already earned this period, used only to apply a cap.
 - `assumptions.month_to_date_spend_hkd` — eligible spend already made this period, used only to check cumulative `min_spend` gates.
 - `assumptions.hkd_per_point` — how the caller values one unit (point or mile) of a `points` rate's `unit`.
-- `assumptions.checked_exclusions` — keys the caller asserts do **not** apply. Clears any term by `<kind>:<term id>` (and plain `exclusion_key` for exclusions).
+- `assumptions.checked_exclusions` — keys the caller asserts do **not** apply. Clears any term by `<kind>:<term id>` (and plain `exclusion_key` for exclusions). Keys that matched no scored term are echoed on the envelope as `unmatched_checked_exclusions`.
 
 For each matching rate:
 
@@ -140,9 +140,22 @@ For each matching rate:
 | Exclusion key **not** in `checked_exclusions` | Leave the number. List the key in `unknown_exclusions` |
 | Exclusion key **in** `checked_exclusions` | Treat it as cleared. Do not list it |
 
-Every row echoes `failed_terms` (deterministic failures — distinct from `unknown_exclusions`, which means "the caller must verify"), `exclusive_group`, `priority`, and the rate's `source_url`, `last_verified_at`, and `illustrative`. The payload echoes the effective `amount_hkd`, `currency`, and `fx_rate` (the `hkd_per_foreign_unit` used, or `null`). Rows are ordered by `card_id`, then `rate_id`. There is no `winner`, no rank, and no "best" field. The caller sorts if it wants to.
+Every row echoes `failed_terms` (deterministic failures — distinct from `unknown_exclusions`, which means "the caller must verify"), `exclusive_group`, `priority`, the rate's `effective_from`/`effective_to` window, and the rate's `source_url`, `last_verified_at`, and `illustrative`. The payload echoes the effective `amount_hkd`, `currency`, and `fx_rate` (the `hkd_per_foreign_unit` used, or `null`). Rows are ordered by `card_id`, then `rate_id`. There is no `winner`, no rank, and no "best" field. The caller sorts if it wants to.
 
-A cleared exclusion is the caller saying "this does not apply", not Cardex deciding the spend is eligible.
+Each row also carries `conditions` — one entry per term the rate cites, in `term_ids` order: `{ term_id, kind, key, status }`. `key` is the `checked_exclusions` token that settles the condition (`<kind>:<term id>`; for an `exclusion`, the `exclusion_key` — `exclusion:<term id>` also settles it). `status` is one of ([ADR 0009](adr/0009-candidate-conditions.md)):
+
+| Status | Meaning |
+|---|---|
+| `passed` | Verified satisfied — min_spend met, merchant_list hit, fx_fee cleared by explicit `HKD` |
+| `applied` | Evaluated and adjusted the number — a cap clamped `calculated_rebate_hkd` |
+| `failed` | Verified **not** satisfied — the row's `failed_terms` entry |
+| `unchecked` | The tool cannot verify it — the row's `unknown_exclusions` entry |
+| `caller_settled` | Cleared by a matching `checked_exclusions` assertion |
+| `outside_window` | Inactive at `as_of`; not applied |
+
+When `checked_exclusions` contains keys that matched no term on any scored rate, the envelope lists them as `unmatched_checked_exclusions` — a mistyped or stale key is surfaced, never silently ignored. The field is omitted when every asserted key was consumed.
+
+A cleared exclusion is the caller saying "this does not apply", not Cardex deciding the spend is eligible — `caller_settled` records an assertion, not a verification.
 
 ## 6. States
 
@@ -157,6 +170,7 @@ A cleared exclusion is the caller saying "this does not apply", not Cardex decid
 | Alias matches nothing | `ok: true`, `matches: []` |
 | `limit` above 100 | Clamped, `clamped: true` |
 | Score with no tag and no usable alias | `ok: false`, `error: "missing_spend"` |
+| Score with a `merchant` and no usable tags | `ok: false`, `error: "unmapped_merchant"` — echoes the merchant and lists `valid_tag_ids` |
 | Score with both or neither of `amount_hkd` / `amount`, or a non-positive amount | `ok: false`, `error: "invalid_amount"` |
 | Score `currency` that is not three letters | `ok: false`, `error: "invalid_currency"` |
 | Score non-HKD `amount` without `hkd_per_foreign_unit` | `ok: false`, `error: "missing_fx_rate"` |
@@ -209,7 +223,7 @@ Dependencies are pinned. `.npmrc` refuses a release younger than 7 days.
 |---|---|
 | **P0** (done) | D1 schema + synthetic seed, the six tools, provenance on every payload, `limit` cap, `wrangler dev` + `pnpm demo` |
 | **P1** | Contract deltas — `card_ids`, `as_of`, `limit` → 100, rate `unit`, `last_verified_at`, `seed_as_of`, `reports` table + `report_issue`, expanded term kinds (post-audit); vitest + CI test job |
-| **P2** | Cited seed (popular-cards-first), real `database_id` + workers.dev route, playbook content in `skills/cardex`, `skills/cardex-maintainer` + the live maintenance loop — `/maintainer` endpoint, `proposals` table, `/admin` portal, nightly seed export ([ADR 0002](adr/0002-maintenance-surface.md)) |
+| **P2** | Cited seed (popular-cards-first), real `database_id` + workers.dev route, playbook content in `skills/cardex`, `skills/cardex-maintainer` + the live maintenance loop — `/maintainer` endpoint, `proposals` table, `/admin` portal, scheduled seed export ([ADR 0002](adr/0002-maintenance-surface.md)) |
 | **P3** | Rate limiting if abuse shows up, pasteable packaging for non-MCP clients, freshness cadence tuning |
 
 ## 11. Out of Scope

@@ -1,0 +1,82 @@
+name: Graphify semantic
+
+# Weekly + on-demand semantic enrichment of the published graph. This is
+# the ONLY workflow that holds an LLM key — the daily graphify.yml path
+# stays key-free and free.
+#
+# Cost: extraction is incremental — the manifest gate plus the restored
+# graphify-out/cache mean unchanged files are never re-dispatched to the
+# LLM. A full first run on this repo was ~45k input / ~62k output tokens
+# (well under $1 on a Flash-class model); typical weekly runs cost cents.
+# `label --missing-only` only names communities the LLM hasn't named yet.
+#
+# Required repo secrets:
+#   Exactly ONE LLM backend key — graphify auto-detects whichever is set:
+#   GEMINI_API_KEY (cheapest) or ANTHROPIC_API_KEY / OPENAI_API_KEY / ...
+#   CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID - same as deploy.yml
+#
+# OpenRouter works too: set OPENAI_API_KEY to your sk-or-... key — the
+# OPENAI_BASE_URL/OPENAI_MODEL env below already point at OpenRouter.
+# Swap OPENAI_MODEL to taste (any OpenAI-compatible model slug).
+
+on:
+  schedule:
+    - cron: "17 4 * * 1" # Mondays 04:17 UTC
+  workflow_dispatch: {}
+
+concurrency:
+  group: graphify
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  semantic:
+    runs-on: ubuntu-latest
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      # OpenRouter (OpenAI-compatible): reached when only OPENAI_API_KEY
+      # is set. Not secrets — the base URL and model slug are fine in
+      # the clear and belong in review.
+      OPENAI_BASE_URL: https://openrouter.ai/api/v1
+      OPENAI_MODEL: deepseek/deepseek-v4.1-flash
+    steps:
+      # Scheduled runs default to the default branch (main); the published
+      # graph tracks dev, so enrich dev unless dispatch picked a ref.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'dev' || github.ref_name }}
+      - uses: astral-sh/setup-uv@v6
+      - name: Install graphify (pinned, >=7d old per .npmrc policy)
+        run: uv tool install "graphifyy[sql]==0.9.100"
+      - name: Restore previous graph + semantic cache
+        uses: actions/cache@v4
+        with:
+          path: graphify-out
+          key: graphify-${{ github.sha }}
+          restore-keys: graphify-
+      - name: Rebuild graph from code (AST only, no LLM)
+        run: graphify update .
+      # Skip the LLM steps rather than fail when no backend key is
+      # configured — the AST graph alone is still worth publishing.
+      - name: Semantic extraction (incremental)
+        if: env.GEMINI_API_KEY != '' || env.ANTHROPIC_API_KEY != '' || env.OPENAI_API_KEY != ''
+        run: graphify extract .
+      - name: Name new communities only
+        if: env.GEMINI_API_KEY != '' || env.ANTHROPIC_API_KEY != '' || env.OPENAI_API_KEY != ''
+        run: graphify label . --missing-only
+      - name: Add index redirect to graph.html
+        run: printf '<!doctype html><meta http-equiv="refresh" content="0; url=graph.html">' > graphify-out/index.html
+      - name: Deploy cardex-graph worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.152.0"
+          # npm, not pnpm: this job installs no toolchain, and the action
+          # would otherwise pick up the repo's packageManager field.
+          packageManager: npm
+          command: deploy --config graphify.wrangler.jsonc

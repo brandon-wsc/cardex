@@ -107,11 +107,13 @@ type FailureCode =
   | "invalid_report"
   | "missing_filter"
   | "missing_spend"
+  | "unmapped_merchant"
   | "missing_fx_rate";
 
 export interface Failure {
   ok: false;
   provenance: Provenance;
+  seed_as_of: string | null;
   error: FailureCode;
   detail?: string;
 }
@@ -194,10 +196,14 @@ interface AliasMatch extends AliasRow {
   networks: string[];
 }
 
-function fail(error: FailureCode, detail?: string): Failure {
+function fail(
+  error: FailureCode,
+  detail?: string,
+  seed: string | null = null,
+): Failure {
   return detail === undefined
-    ? { ok: false, provenance: PROVENANCE, error }
-    : { ok: false, provenance: PROVENANCE, error, detail };
+    ? { ok: false, provenance: PROVENANCE, seed_as_of: seed, error }
+    : { ok: false, provenance: PROVENANCE, seed_as_of: seed, error, detail };
 }
 
 async function seedDate(db: D1Database): Promise<string | null> {
@@ -207,12 +213,15 @@ async function seedDate(db: D1Database): Promise<string | null> {
   return row?.value ?? null;
 }
 
-export function applyLimit(requested: number | undefined): LimitApplied | Failure {
+export function applyLimit(
+  requested: number | undefined,
+  seed: string | null = null,
+): LimitApplied | Failure {
   if (requested === undefined) {
     return { limit: DEFAULT_LIMIT, limit_requested: null, clamped: false };
   }
   if (!Number.isInteger(requested) || requested < 1) {
-    return fail("invalid_limit", "limit must be a positive integer");
+    return fail("invalid_limit", "limit must be a positive integer", seed);
   }
   if (requested > MAX_LIMIT) {
     return { limit: MAX_LIMIT, limit_requested: requested, clamped: true };
@@ -220,10 +229,13 @@ export function applyLimit(requested: number | undefined): LimitApplied | Failur
   return { limit: requested, limit_requested: requested, clamped: false };
 }
 
-function checkAsOf(asOf: string | undefined): string | Failure {
+function checkAsOf(
+  asOf: string | undefined,
+  seed: string | null = null,
+): string | Failure {
   if (asOf === undefined) return new Date().toISOString().slice(0, 10);
   if (!ISO_DATE.test(asOf)) {
-    return fail("invalid_date", "as_of must be a YYYY-MM-DD date");
+    return fail("invalid_date", "as_of must be a YYYY-MM-DD date", seed);
   }
   return asOf;
 }
@@ -293,6 +305,8 @@ function rateRow(
     unit: rate.unit,
     tag_ids: tagIds,
     term_ids: termIds,
+    effective_from: rate.effective_from,
+    effective_to: rate.effective_to,
     exclusive_group: rate.exclusive_group,
     priority: rate.priority,
     source_url: rate.source_url,
@@ -349,9 +363,10 @@ export async function lookupRates(
     limit?: number;
   },
 ) {
-  const page = applyLimit(input.limit);
+  const seed = await seedDate(db);
+  const page = applyLimit(input.limit, seed);
   if ("ok" in page) return page;
-  const asOf = checkAsOf(input.as_of);
+  const asOf = checkAsOf(input.as_of, seed);
   if (typeof asOf !== "string") return asOf;
 
   // A filter-less call must not default to a catalog dump — the caller
@@ -363,6 +378,7 @@ export async function lookupRates(
     return fail(
       "missing_filter",
       "pass at least one of tag_id, card_ids, or issuer",
+      seed,
     );
   }
   const issuer = issuerQuery ? resolveIssuers(issuerQuery) : null;
@@ -381,7 +397,7 @@ export async function lookupRates(
       return {
         ok: true as const,
         provenance: provenanceFor([]),
-        seed_as_of: await seedDate(db),
+        seed_as_of: seed,
         ...page,
         filters,
         total: 0,
@@ -426,7 +442,7 @@ export async function lookupRates(
   return {
     ok: true as const,
     provenance: provenanceFor(records),
-    seed_as_of: await seedDate(db),
+    seed_as_of: seed,
     ...page,
     filters,
     total: totalRow?.n ?? 0,
@@ -435,11 +451,12 @@ export async function lookupRates(
 }
 
 export async function getCard(db: D1Database, id: string) {
+  const seed = await seedDate(db);
   const card = await db
     .prepare("SELECT id, name, issuer, network FROM cards WHERE id = ?")
     .bind(id)
     .first<CardRow>();
-  if (!card) return fail("not_found", id);
+  if (!card) return fail("not_found", id, seed);
 
   const { results } = await db
     .prepare(
@@ -455,7 +472,7 @@ export async function getCard(db: D1Database, id: string) {
   return {
     ok: true as const,
     provenance: provenanceFor(rates),
-    seed_as_of: await seedDate(db),
+    seed_as_of: seed,
     card,
     rates,
     term_ids: [...new Set(rates.flatMap((rate) => rate.term_ids))],
@@ -463,19 +480,21 @@ export async function getCard(db: D1Database, id: string) {
 }
 
 export async function getTerm(db: D1Database, id: string) {
+  const seed = await seedDate(db);
   const term = await db.prepare("SELECT * FROM terms WHERE id = ?").bind(id).first<TermRow>();
-  if (!term) return fail("not_found", id);
+  if (!term) return fail("not_found", id, seed);
   const illustrative = isIllustrative(term.source_url, term.last_verified_at);
   return {
     ok: true as const,
     provenance: provenanceFor([{ illustrative }]),
-    seed_as_of: await seedDate(db),
+    seed_as_of: seed,
     term: { ...term, illustrative },
   };
 }
 
 export async function listTags(db: D1Database, input: { limit?: number } = {}) {
-  const page = applyLimit(input.limit);
+  const seed = await seedDate(db);
+  const page = applyLimit(input.limit, seed);
   if ("ok" in page) return page;
   const totalRow = await db.prepare("SELECT count(*) AS n FROM tags").first<{ n: number }>();
   const { results } = await db
@@ -485,7 +504,7 @@ export async function listTags(db: D1Database, input: { limit?: number } = {}) {
   return {
     ok: true as const,
     provenance: PROVENANCE,
-    seed_as_of: await seedDate(db),
+    seed_as_of: seed,
     ...page,
     total: totalRow?.n ?? 0,
     records: results,
@@ -539,7 +558,8 @@ export async function resolveAlias(
   db: D1Database,
   input: { query: string; limit?: number },
 ) {
-  const page = applyLimit(input.limit);
+  const seed = await seedDate(db);
+  const page = applyLimit(input.limit, seed);
   if ("ok" in page) return page;
   const hits = new Map<string, AliasMatch>();
   for (const alias of await matchingAliases(db, input.query)) {
@@ -558,7 +578,7 @@ export async function resolveAlias(
   return {
     ok: true as const,
     provenance: PROVENANCE,
-    seed_as_of: await seedDate(db),
+    seed_as_of: seed,
     query: input.query,
     ...page,
     total: merged.length,
@@ -588,7 +608,8 @@ export async function scoreCandidates(
     limit?: number;
   },
 ) {
-  const page = applyLimit(input.limit);
+  const seed = await seedDate(db);
+  const page = applyLimit(input.limit, seed);
   if ("ok" in page) return page;
 
   // ADR 0006: the spend is either already HKD (amount_hkd) or foreign
@@ -597,14 +618,20 @@ export async function scoreCandidates(
   const hasAmountHkd = input.amount_hkd !== undefined;
   const hasAmount = input.amount !== undefined;
   if (hasAmountHkd === hasAmount) {
-    return fail("invalid_amount", "supply exactly one of amount_hkd or amount");
+    return fail(
+      "invalid_amount",
+      "supply exactly one of amount_hkd or amount",
+      seed,
+    );
   }
   const spend = (hasAmountHkd ? input.amount_hkd : input.amount)!;
-  if (!(spend > 0)) return fail("invalid_amount", "amount must be positive");
+  if (!(spend > 0)) {
+    return fail("invalid_amount", "amount must be positive", seed);
+  }
 
   const currency = (input.currency ?? "HKD").trim().toUpperCase();
   if (!/^[A-Z]{3}$/.test(currency)) {
-    return fail("invalid_currency", "currency must be a three-letter code");
+    return fail("invalid_currency", "currency must be a three-letter code", seed);
   }
   const assumptions = input.assumptions ?? {};
   const fxRate = assumptions.hkd_per_foreign_unit ?? null;
@@ -614,12 +641,13 @@ export async function scoreCandidates(
       return fail(
         "missing_fx_rate",
         "non-HKD amount needs assumptions.hkd_per_foreign_unit",
+        seed,
       );
     }
     amountHkd = round2(spend * fxRate);
   }
 
-  const asOf = checkAsOf(input.as_of);
+  const asOf = checkAsOf(input.as_of, seed);
   if (typeof asOf !== "string") return asOf;
 
   // Alias hits contribute spend tags and card scope together — resolving
@@ -633,7 +661,28 @@ export async function scoreCandidates(
     }
   }
   if (spendTags.size === 0) {
-    return fail("missing_spend", "supply tag_ids or an alias that resolves to a tag");
+    // A merchant the alias map does not cover is a clarification, not a
+    // guess: echo it and hand back the real tag vocabulary so the caller
+    // can ask its user which class the spend belongs to.
+    if (input.merchant !== undefined) {
+      const { results: tagRows } = await db
+        .prepare("SELECT id FROM tags ORDER BY id")
+        .all<{ id: string }>();
+      return {
+        ...fail(
+          "unmapped_merchant",
+          `merchant ${JSON.stringify(input.merchant)} does not resolve to a spend tag — classify the spend with tag_ids or an alias`,
+          seed,
+        ),
+        merchant: input.merchant,
+        valid_tag_ids: tagRows.map((row) => row.id),
+      };
+    }
+    return fail(
+      "missing_spend",
+      "supply tag_ids or an alias that resolves to a tag",
+      seed,
+    );
   }
   const tagList = [...spendTags];
 
@@ -698,15 +747,38 @@ export async function scoreCandidates(
   );
 
   const checked = new Set(assumptions.checked_exclusions ?? []);
+  // ADR 0009: an asserted key is "consumed" when it settles a term on any
+  // scored rate. Keys nobody consumed are flagged on the envelope — a typo
+  // or stale id must surface, never settle silently.
+  const consumed = new Set<string>();
+  const consume = (key: string): boolean => {
+    if (!checked.has(key)) return false;
+    consumed.add(key);
+    return true;
+  };
 
   const inWindow = (row: { effective_from: string | null; effective_to: string | null }) =>
     (!row.effective_from || row.effective_from <= asOf) &&
     (!row.effective_to || row.effective_to >= asOf);
 
+  type ConditionStatus =
+    | "passed"
+    | "applied"
+    | "failed"
+    | "unchecked"
+    | "caller_settled"
+    | "outside_window";
+
   // eslint-disable-next-line complexity -- per-term-kind evaluation state machine
   const candidates = results.map((rate) => {
     const unknown: string[] = [];
     const failed: string[] = [];
+    const conditions: {
+      term_id: string;
+      kind: string;
+      key: string;
+      status: ConditionStatus;
+    }[] = [];
     let calculated: number | null = null;
 
     if (rate.kind === "rebate_percent") {
@@ -724,50 +796,85 @@ export async function scoreCandidates(
     for (const termId of termIdsByRate.get(rate.id) ?? []) {
       const term = termsById.get(termId);
       if (!term) continue;
+      // key is the checked_exclusions token that settles the condition;
+      // status mirrors the evaluation into the row's audit trail (ADR 0009).
+      const key =
+        term.kind === "exclusion" && term.exclusion_key
+          ? term.exclusion_key
+          : `${term.kind}:${term.id}`;
+      const condition = (status: ConditionStatus) =>
+        conditions.push({ term_id: term.id, kind: term.kind, key, status });
+
       if (!inWindow(term)) {
         unknown.push(`term_outside_window:${term.id}`);
+        condition("outside_window");
         continue;
       }
       if (term.kind === "cap") {
-        if (assumptions.month_to_date_rebate_hkd === undefined) {
-          unknown.push(`cap_remaining:${term.id}`);
+        if (consume(`cap:${term.id}`)) {
+          condition("caller_settled");
           continue;
         }
-        if (calculated === null || term.cap_hkd === null) continue;
+        if (assumptions.month_to_date_rebate_hkd === undefined) {
+          unknown.push(`cap_remaining:${term.id}`);
+          condition("unchecked");
+          continue;
+        }
+        if (calculated === null || term.cap_hkd === null) {
+          condition("passed");
+          continue;
+        }
         const remaining = Math.max(0, term.cap_hkd - assumptions.month_to_date_rebate_hkd);
         calculated = round2(Math.min(calculated, remaining));
+        condition("applied");
         continue;
       }
       if (term.kind === "exclusion") {
-        if (term.exclusion_key && !checked.has(term.exclusion_key)) {
-          unknown.push(term.exclusion_key);
+        const settled =
+          consume(`exclusion:${term.id}`) ||
+          (term.exclusion_key !== null && consume(term.exclusion_key));
+        if (settled) {
+          condition("caller_settled");
+          continue;
         }
+        if (term.exclusion_key) unknown.push(term.exclusion_key);
+        condition("unchecked");
         continue;
       }
       // min_spend is checkable: per-transaction gates compare with the amount;
       // cumulative gates compare with the caller's month_to_date_spend_hkd.
       if (term.kind === "min_spend") {
-        const key = `min_spend:${term.id}`;
-        if (checked.has(key)) continue;
+        if (consume(`min_spend:${term.id}`)) {
+          condition("caller_settled");
+          continue;
+        }
         if (term.threshold_hkd === null) {
           unknown.push(key);
+          condition("unchecked");
           continue;
         }
         if (term.period === "per_transaction") {
           if (amountHkd < term.threshold_hkd) {
             failed.push(`min_spend_unmet:${term.id}`);
             calculated = null;
+            condition("failed");
+          } else {
+            condition("passed");
           }
           continue;
         }
         const mtdSpend = assumptions.month_to_date_spend_hkd;
         if (mtdSpend === undefined) {
           unknown.push(key);
+          condition("unchecked");
           continue;
         }
         if (mtdSpend + amountHkd < term.threshold_hkd) {
           failed.push(`min_spend_unmet:${term.id}`);
           calculated = null;
+          condition("failed");
+        } else {
+          condition("passed");
         }
         continue;
       }
@@ -775,32 +882,44 @@ export async function scoreCandidates(
       // but never non-membership: a hit clears the term, a miss keeps it
       // unknown, and the payload echoes merchant_checked.
       if (term.kind === "merchant_list") {
-        const key = `merchant_list:${term.id}`;
-        if (checked.has(key)) continue;
+        if (consume(`merchant_list:${term.id}`)) {
+          condition("caller_settled");
+          continue;
+        }
         const merchant = input.merchant;
         if (merchant === undefined) {
           unknown.push(key);
+          condition("unchecked");
           continue;
         }
         const members = merchantsByTerm.get(term.id) ?? [];
         if (!members.some((member) => aliasHits(merchant, member))) {
           unknown.push(key);
+          condition("unchecked");
+          continue;
         }
+        condition("passed");
         continue;
       }
       // fx_fee settles on the caller's currency assertion (ADR 0006): an
-      // explicit HKD bill cannot trigger the fee, so the term clears
-      // silently. Absent or non-HKD keeps it unknown — terms carry no
-      // numeric fee field, so the caller costs it.
+      // explicit HKD bill cannot trigger the fee, so the term passes.
+      // Absent or non-HKD keeps it unknown — terms carry no numeric fee
+      // field, so the caller costs it.
       if (term.kind === "fx_fee" && input.currency !== undefined && currency === "HKD") {
+        consume(`fx_fee:${term.id}`);
+        condition("passed");
         continue;
       }
       // Any other kind (fx_fee, registration_required, channel, mcc, quota,
       // geo, targeted, eligibility, and kinds added later) is a term the
       // caller must settle: it is cleared by listing `<kind>:<term id>` in
       // checked_exclusions.
-      const key = `${term.kind}:${term.id}`;
-      if (!checked.has(key)) unknown.push(key);
+      if (consume(`${term.kind}:${term.id}`)) {
+        condition("caller_settled");
+        continue;
+      }
+      unknown.push(`${term.kind}:${term.id}`);
+      condition("unchecked");
     }
 
     return {
@@ -813,6 +932,9 @@ export async function scoreCandidates(
       calculated_rebate_hkd: calculated,
       unknown_exclusions: unknown,
       failed_terms: failed,
+      conditions,
+      effective_from: rate.effective_from,
+      effective_to: rate.effective_to,
       exclusive_group: rate.exclusive_group,
       priority: rate.priority,
       source_url: rate.source_url,
@@ -828,15 +950,19 @@ export async function scoreCandidates(
     };
   });
 
+  const unmatchedChecked = [...checked].filter((k) => !consumed.has(k)).sort();
   return {
     ok: true as const,
     provenance: provenanceFor(candidates),
-    seed_as_of: await seedDate(db),
+    seed_as_of: seed,
     amount_hkd: amountHkd,
     currency,
     fx_rate: fxRate,
     tag_ids: tagList,
     ...(unknownTagIds.length > 0 ? { unknown_tag_ids: unknownTagIds } : {}),
+    ...(unmatchedChecked.length > 0
+      ? { unmatched_checked_exclusions: unmatchedChecked }
+      : {}),
     as_of: asOf,
     merchant_checked: input.merchant ?? null,
     ...page,
@@ -865,6 +991,7 @@ export async function reportIssue(
     ] as const
   ).filter(([, id]) => id !== undefined);
 
+  const seed = await seedDate(db);
   if (
     targets.length !== 1 ||
     input.field === undefined ||
@@ -873,6 +1000,7 @@ export async function reportIssue(
     return fail(
       "invalid_report",
       "supply exactly one of card_id, rate_id, term_id, plus field and claimed_value",
+      seed,
     );
   }
   const [targetKind, targetId, table] = targets[0];
@@ -883,7 +1011,7 @@ export async function reportIssue(
     note: input.note,
     evidence_url: input.evidence_url,
   });
-  if (bounds) return fail("invalid_report", bounds);
+  if (bounds) return fail("invalid_report", bounds, seed);
 
   // Intake cap: unauthenticated writes to quarantine are rate-limited by
   // volume, not caller. Old rows age out of the window, so triage drains it.
@@ -892,14 +1020,14 @@ export async function reportIssue(
     .bind(new Date(Date.now() - 86_400_000).toISOString())
     .first<{ n: number }>();
   if ((recent?.n ?? 0) >= REPORT_DAILY_CAP) {
-    return fail("invalid_report", "report queue is full — try again later");
+    return fail("invalid_report", "report queue is full — try again later", seed);
   }
 
   const exists = await db
     .prepare(`SELECT id FROM ${table} WHERE id = ?`)
     .bind(targetId)
     .first();
-  if (!exists) return fail("not_found", `${targetKind}:${targetId}`);
+  if (!exists) return fail("not_found", `${targetKind}:${targetId}`, seed);
 
   const reportId = `rpt_${crypto.randomUUID()}`;
   await db
@@ -922,7 +1050,7 @@ export async function reportIssue(
   return {
     ok: true as const,
     provenance: PROVENANCE,
-    seed_as_of: await seedDate(db),
+    seed_as_of: seed,
     report_id: reportId,
   };
 }

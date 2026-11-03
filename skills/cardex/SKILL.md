@@ -67,7 +67,7 @@ Each `score_candidates` row has three lists-worth of signals. Read all of them b
 - `calculated_rebate_hkd` — the math, or `null`. Null is not "zero"; check why.
 - `failed_terms` — **dead** conditions: the spend deterministically fails (e.g. `min_spend_unmet:<term id>`). Do not present that rate as available. Distinct from unknowns — failed means settled-and-false.
 - `unknown_exclusions` — conditions Cardex **cannot verify**: `<kind>:<term id>` entries, `cap_remaining:<id>`, `points_value`, `term_outside_window:<id>`. These mean "verify before you quote," not "the rate fails."
-- `exclusive_group` + `priority` — rows sharing an `exclusive_group` cannot stack. Keep the best `priority` per group before ranking; do not add competing rates together.
+- `exclusive_group` + `priority` — rows sharing an `exclusive_group` cannot stack: one spend earns at most one row per group. Keep the applicable row with the best `priority` (1 is highest precedence); rows tied on `priority` still do not stack — pick one (the higher `calculated_rebate_hkd`). A `null` group means the rate is in no set and stacks with anything. Never add competing rows together.
 - `merchant_checked` — echoes the `merchant` you passed, so the user can see what was checked.
 - `currency` / `fx_rate` / `amount_hkd` — the payload echoes the billing currency, the `hkd_per_foreign_unit` used, and the effective HKD spend. Non-HKD spends convert as `amount × hkd_per_foreign_unit`; Cardex never picks an FX rate — you declare it.
 

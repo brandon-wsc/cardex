@@ -41,6 +41,29 @@ function errorText(res: unknown): string {
     .join("");
 }
 
+describe("public tool surface", () => {
+  it("exposes only the seven PRD tools — no report reads or proposals", async () => {
+    const { client, server } = await connect();
+    try {
+      const { tools } = await client.listTools();
+      expect(tools.map((t) => t.name).sort()).toEqual(
+        [
+          "get_card",
+          "get_term",
+          "list_tags",
+          "lookup_rates",
+          "report_issue",
+          "resolve_alias",
+          "score_candidates",
+        ].sort(),
+      );
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+});
+
 describe("strict tool input", () => {
   it("errors on a mistyped lookup_rates key instead of dumping the catalog", async () => {
     const { client, server } = await connect();
@@ -65,17 +88,56 @@ describe("strict tool input", () => {
     }
   });
 
-  it("returns a missing_filter payload for a valid but filter-less call", async () => {
+  it("flags a missing_filter failure with isError while keeping the structured payload", async () => {
     const { client, server } = await connect();
     try {
       const res = await client.callTool({
         name: "lookup_rates",
         arguments: {},
       });
-      expect(res.isError).not.toBe(true);
+      // Domain failure, not a protocol error: the structured ok:false
+      // payload survives, but isError still tells the caller it failed.
+      expect(res.isError).toBe(true);
       expect(res.structuredContent).toMatchObject({
         ok: false,
         error: "missing_filter",
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("does not flag a partial success — an unknown tag still answers ok", async () => {
+    const { client, server } = await connect();
+    try {
+      const res = await client.callTool({
+        name: "lookup_rates",
+        arguments: { tag_id: "tag_that_does_not_exist" },
+      });
+      expect(res.isError).not.toBe(true);
+      expect(res.structuredContent).toMatchObject({
+        ok: true,
+        unknown_tag_id: "tag_that_does_not_exist",
+        records: [],
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it("flags a score_candidates failure with isError", async () => {
+    const { client, server } = await connect();
+    try {
+      const res = await client.callTool({
+        name: "score_candidates",
+        arguments: { amount_hkd: 800 },
+      });
+      expect(res.isError).toBe(true);
+      expect(res.structuredContent).toMatchObject({
+        ok: false,
+        error: "missing_spend",
       });
     } finally {
       await client.close();

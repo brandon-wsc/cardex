@@ -8,3 +8,4 @@ dist
 worker-configuration.d.ts
 .dev.vars
 .playwright-mcp/
+graphify-out/

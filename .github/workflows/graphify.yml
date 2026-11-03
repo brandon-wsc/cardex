@@ -1,0 +1,65 @@
+name: Graphify
+
+# Rebuilds and republishes the code knowledge graph on every dev push —
+# dev is the integration trunk every feature branch tracks; main only
+# advances on owner-run promotions, so tracking dev keeps the published
+# graph honest about what agents will actually branch from.
+# `graphify update` is AST-only — no LLM, no API key, zero token cost.
+# Semantic enrichment (concept nodes, INFERRED edges, hyperedges) is
+# layered on top by graphify-semantic.yml; the graphify-out cache restored
+# here keeps that enrichment between runs instead of overwriting it with
+# a poorer AST-only graph.
+#
+# Security: trunk pushes only, never pull_request — PR content must never
+# reach the published site (an LLM-generated community label is text that
+# lands inside graph.html on our Pages domain).
+#
+# Required repo secrets (same as deploy.yml — no extra scope needed):
+#   CLOUDFLARE_API_TOKEN   - Account -> Workers Scripts -> Edit
+#   CLOUDFLARE_ACCOUNT_ID
+#
+# Deploys to the cardex-graph static-assets Worker (graphify.wrangler.jsonc)
+# — a deliberately separate Worker + URL from the product. `wrangler
+# deploy` creates it on first run; serves at cardex-graph.workers.dev.
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch: {}
+
+concurrency:
+  group: graphify
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  graph:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Install graphify (pinned, >=7d old per .npmrc policy)
+        run: uv tool install "graphifyy[sql]==0.9.100"
+      - name: Restore previous graph (keeps semantic enrichment)
+        uses: actions/cache@v4
+        with:
+          path: graphify-out
+          key: graphify-${{ github.sha }}
+          restore-keys: graphify-
+      - name: Rebuild graph from code (AST only, no LLM)
+        run: graphify update .
+      - name: Add index redirect to graph.html
+        run: printf '<!doctype html><meta http-equiv="refresh" content="0; url=graph.html">' > graphify-out/index.html
+      - name: Deploy cardex-graph worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.152.0"
+          # This job installs no node/pnpm toolchain — npm keeps the action
+          # from shelling out to pnpm (the repo's packageManager) to install
+          # wrangler.
+          packageManager: npm
+          command: deploy --config graphify.wrangler.jsonc
