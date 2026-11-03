@@ -78,6 +78,13 @@ describe("maintainer auth", () => {
     });
     expect([401, 429]).not.toContain(good.status);
   });
+
+  it("404s the maintainer surface when MAINTAINER_TOKEN is unset", async () => {
+    const res = await call("/maintainer", undefined, {
+      MAINTAINER_TOKEN: undefined,
+    });
+    expect(res.status).toBe(404);
+  });
 });
 
 describe("admin identity", () => {
@@ -161,6 +168,21 @@ describe("admin identity", () => {
     expect(res.status).toBe(200);
   });
 
+  it("rejects an authenticated identity that is not the owner", async () => {
+    const res = await call("/admin/api/reports", {
+      headers: {
+        "CF-Connecting-IP": "10.0.0.10",
+        "Cf-Access-Authenticated-User-Email": "intruder@example.com",
+      },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("401s the admin page itself without an identity", async () => {
+    const res = await call("/admin", undefined, { DEV_ADMIN_EMAIL: undefined });
+    expect(res.status).toBe(401);
+  });
+
   it("ignores the identity header once ACCESS_AUD is configured", async () => {
     const res = await call(
       "/admin/api/me",
@@ -225,5 +247,32 @@ describe("admin api write checks", () => {
       "localhost",
     );
     expect(locked.status).toBe(429);
+  });
+
+  it("rejects an unrecognized proposal decision", async () => {
+    const res = await call(
+      "/admin/api/proposals/prop_seed_001/decide",
+      post({ decision: "maybe" }, { "CF-Connecting-IP": "10.0.0.11" }),
+      undefined,
+      "localhost",
+    );
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "invalid_decision",
+    });
+  });
+});
+
+// PRD §6: the per-IP budget applies to every surface — /mcp answers 429
+// before the tool runs once the window is spent.
+describe("public surface budget", () => {
+  it("429s /mcp past the per-IP budget before the tool runs", async () => {
+    const ip = { "CF-Connecting-IP": "10.0.0.20" };
+    let last = 0;
+    for (let i = 0; i < 121; i++) {
+      const res = await call("/mcp", post({}, ip));
+      last = res.status;
+    }
+    expect(last).toBe(429);
   });
 });
