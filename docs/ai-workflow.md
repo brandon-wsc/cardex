@@ -18,7 +18,7 @@ One deliberate consequence of the split: agents that write code commit under the
 ## The loop
 
 1. **Discuss.** Contract first — a PRD table row, an ADR, or a STATUS update lands before or with the code, not after. Disagreements resolved against the doc, not chat memory.
-2. **Implement.** Devin on a fresh `type/slug` branch off `main` (Cursor as secondary), test-first for tool behavior: vitest spec from the PRD row, watch it fail, implement, go green.
+2. **Implement.** Devin on a fresh `type/slug` branch off `main` (Cursor as secondary — that build predates the `dev` trunk; the convention is now off `dev`, see [`docs/EXECUTION.md`](EXECUTION.md)), test-first for tool behavior: vitest spec from the PRD row, watch it fail, implement, go green.
 3. **PR.** One change → one branch → one PR. CI's `conventions` job rejects sloppy branches, titles, and commit subjects before a human ever looks.
 4. **Review.** Grok Bot ran the checks and reviewed the diff; judgment calls escalated to the owner.
 5. **Owner gates.** Brandon personally reviewed every D1 schema change and every UI surface before merge — that was a real gate, not a rubber stamp (see below for the gate that wasn't).
@@ -60,7 +60,7 @@ The result is a repo where "built by AI in two days" is verifiable: read the ADR
 
 Two wirings landed after the build above. Both are agent-facing infrastructure, not product surface; the retrospective above stays as it was.
 
-**Knowledge graph (graphify).** Every push to `dev` rebuilds an AST-only code graph and deploys it to a separate static-assets Worker ([`.github/workflows/graphify.yml`](../.github/workflows/graphify.yml) → [`graphify.wrangler.jsonc`](../graphify.wrangler.jsonc)); a daily job layers LLM semantic enrichment on top ([`graphify-semantic.yml`](../.github/workflows/graphify-semantic.yml) — the only workflow holding an LLM key). Trunk-only on purpose: PR content never reaches the published graph. Agents fetch `GRAPH_REPORT.md` / `graph.json` from `cardex-graph.unhinted.workers.dev` for architecture and impact questions instead of re-deriving the codebase locally — [`.agents/skills/graphify`](../.agents/skills/graphify/SKILL.md) is the pointer. The graph is a derived view; AGENTS.md, the PRD, and ADRs stay authoritative on disagreement.
+**Knowledge graph (graphify).** Every push to `dev` rebuilds an AST-only code graph and deploys it to a separate static-assets Worker ([`.github/workflows/graphify.yml`](../.github/workflows/graphify.yml) → [`graphify.wrangler.jsonc`](../graphify.wrangler.jsonc)); a daily job layers LLM semantic enrichment on top ([`graphify-semantic.yml`](../.github/workflows/graphify-semantic.yml) — the only workflow holding an LLM key). Trunk-only on purpose: PR content never reaches the published graph. Agents fetch `GRAPH_REPORT.md` / `graph.json` from `cardex-graph.unhinted.workers.dev` for architecture and impact questions instead of re-deriving the codebase locally — [`.agents/skills/code-graph`](../.agents/skills/code-graph/SKILL.md) is the pointer. The graph is a derived view; AGENTS.md, the PRD, and ADRs stay authoritative on disagreement.
 
 **Tickets (Linear).** Test-agent findings used to land as hand-edited notes — the bottleneck moved from writing code to writing down what the code should do. Now Hermes/Instinct and Grok Bot file Linear tickets over MCP themselves, and the owner triages the queue: decides what becomes work and what gets dropped. Nothing Linear lives in this repo — the wiring is MCP config on the agents' side, so there is no in-tree artifact to audit.
 

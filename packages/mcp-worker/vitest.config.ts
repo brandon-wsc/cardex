@@ -14,6 +14,15 @@ const seedSql = readFileSync(
   .filter((line) => !line.trimStart().startsWith("--"))
   .join("\n");
 
+const cardexSkill = readFileSync(
+  new URL("../../skills/cardex/SKILL.md", import.meta.url),
+  "utf8",
+);
+const maintainerSkill = readFileSync(
+  new URL("../../skills/cardex-maintainer/SKILL.md", import.meta.url),
+  "utf8",
+);
+
 export default defineConfig({
   plugins: [
     cloudflareTest({
@@ -22,6 +31,8 @@ export default defineConfig({
         bindings: {
           TEST_MIGRATIONS: migrations,
           SEED_SQL: seedSql,
+          CARDEX_SKILL: cardexSkill,
+          MAINTAINER_SKILL: maintainerSkill,
         },
       },
     }),
