@@ -18,7 +18,7 @@ One deliberate consequence of the split: agents that write code commit under the
 ## The loop
 
 1. **Discuss.** Contract first — a PRD table row, an ADR, or a STATUS update lands before or with the code, not after. Disagreements resolved against the doc, not chat memory.
-2. **Implement.** Devin on a fresh `type/slug` branch off `main` (Cursor as secondary), test-first for tool behavior: vitest spec from the PRD row, watch it fail, implement, go green.
+2. **Implement.** Devin on a fresh `type/slug` branch off `main` (Cursor as secondary — that build predates the `dev` trunk; the convention is now off `dev`, see [`docs/EXECUTION.md`](EXECUTION.md)), test-first for tool behavior: vitest spec from the PRD row, watch it fail, implement, go green.
 3. **PR.** One change → one branch → one PR. CI's `conventions` job rejects sloppy branches, titles, and commit subjects before a human ever looks.
 4. **Review.** Grok Bot ran the checks and reviewed the diff; judgment calls escalated to the owner.
 5. **Owner gates.** Brandon personally reviewed every D1 schema change and every UI surface before merge — that was a real gate, not a rubber stamp (see below for the gate that wasn't).
