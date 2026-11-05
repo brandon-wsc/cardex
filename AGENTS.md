@@ -2,11 +2,13 @@
 
 Short map for coding agents. Prefer these sources over inventing parallel docs or shapes.
 
-Execution conventions (commits, branches, pull requests) live **in this file**. Do not keep a second copy in harness-specific packs (`.cursor/rules`, `CLAUDE.md`, and similar). A tool may *point* here; it must not own the rules.
+Execution conventions (commits, branches, pull requests) live in [`docs/EXECUTION.md`](docs/EXECUTION.md) — read it before committing, branching, or opening a PR. Do not keep a second copy in harness-specific packs (`.cursor/rules`, `CLAUDE.md`, and similar). A tool may *point* here; it must not own the rules.
 
 ## What this is
 
 Remote MCP server of structured Hong Kong credit-card facts. Callers are other agents. Cardex returns records; the caller ranks them.
+
+Code lives in `packages/mcp-worker` (remote MCP endpoint + D1) and `packages/site` (Astro static; its `dist/` is the Worker's assets). Each package has its own `AGENTS.md` with package detail — read it before working there.
 
 ## Single sources of truth
 
@@ -21,7 +23,9 @@ Remote MCP server of structured Hong Kong credit-card facts. Callers are other a
 | Tool I/O | [`packages/mcp-worker/src/query.ts`](packages/mcp-worker/src/query.ts) | D1-backed shapes. PRD describes them; do not add a second shape doc |
 | Test policy | [`docs/TESTING.md`](docs/TESTING.md) | `pnpm test` — vitest in workerd on real D1; `pnpm demo` is the e2e check |
 | Site copy | [`packages/site/src/i18n/`](packages/site/src/i18n/) | `zh-HK.ts` defines the shape, `en.ts` must match. No copy strings in components. The README prompts mirror `prompt.text` ([ADR 0004](docs/adr/0004-public-site.md)) |
-| Agent execution | this file | Commits, branches, PRs |
+| Worker package | [`packages/mcp-worker/AGENTS.md`](packages/mcp-worker/AGENTS.md) | Runtime, D1 seed, TypeScript — read before working in the package |
+| Site package | [`packages/site/AGENTS.md`](packages/site/AGENTS.md) | Copy rules, Astro/TS versions — read before working in the package |
+| Agent execution | [`docs/EXECUTION.md`](docs/EXECUTION.md) | Commits, branches, PRs — read before committing, branching, or opening a PR |
 
 ## Hard boundaries
 
@@ -39,16 +43,8 @@ Remote MCP server of structured Hong Kong credit-card facts. Callers are other a
 ## Working agreements
 
 - **Test first.** A change to tool behavior (`query.ts`, migrations, scoring) lands with its failing test first: write the vitest spec, watch it fail, implement, go green. Spec names state behavior in BDD style — one test per PRD §5/§6 table row. No gherkin layer — the PRD tables are the spec.
-- **Owner review gates.** D1 schema (`migrations/`, wrangler DB config) and any UI surface require the owner's explicit review before merge — an agent may draft them, never self-approve. Fact changes are approved in the `/admin` portal over structured proposals ([ADR 0002](docs/adr/0002-maintenance-surface.md)).
-- **MCP surface.** Streamable HTTP, stateless — whatever the pinned `@modelcontextprotocol/server` 2.x implements. No legacy SSE transport, no stdio variant in v1. The supported standard moves by dependency update, never by ad-hoc contract edits. Three surfaces per [ADR 0002](docs/adr/0002-maintenance-surface.md) and [ADR 0007](docs/adr/0007-owner-only-report-triage.md): `POST /mcp` public, `POST /maintainer` bearer-token (`MAINTAINER_TOKEN`; `propose_change` + fact reads — no report reads or fact writes), `/admin` + `/admin/api/*` behind Cloudflare Access — the Worker verifies the signed `Cf-Access-Jwt-Assertion` (`ACCESS_TEAM`/`ACCESS_AUD`) and pins it to `ADMIN_EMAIL`, with optional `ADMIN_PIN`; the `Cf-Access-Authenticated-User-Email`/`DEV_ADMIN_EMAIL` fallback fires only on loopback or `ALLOW_DEV_IDENTITY`, never on a routable hostname ([ADR 0008](docs/adr/0008-admin-identity-fail-closed.md)). Patches are structured `{op, table, id, key?, set?}` whitelisted in `maintain.ts` — never raw SQL. The whitelist covers tables only; column sets are read live from `PRAGMA table_info`, so a new column on a facts table is patchable with no code change (a new table still needs an explicit whitelist entry).
-
-## Worker
-
-`packages/mcp-worker` is the v1 Worker: a remote MCP endpoint (`/mcp`, streamable HTTP via `createMcpHandler` from the agents SDK — not deprecated `McpAgent`) backed by D1. Query data lives in D1 — `seed/seed.sql` loads it locally and becomes a generated export snapshot in prod ([ADR 0002](docs/adr/0002-maintenance-surface.md)); numbers are synthetic for now and every payload marks `provenance.illustrative`. Runtime rules live in `wrangler.jsonc` and the Cloudflare Workers guidance; this file does not copy them. The compatibility date is the day the Worker was created (or the newest date the pinned workerd supports), and logs and traces are on (`observability.enabled`, `observability.traces.enabled`). `pnpm types` regenerates `worker-configuration.d.ts` after config changes.
-
-## Site
-
-`packages/site` is Astro (`output: "static"`, no adapter) whose `dist/` is the Worker's static assets ([ADR 0004](docs/adr/0004-public-site.md)). Pages talk to people; tools talk to agents — site copy may promise the benefit (knowing which card to tap) but never names a best card, invents a metric, or hand-writes demo numbers (`src/data/demo-score.json` is a verbatim tool response; regenerate per `src/data/demo.ts`). zh-HK is spoken Cantonese at `/`; en at `/en`. Islands are Preact; the landing page ships only the copy button. `run_worker_first` keeps `/mcp`, `/maintainer`, and `/admin*` ahead of assets — `/admin` is served from `ASSETS` only after the identity check. Astro needs Node ≥ 22.23.4 and TypeScript 6 (`@astrojs/check`); the Worker stays on TypeScript 7. Check pages at 375px and 1440px before calling UI work done.
+- **Owner review gates.** D1 schema (`migrations/`, wrangler DB config) and any UI surface require the owner's explicit review before merge — an agent may draft them, never self-approve. `.github/CODEOWNERS` maps the same paths so GitHub auto-requests the owner; do not widen or edit it to dodge the gate. Fact changes are approved in the `/admin` portal over structured proposals ([ADR 0002](docs/adr/0002-maintenance-surface.md)).
+- **MCP surface.** Streamable HTTP, stateless — whatever the pinned `@modelcontextprotocol/server` 2.x implements; the standard moves by dependency update, never by ad-hoc contract edits. Three surfaces: `POST /mcp` public, `POST /maintainer` bearer-token (`MAINTAINER_TOKEN`), `/admin` + `/admin/api/*` behind Cloudflare Access with fail-closed identity — auth and scope details in [ADR 0002](docs/adr/0002-maintenance-surface.md), [ADR 0007](docs/adr/0007-owner-only-report-triage.md), [ADR 0008](docs/adr/0008-admin-identity-fail-closed.md). Patches are structured `{op, table, id, key?, set?}` whitelisted in `maintain.ts` — never raw SQL.
 
 ## Quick commands
 
@@ -68,59 +64,9 @@ pnpm dup        # jscpd clone scan → docs/dup-baseline/ (advisory, no gate)
 
 Package manager is pnpm (`packageManager` in the root `package.json`). `.npmrc` sets `minimum-release-age=10080` (minutes). Install with a pinned version published at least 7 days ago. Never use `latest` or an unbounded range, and never weaken `.npmrc` to get an install through.
 
-## Commit messages
-
-Use [Conventional Commits](https://www.conventionalcommits.org/):
-
-```text
-type(scope): summary
-
-optional body explaining why
-```
-
-- `type` — required; see table below
-- `scope` — required; short area (`mcp`, `seed`, `d1`, `skills`, `docs`, `ci`, `repo`, …)
-- `summary` — imperative, lowercase after the colon, ≤72 chars total subject line, no trailing period
-- `body` — optional; explain **why**, not a file list. Use bullets for multi-part milestones
-
-```text
-✅ feat(mcp): add lookup_rates with tag filter and limit
-✅ docs(repo): lock facts-only boundary in an ADR
-
-❌ Add the MCP worker                      # missing type(scope)
-❌ feat: add stuff                         # missing scope; vague summary
-❌ feat(mcp): Added lookup_rates.          # past tense + trailing period
-```
-
-| Type | When |
-|------|------|
-| `feat` | New user-facing capability or tool |
-| `fix` | Bug fix |
-| `refactor` | Behavior-preserving code change |
-| `docs` | Docs / roadmap / status only |
-| `chore` | Tooling, deps, ignore files, misc |
-| `test` | Tests only |
-| `ci` | CI/CD config |
-| `perf` | Performance improvement |
-
-Prefer domain names for `scope`: `mcp`, `seed`, `d1`, `skills`, `docs`, `repo`. Prefer why over what. Never put secrets or env values in messages. Keep the **subject line ASCII-only** — put Chinese detail in the body if needed.
-
-## Branch names
-
-Follow the [Conventional Branch](https://conventionalbranch.org/) purpose prefixes: `feat/…` (or `feature/…`), `fix/…` (or `bugfix/…`), `hotfix/…`, `release/…` (dots OK for versions, e.g. `release/v0.1.0`), `chore/…`. Slug is lowercase, hyphen-separated — e.g. `feat/lookup-rates`. There is no `ci/`, `docs/`, `test/`, `refactor/`, or `perf/` branch — branch type is work intent, not commit type: CI-config, docs, refactor, and test-only work all branch under `chore/…` (their commits still use the commit-type table above).
-
-## Pull requests
-
-- **Title** — same format as commit subjects (`type(scope): summary`, ≤72 chars, ASCII-only); use the dominant change's type/scope. The `conventions` job in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) rejects a PR whose branch, title, or commit subjects do not match.
-- **Body** — follow `.github/pull_request_template.md`: `## Summary` (what + why), `#### Test plan`, plus the `ADR:` / `Breaking:` lines. CI does not read the body.
-- **Merge method** — merge commit only, once branch protection exists: commit subjects land on `main` individually; the PR title does not.
-- **Integration branches** — `dev`, `develop`, `main`, `master` are exempt from the head-branch check, so `dev` → `main` promotions and backmerges open straight from the integration branch (a `release/` branch still works if a stabilization line is wanted).
-
 ## Feature work
 
-- **Do not commit to, merge into, or push `main`.** Work on a feature branch. The repo owner updates `main` and handles PRs.
-- **New feature / fix → fresh branch off latest `dev`.** Never reuse a merged or unrelated branch — one branch + PR per change.
-- **New feature → ADR.** A feature that adds or changes a product contract or architectural decision gets `docs/adr/NNNN-<slug>.md` (next number) before or with the code — supersede the old ADR rather than rewriting it. Pure bug fixes, docs-only, and chore/tooling changes do not need one. The prototype's fixture seed does not need a new ADR; it is specified in the PRD.
+- **Do not commit to, merge into, or push `main`.** Work on a feature branch — fresh off latest `dev`, one branch + PR per change. The repo owner updates `main` and handles PRs. Conventions: [`docs/EXECUTION.md`](docs/EXECUTION.md).
 
 ## When reviewing changes
 

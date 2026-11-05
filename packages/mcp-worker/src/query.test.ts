@@ -1,10 +1,14 @@
 import { applyD1Migrations, env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { D1Migration } from "@cloudflare/vitest-plugin";
+import fc from "fast-check";
+import { ISSUER_ALIASES, NETWORK_ALIASES } from "./aliases";
 import { listReports } from "./maintain";
 import {
+  applyLimit,
   getCard,
   getTerm,
+  isHttpUrl,
   listTags,
   lookupRates,
   reportIssue,
@@ -26,6 +30,18 @@ beforeEach(async () => {
     .filter(Boolean);
   await tenv.DB.batch(statements.map((sql) => tenv.DB.prepare(sql)));
 });
+
+// JS re-implementation of the aliasHits rule in query.ts — the property
+// specs below use it as the model the SQL/JS production path must match.
+const normText = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+const aliasContain = (q: string, a: string) => {
+  const x = normText(q);
+  const y = normText(a);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  if ([...x].length < 2 || [...y].length < 2) return false;
+  return x.includes(y) || y.includes(x);
+};
 
 describe("lookup_rates", () => {
   it("returns matching rates for a tag", async () => {
@@ -1714,5 +1730,497 @@ describe("report targets — PRD §4", () => {
     });
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.report_id).toMatch(/^rpt_/);
+  });
+});
+
+// Property-based specs: generated inputs instead of named examples, so
+// boundaries (limit clamps, URL schemes, alias containment, intake bounds)
+// are asserted as invariants. Literals mirror the private constants in
+// query.ts — a changed bound fails these specs loudly.
+describe("input invariants", () => {
+  it("applyLimit clamps into [1, 100] or fails with invalid_limit", () => {
+    fc.assert(
+      fc.property(
+        fc.oneof(fc.integer(), fc.double(), fc.constant(undefined)),
+        (n) => {
+          const r = applyLimit(n);
+          if (n === undefined) {
+            expect(r).toEqual({
+              limit: 5,
+              limit_requested: null,
+              clamped: false,
+            });
+          } else if (!Number.isInteger(n) || n < 1) {
+            expect(r).toMatchObject({ ok: false, error: "invalid_limit" });
+          } else {
+            expect(r).toEqual({
+              limit: Math.min(n, 100),
+              limit_requested: n,
+              clamped: n > 100,
+            });
+          }
+        },
+      ),
+    );
+  });
+
+  it("isHttpUrl accepts only parseable http(s) URLs", () => {
+    const badScheme = fc
+      .constantFrom("javascript", "data", "file", "ftp", "ws", "mailto", "tel")
+      .chain((scheme) => fc.string().map((rest) => `${scheme}:${rest}`));
+    fc.assert(
+      fc.property(fc.webUrl(), (url) => {
+        expect(isHttpUrl(url)).toBe(true);
+      }),
+    );
+    fc.assert(
+      fc.property(badScheme, (s) => {
+        expect(isHttpUrl(s)).toBe(false);
+      }),
+    );
+    fc.assert(
+      fc.property(fc.string(), (s) => {
+        if (!isHttpUrl(s)) return;
+        expect(["http:", "https:"]).toContain(new URL(s).protocol);
+      }),
+    );
+  });
+
+  it("resolve_alias returns only matches satisfying the containment rule", async () => {
+    const corpus = [
+      ...(
+        await tenv.DB.prepare("SELECT text FROM aliases").all<{
+          text: string;
+        }>()
+      ).results.map((r) => r.text),
+      ...Object.keys(ISSUER_ALIASES),
+      ...Object.keys(NETWORK_ALIASES),
+    ];
+    const queryArb = fc.oneof(
+      fc.string(),
+      fc.constantFrom(...corpus),
+      // Single code point — under the ≥2 threshold, must match nothing.
+      fc.constantFrom(...corpus.map((a) => [...a][0])),
+      fc.constantFrom(...corpus).chain((a) =>
+        fc
+          .tuple(fc.nat(a.length), fc.nat(a.length))
+          .map(([i, j]) => a.slice(Math.min(i, j), Math.max(i, j))),
+      ),
+    );
+    let hits = 0;
+    await fc.assert(
+      fc.asyncProperty(queryArb, async (query) => {
+        const res = await resolveAlias(tenv.DB, { query, limit: 100 });
+        if (!res.ok) return;
+        for (const m of res.matches) {
+          expect(aliasContain(query, m.text)).toBe(true);
+        }
+        if (res.matches.length > 0) hits += 1;
+        expect(res.matches.length).toBeLessThanOrEqual(res.total);
+      }),
+      { numRuns: 30 },
+    );
+    // Coverage floor: corpus-derived queries should hit often enough that
+    // the containment assertion above is meaningfully exercised.
+    expect(hits).toBeGreaterThanOrEqual(8);
+  });
+
+  it("report_issue refuses free text past its bound and admits text at it", async () => {
+    const base = { card_id: "card_dbs", field: "name", claimed_value: "x" };
+    const overBound = fc.oneof(
+      fc.record({
+        field: fc.string({ minLength: 101 }),
+        claimed_value: fc.constant("x"),
+      }),
+      fc.record({
+        field: fc.constant("name"),
+        claimed_value: fc.string({ minLength: 501 }),
+      }),
+      fc.record({
+        field: fc.constant("name"),
+        claimed_value: fc.constant("x"),
+        note: fc.string({ minLength: 2001 }),
+      }),
+    );
+    await fc.assert(
+      fc.asyncProperty(overBound, async (extra) => {
+        const res = await reportIssue(tenv.DB, { ...base, ...extra });
+        expect(res).toMatchObject({ ok: false, error: "invalid_report" });
+      }),
+      { numRuns: 30 },
+    );
+
+    const atBound = fc.record({
+      field: fc.string({ minLength: 1, maxLength: 100 }),
+      claimed_value: fc.string({ maxLength: 500 }),
+      note: fc.string({ maxLength: 2000 }),
+    });
+    await fc.assert(
+      fc.asyncProperty(atBound, async (input) => {
+        const res = await reportIssue(tenv.DB, {
+          card_id: "card_dbs",
+          ...input,
+        });
+        expect(res.ok).toBe(true);
+      }),
+      { numRuns: 30 },
+    );
+  });
+});
+
+// Model-vs-SQL specs: recompute the expected page in JS from the live
+// tables and require the tool output to equal it. The production path is
+// WHERE clauses + JOINs; the model is plain array filtering — agreement
+// across generated filters means the two interpretations of the same
+// contract cannot silently drift.
+describe("read-model invariants", () => {
+  it("lookup_rates returns exactly the rows its filters select, window-aware", async () => {
+    // The seed has no windowed rates — without these fixtures every row is
+    // vacuously in-window and the as_of clause is never exercised.
+    const windowFixtures: [string, string | null, string | null][] = [
+      ["rate_pbt_past", "2020-01-01", "2020-12-31"],
+      ["rate_pbt_current", "2025-01-01", "2027-12-31"],
+      ["rate_pbt_future", "2028-01-01", "2028-12-31"],
+      ["rate_pbt_open_from", null, "2026-06-30"],
+      ["rate_pbt_open_to", "2026-06-01", null],
+    ];
+    await tenv.DB.batch(
+      windowFixtures.map(([id, from, to]) =>
+        tenv.DB
+          .prepare(
+            `INSERT INTO rates (id, card_id, kind, value, unit, ` +
+              `effective_from, effective_to) VALUES (?, 'card_dbs', ` +
+              `'rebate_percent', 1, 'percent', ?, ?)`,
+          )
+          .bind(id, from, to),
+      ),
+    );
+
+    const rates = (
+      await tenv.DB
+        .prepare(
+          "SELECT r.id, r.card_id, r.effective_from, r.effective_to, " +
+            "c.issuer FROM rates r JOIN cards c ON c.id = r.card_id",
+        )
+        .all<{
+          id: string;
+          card_id: string;
+          effective_from: string | null;
+          effective_to: string | null;
+          issuer: string;
+        }>()
+    ).results;
+    const tagIds = new Set(
+      (
+        await tenv.DB.prepare("SELECT id FROM tags").all<{ id: string }>()
+      ).results.map((r) => r.id),
+    );
+    const cardIdList = (
+      await tenv.DB.prepare("SELECT id FROM cards").all<{ id: string }>()
+    ).results.map((r) => r.id);
+    const tagsByRate = new Map<string, string[]>();
+    for (const row of (
+      await tenv.DB
+        .prepare("SELECT rate_id, tag_id FROM rate_tags")
+        .all<{ rate_id: string; tag_id: string }>()
+    ).results) {
+      tagsByRate.set(row.rate_id, [
+        ...(tagsByRate.get(row.rate_id) ?? []),
+        row.tag_id,
+      ]);
+    }
+
+    // Bias the generators at the edges where interpretation bugs live:
+    // dates sitting on or beside real effective windows, issuer queries
+    // that are substrings/case-variants of known aliases, and limit values
+    // straddling the clamp. mostly() keeps fields present ~2/3 of the time
+    // so AND-combinations dominate over single-filter calls.
+    const day = (iso: string, delta: number) => {
+      const d = new Date(`${iso}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + delta);
+      return d.toISOString().slice(0, 10);
+    };
+    const windowEdges = new Set<string>();
+    for (const r of rates) {
+      for (const d of [r.effective_from, r.effective_to]) {
+        if (!d) continue;
+        windowEdges.add(d);
+        windowEdges.add(day(d, -1));
+        windowEdges.add(day(d, 1));
+      }
+    }
+    const dateArb = fc.oneof(
+      fc.constantFrom(...windowEdges),
+      fc
+        .tuple(
+          fc.integer({ min: 2024, max: 2030 }),
+          fc.integer({ min: 1, max: 12 }),
+          fc.integer({ min: 1, max: 28 }),
+        )
+        .map(
+          ([y, m, d]) =>
+            `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`,
+        ),
+    );
+    const issuerCorpus = [
+      ...Object.keys(ISSUER_ALIASES),
+      ...Object.values(ISSUER_ALIASES),
+    ];
+    const issuerArb = fc.oneof(
+      fc.constantFrom(...issuerCorpus),
+      fc
+        .constantFrom(...Object.keys(ISSUER_ALIASES))
+        .chain((k) =>
+          fc
+            .tuple(fc.nat(k.length), fc.nat(k.length))
+            .map(([i, j]) => k.slice(Math.min(i, j), Math.max(i, j))),
+        ),
+      fc.constantFrom(...issuerCorpus).map((s) => ` ${s.toUpperCase()}  `),
+      fc.string({ minLength: 1 }),
+    );
+    const mostly = <T>(arb: fc.Arbitrary<T>) =>
+      fc.oneof(fc.constant(undefined), arb, arb);
+    const richArb = fc.record({
+      tag_id: mostly(
+        fc.oneof(
+          fc.constantFrom(...tagIds),
+          fc.constantFrom(...tagIds),
+          fc.constantFrom("tag_nope", "ghost_tag"),
+          fc.string({ minLength: 1 }),
+        ),
+      ),
+      card_ids: mostly(
+        fc.array(
+          fc.oneof(
+            fc.constantFrom(...cardIdList),
+            fc.string({ minLength: 1 }),
+          ),
+          { maxLength: 4 },
+        ),
+      ),
+      issuer: mostly(issuerArb),
+      as_of: mostly(fc.oneof(dateArb, fc.string({ minLength: 1 }))),
+      limit: mostly(
+        fc.oneof(
+          fc.constantFrom(-1, 0, 1, 2, 5, 99, 100, 101, 150),
+          fc.integer({ min: -5, max: 150 }),
+        ),
+      ),
+    });
+    // And-combinations alone rarely produce non-empty pages — this branch
+    // generates exactly-one-filter calls with real values so the matched
+    // path (sorting, limit slicing, refs) is exercised often too.
+    const cleanArb = fc
+      .oneof(
+        fc.constantFrom(...tagIds).map((tag_id) => ({ tag_id })),
+        fc
+          .subarray(cardIdList, { minLength: 1 })
+          .map((card_ids) => ({ card_ids })),
+        fc.constantFrom(...issuerCorpus).map((issuer) => ({ issuer })),
+      )
+      .chain((base) =>
+        fc
+          .record({
+            as_of: fc.option(dateArb, { nil: undefined }),
+            limit: fc.option(fc.integer({ min: 1, max: 120 }), {
+              nil: undefined,
+            }),
+          })
+          .map((extra) => ({ ...base, ...extra })),
+      );
+    const inputArb = fc.oneof(cleanArb, richArb);
+
+    const issuerParamSet = (q: string) =>
+      new Set([
+        q,
+        ...Object.entries(ISSUER_ALIASES)
+          .filter(([text]) => aliasContain(q, text))
+          .map(([, iss]) => normText(iss)),
+      ]);
+    const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+    const byCardThenId = (a: { card_id: string; id: string }, b: { card_id: string; id: string }) =>
+      a.card_id === b.card_id ? cmp(a.id, b.id) : cmp(a.card_id, b.card_id);
+    const rowMatches = (
+      r: (typeof rates)[number],
+      tagId: string | undefined,
+      cardIds: string[] | null,
+      issuerParams: Set<string> | null,
+      asOf: string,
+    ) =>
+      (r.effective_from === null || r.effective_from <= asOf) &&
+      (r.effective_to === null || r.effective_to >= asOf) &&
+      (!tagId || (tagsByRate.get(r.id) ?? []).includes(tagId)) &&
+      (!cardIds || cardIds.includes(r.card_id)) &&
+      (!issuerParams || issuerParams.has(r.issuer.toLowerCase()));
+
+    type LookupInput = {
+      tag_id?: string;
+      card_ids?: string[];
+      issuer?: string;
+      as_of?: string;
+      limit?: number;
+    };
+    type Model =
+      | { error: "invalid_limit" | "invalid_date" | "missing_filter" }
+      | {
+          total: number;
+          ids: string[];
+          unknownTag: boolean;
+          pageLimit: number;
+        };
+
+    type Norm =
+      | { error: "invalid_limit" | "invalid_date" | "missing_filter" }
+      | { issuerQuery: string | null; cardIds: string[] | null };
+
+    // Validation order is part of the contract: limit, then date,
+    // then the missing-filter guard.
+    const normalize = (input: LookupInput): Norm => {
+      if (
+        input.limit !== undefined &&
+        (!Number.isInteger(input.limit) || input.limit < 1)
+      ) {
+        return { error: "invalid_limit" as const };
+      }
+      if (
+        input.as_of !== undefined &&
+        !/^\d{4}-\d{2}-\d{2}$/.test(input.as_of)
+      ) {
+        return { error: "invalid_date" as const };
+      }
+      const issuerQuery =
+        input.issuer === undefined ? null : normText(input.issuer);
+      const cardIds = input.card_ids?.length ? input.card_ids : null;
+      if (!input.tag_id && !cardIds && !issuerQuery) {
+        return { error: "missing_filter" as const };
+      }
+      return { issuerQuery, cardIds };
+    };
+
+    const model = (input: LookupInput): Model => {
+      const n = normalize(input);
+      if ("error" in n) return n;
+      const issuerParams = n.issuerQuery ? issuerParamSet(n.issuerQuery) : null;
+      const tagKnown = !input.tag_id || tagIds.has(input.tag_id);
+      const asOf = input.as_of ?? new Date().toISOString().slice(0, 10);
+      const matched = tagKnown
+        ? rates.filter((r) =>
+            rowMatches(r, input.tag_id, n.cardIds, issuerParams, asOf),
+          )
+        : [];
+      const pageLimit =
+        input.limit === undefined ? 5 : Math.min(input.limit, 100);
+      const ids = [...matched]
+        .sort(byCardThenId)
+        .slice(0, pageLimit)
+        .map((r) => r.id);
+      return {
+        total: matched.length,
+        ids,
+        unknownTag: !tagKnown,
+        pageLimit,
+      };
+    };
+
+    // fc.statistics samples the generator and prints its outcome
+    // distribution; the counter pins a floor on it so a change that
+    // quietly starves the matched path fails here instead of going
+    // silently vacuous.
+    fc.statistics(
+      inputArb,
+      (input: LookupInput) => {
+        const m = model(input);
+        if ("error" in m) return m.error;
+        if (m.unknownTag) return "unknown_tag";
+        return m.total === 0 ? "matched_none" : "matched";
+      },
+      { numRuns: 60 },
+    );
+    let matched = 0;
+    await fc.assert(
+      fc.asyncProperty(inputArb, async (input: LookupInput) => {
+        const res = await lookupRates(tenv.DB, input);
+        const expected = model(input);
+        if ("error" in expected) {
+          expect(res).toMatchObject({ ok: false, error: expected.error });
+          return;
+        }
+        if (!res.ok) {
+          return expect.unreachable("lookup_rates rejected a valid input");
+        }
+        if (expected.total > 0) matched += 1;
+        expect(res.limit).toBe(expected.pageLimit);
+        expect(res.limit_requested).toBe(input.limit ?? null);
+        expect(res.clamped).toBe((input.limit ?? 0) > 100);
+        expect(res.total).toBe(expected.total);
+        if (expected.unknownTag) {
+          expect(res).toMatchObject({ unknown_tag_id: input.tag_id });
+        }
+        expect(res.records.map((r) => r.rate_id)).toEqual(expected.ids);
+      }),
+      { numRuns: 60 },
+    );
+    expect(matched).toBeGreaterThanOrEqual(10);
+  });
+
+  it("list_tags returns the id-ordered prefix capped by limit", async () => {
+    const all = (
+      await tenv.DB.prepare("SELECT id FROM tags ORDER BY id").all<{
+        id: string;
+      }>()
+    ).results.map((r) => r.id);
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: -3, max: 130 }),
+        async (limit) => {
+          const res = await listTags(tenv.DB, { limit });
+          if (limit < 1) {
+            expect(res).toMatchObject({ ok: false, error: "invalid_limit" });
+            return;
+          }
+          if (!res.ok) return;
+          expect(res.records.map((r) => r.id)).toEqual(
+            all.slice(0, Math.min(limit, 100)),
+          );
+          expect(res.total).toBe(all.length);
+        },
+      ),
+      { numRuns: 25 },
+    );
+  });
+
+  it("get_card returns all rates of the card ordered by id", async () => {
+    const cardIds = (
+      await tenv.DB.prepare("SELECT id FROM cards").all<{ id: string }>()
+    ).results.map((r) => r.id);
+    const ratesByCard = new Map<string, string[]>();
+    for (const row of (
+      await tenv.DB
+        .prepare("SELECT card_id, id FROM rates ORDER BY id")
+        .all<{ card_id: string; id: string }>()
+    ).results) {
+      ratesByCard.set(row.card_id, [
+        ...(ratesByCard.get(row.card_id) ?? []),
+        row.id,
+      ]);
+    }
+    await fc.assert(
+      fc.asyncProperty(
+        fc.oneof(fc.constantFrom(...cardIds), fc.string({ minLength: 1 })),
+        async (id) => {
+          const res = await getCard(tenv.DB, id);
+          if (!cardIds.includes(id)) {
+            expect(res).toMatchObject({ ok: false, error: "not_found" });
+            return;
+          }
+          if (!res.ok) return;
+          expect(res.rates.map((r) => r.rate_id)).toEqual(
+            ratesByCard.get(id) ?? [],
+          );
+          expect(res.rates.every((r) => r.card_id === id)).toBe(true);
+        },
+      ),
+      { numRuns: 30 },
+    );
   });
 });

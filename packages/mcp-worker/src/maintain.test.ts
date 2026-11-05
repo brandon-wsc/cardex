@@ -1,11 +1,13 @@
 import { applyD1Migrations, env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { D1Migration } from "@cloudflare/vitest-plugin";
+import fc from "fast-check";
 import {
   decideProposal,
   getProposal,
   listProposals,
   listReports,
+  parsePatch,
   proposeChange,
   validatePatch,
 } from "./maintain";
@@ -113,6 +115,202 @@ describe("validatePatch", () => {
       set: { merchant: "KFC" },
     });
     expect(errors).toContain("insert missing required 'term_id'");
+  });
+});
+
+// Property-based specs for the same ADR 0002 boundary: instead of naming
+// example rows, these assert invariants over generated inputs — any table
+// outside FACT_TABLES is refused, any non-column key is refused, and no key
+// shape can locate a row it should not. FACT_TABLES is private to
+// maintain.ts; drift between this mirror and the source fails loudly
+// because a removed table starts failing the whitelist property.
+describe("validatePatch invariants", () => {
+  const FACT_TABLE_NAMES = [
+    "alias_cards",
+    "alias_tags",
+    "aliases",
+    "cards",
+    "rate_tags",
+    "rate_terms",
+    "rates",
+    "tags",
+    "term_merchants",
+    "terms",
+  ] as const;
+
+  const scalarArb = fc.oneof(fc.string(), fc.integer(), fc.constant(null));
+  const scalarMapArb = fc.dictionary(fc.string(), scalarArb);
+
+  const tableInfo = async (table: string) => {
+    const { results } = await tenv.DB
+      .prepare(`PRAGMA table_info(${table})`)
+      .all<{ name: string; pk: number }>();
+    return results;
+  };
+  const pkColumns = (rows: { name: string; pk: number }[]) =>
+    rows
+      .filter((r) => r.pk > 0)
+      .sort((a, b) => a.pk - b.pk)
+      .map((r) => r.name);
+
+  it("parsePatch accepts only scalar key/set maps, for any input", () => {
+    fc.assert(
+      fc.property(fc.anything(), (raw) => {
+        const p = parsePatch(raw);
+        if (p === null) return;
+        expect(["insert", "update", "delete"]).toContain(p.op);
+        expect(typeof p.table).toBe("string");
+        expect(typeof p.id).toBe("string");
+        for (const m of [p.key, p.set]) {
+          if (m === undefined) continue;
+          expect(Array.isArray(m)).toBe(false);
+          expect(
+            Object.values(m).every(
+              (v) =>
+                v === null || typeof v === "string" || typeof v === "number",
+            ),
+          ).toBe(true);
+        }
+      }),
+    );
+  });
+
+  it("rejects every table outside the facts whitelist", async () => {
+    const outside = fc
+      .string({ minLength: 1 })
+      .filter((t) => !(FACT_TABLE_NAMES as readonly string[]).includes(t));
+    await fc.assert(
+      fc.asyncProperty(outside, async (table) => {
+        const errors = await validatePatch(tenv.DB, {
+          op: "update",
+          table,
+          id: "x",
+          set: { a: 1 },
+        });
+        expect(errors).toEqual([
+          `'${table}' is outside the patchable facts whitelist`,
+        ]);
+      }),
+      { numRuns: 30 },
+    );
+  });
+
+  it("rejects every set key that is not a real column", async () => {
+    const columns = new Map<string, string[]>();
+    for (const t of FACT_TABLE_NAMES) {
+      columns.set(t, (await tableInfo(t)).map((r) => r.name));
+    }
+    const arb = fc.constantFrom(...FACT_TABLE_NAMES).chain((table) =>
+      fc.record({
+        table: fc.constant(table),
+        op: fc.constantFrom("insert" as const, "update" as const),
+        bogus: fc
+          .string({ minLength: 1 })
+          .filter((s) => !(columns.get(table) ?? []).includes(s)),
+        set: scalarMapArb,
+      }),
+    );
+    await fc.assert(
+      fc.asyncProperty(arb, async ({ table, op, bogus, set }) => {
+        const errors = await validatePatch(tenv.DB, {
+          op,
+          table,
+          id: "prop_x",
+          set: { ...set, [bogus]: 1 },
+        });
+        expect(errors).toContain(`'${bogus}' is not a column of ${table}`);
+      }),
+      { numRuns: 50 },
+    );
+  });
+
+  it("rejects updates that write a primary key column", async () => {
+    const pks = new Map<string, string[]>();
+    for (const t of FACT_TABLE_NAMES) {
+      pks.set(t, pkColumns(await tableInfo(t)));
+    }
+    const arb = fc.constantFrom(...FACT_TABLE_NAMES).chain((table) =>
+      fc.record({
+        table: fc.constant(table),
+        pk: fc.constantFrom(...(pks.get(table) ?? ["id"])),
+        set: scalarMapArb,
+      }),
+    );
+    await fc.assert(
+      fc.asyncProperty(arb, async ({ table, pk, set }) => {
+        const cols = pks.get(table) ?? [];
+        const errors = await validatePatch(tenv.DB, {
+          op: "update",
+          table,
+          id: "row_x",
+          key: Object.fromEntries(cols.map((c) => [c, "row_x"])),
+          set: { ...set, [pk]: "changed" },
+        });
+        expect(errors).toContain(`cannot update primary key '${pk}'`);
+      }),
+      { numRuns: 30 },
+    );
+  });
+
+  it("rejects update/delete when the key cannot locate the row", async () => {
+    const pks = new Map<string, string[]>();
+    for (const t of FACT_TABLE_NAMES) {
+      pks.set(t, pkColumns(await tableInfo(t)));
+    }
+    const single = FACT_TABLE_NAMES.filter(
+      (t) => (pks.get(t) ?? []).length === 1,
+    );
+    const composite = FACT_TABLE_NAMES.filter(
+      (t) => (pks.get(t) ?? []).length > 1,
+    );
+
+    // Single-pk: a key naming a different id can never locate the row.
+    await fc.assert(
+      fc.asyncProperty(
+        fc.constantFrom(...single),
+        fc.string({ minLength: 1 }),
+        fc.string({ minLength: 1 }),
+        async (table, id, other) => {
+          fc.pre(other !== id);
+          const pk = (pks.get(table) ?? [])[0];
+          const errors = await validatePatch(tenv.DB, {
+            op: "update",
+            table,
+            id,
+            key: { [pk]: other },
+            set: { x: 1 },
+          });
+          expect(errors).toContain("key does not match id");
+        },
+      ),
+      { numRuns: 20 },
+    );
+
+    // Composite-pk: dropping any pk column leaves the row unfindable.
+    const compositeArb = fc.constantFrom(...composite).chain((table) =>
+      fc.record({
+        table: fc.constant(table),
+        drop: fc.constantFrom(...(pks.get(table) ?? [])),
+      }),
+    );
+    await fc.assert(
+      fc.asyncProperty(compositeArb, async ({ table, drop }) => {
+        const cols = pks.get(table) ?? [];
+        const key = Object.fromEntries(
+          cols.filter((c) => c !== drop).map((c) => [c, "v"]),
+        );
+        const errors = await validatePatch(tenv.DB, {
+          op: "delete",
+          table,
+          id: "x+y",
+          key,
+        });
+        expect(errors).toContain(
+          `delete on ${table} must name {${cols.join(", ")}} to find the row`,
+        );
+      }),
+      { numRuns: 20 },
+    );
   });
 });
 
@@ -345,6 +543,152 @@ describe("listReports / listProposals / getProposal", () => {
       label: "Dining",
       kind: "category",
     });
+  });
+});
+
+// Model-based keyset spec: for any cursor, the page must equal the same
+// (reported_at DESC, id DESC) ordering recomputed in JS over the live
+// table — no duplicates, no gaps, regardless of timestamp collisions.
+describe("listReports keyset invariants", () => {
+  it("returns exactly the rows strictly after the cursor", async () => {
+    const stamps = fc.sample(
+      fc.constantFrom(
+        "2026-09-30T00:00:00Z",
+        "2026-10-01T00:00:00Z",
+        "2026-10-02T00:00:00Z",
+      ),
+      40,
+    );
+    await tenv.DB.batch(
+      stamps.map((ts, i) =>
+        tenv.DB
+          .prepare(
+            `INSERT INTO reports (id, target_kind, target_id, field, ` +
+              `claimed_value, reported_at) VALUES (?, 'card', 'card_dbs', ` +
+              `'name', 'x', ?)`,
+          )
+          .bind(`rpt_pbt_${String(i).padStart(2, "0")}`, ts),
+      ),
+    );
+
+    const { results: all } = await tenv.DB
+      .prepare("SELECT id, reported_at FROM reports")
+      .all<{ id: string; reported_at: string }>();
+    const ordered = [...all].sort(
+      (a, b) =>
+        b.reported_at.localeCompare(a.reported_at) ||
+        b.id.localeCompare(a.id),
+    );
+
+    const cursorArb = fc.oneof(
+      fc
+        .constantFrom(...all)
+        .map((r) => ({ before: r.reported_at, beforeId: r.id })),
+      fc.record({
+        before: fc.constantFrom(
+          "2026-09-30T00:00:00Z",
+          "2026-10-01T00:00:00Z",
+          "2026-10-02T00:00:00Z",
+          "2026-11-01T00:00:00Z",
+        ),
+        beforeId: fc.string({ minLength: 1, maxLength: 12 }),
+      }),
+    );
+    let nonEmpty = 0;
+    await fc.assert(
+      fc.asyncProperty(
+        cursorArb,
+        fc.integer({ min: 1, max: 60 }),
+        async (cursor, limit) => {
+          const res = await listReports(tenv.DB, {
+            before: cursor.before,
+            beforeId: cursor.beforeId,
+            limit,
+          });
+          if (!res.ok) throw new Error("unreachable");
+          const expected = ordered
+            .filter(
+              (r) =>
+                r.reported_at < cursor.before ||
+                (r.reported_at === cursor.before && r.id < cursor.beforeId),
+            )
+            .map((r) => r.id)
+            .slice(0, limit);
+          if (res.reports.length > 0) nonEmpty += 1;
+          expect(res.reports.map((r) => r.id)).toEqual(expected);
+        },
+      ),
+      { numRuns: 40 },
+    );
+    // Coverage floor: most cursors sit mid-table, so empty pages should
+    // be the minority — a generator regression starving them is caught.
+    expect(nonEmpty).toBeGreaterThanOrEqual(10);
+  });
+
+  it("without beforeId the cursor falls back to the timestamp alone", async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.constantFrom(
+          "2026-10-01T00:00:00Z",
+          "2026-10-02T00:00:00Z",
+          "2026-10-10T00:00:00Z",
+        ),
+        async (before) => {
+          const res = await listReports(tenv.DB, { before, limit: 100 });
+          if (!res.ok) throw new Error("unreachable");
+          expect(
+            res.reports.every((r) => (r.reported_at as string) < before),
+          ).toBe(true);
+        },
+      ),
+      { numRuns: 10 },
+    );
+  });
+});
+
+describe("listProposals invariants", () => {
+  it("returns only the requested status, newest first, capped by limit", async () => {
+    const statuses = ["pending", "applied", "rejected"] as const;
+    await tenv.DB.batch(
+      Array.from({ length: 12 }, (_, i) =>
+        tenv.DB
+          .prepare(
+            `INSERT INTO proposals (id, proposed_by, summary, evidence_url, ` +
+              `patches, status, created_at) VALUES (?, 'm', 's', ` +
+              `'https://e/x', '[]', ?, ?)`,
+          )
+          .bind(
+            `prop_pbt_${String(i).padStart(2, "0")}`,
+            statuses[i % 3],
+            `2026-10-${String(i + 1).padStart(2, "0")}T00:00:00Z`,
+          ),
+      ),
+    );
+    const { results: all } = await tenv.DB
+      .prepare("SELECT id, status, created_at FROM proposals")
+      .all<{ id: string; status: string; created_at: string }>();
+
+    await fc.assert(
+      fc.asyncProperty(
+        fc.option(
+          fc.constantFrom("pending", "applied", "rejected", "bogus"),
+          { nil: undefined },
+        ),
+        fc.integer({ min: -5, max: 150 }),
+        async (status, limit) => {
+          const res = await listProposals(tenv.DB, { status, limit });
+          if (!res.ok) return;
+          const pageLimit = Math.min(Math.max(limit, 1), 100);
+          const expected = all
+            .filter((r) => status === undefined || r.status === status)
+            .sort((a, b) => b.created_at.localeCompare(a.created_at))
+            .slice(0, pageLimit)
+            .map((r) => r.id);
+          expect(res.proposals.map((p) => p.id)).toEqual(expected);
+        },
+      ),
+      { numRuns: 30 },
+    );
   });
 });
 

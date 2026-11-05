@@ -146,7 +146,7 @@ The site needs Node ≥ 22.23.4 (Astro's floor). `pnpm demo` builds the site, ru
 
 | Doc | Purpose |
 | --- | --- |
-| [AGENTS.md](AGENTS.md) | Coding-agent entry: sources of truth, hard boundaries, commit rules |
+| [AGENTS.md](AGENTS.md) | Coding-agent entry: sources of truth, hard boundaries, doc pointers |
 | [CONTEXT.md](CONTEXT.md) | Domain language |
 | [docs/PRD.md](docs/PRD.md) | Product spec |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Phases after v1 |
