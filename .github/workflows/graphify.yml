@@ -39,7 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
       - name: Install graphify (pinned, >=7d old per .npmrc policy)
         run: uv tool install "graphifyy[sql]==0.9.100"
       - name: Restore previous graph (keeps semantic enrichment)
