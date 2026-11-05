@@ -12,7 +12,7 @@ jobs:
     name: Branch + commit conventions
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Head branch is type/slug
@@ -72,7 +72,7 @@ jobs:
     name: Contract gate (code ↔ PRD ↔ spec)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: contract-exempt label skips the gate
@@ -86,7 +86,7 @@ jobs:
     name: gitleaks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Full history — a secret committed three commits back still leaks
           fetch-depth: 0
@@ -98,7 +98,7 @@ jobs:
     name: eslint complexity gate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
         with:
           version: 11.20.0
@@ -115,7 +115,7 @@ jobs:
     name: vitest + typecheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
         with:
           version: 11.20.0

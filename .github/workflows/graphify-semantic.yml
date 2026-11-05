@@ -46,7 +46,7 @@ jobs:
     steps:
       # Scheduled runs default to the default branch (main); the published
       # graph tracks dev, so enrich dev unless dispatch picked a ref.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event_name == 'schedule' && 'dev' || github.ref_name }}
       - uses: astral-sh/setup-uv@v6
