@@ -6,7 +6,12 @@ updates:
   - package-ecosystem: "npm"
     directories:
       - "/"
-      - "/packages/*"
+      - "/packages/mcp-worker"
+    # Version updates land on dev like every other change; the owner promotes
+    # dev -> main. Security updates ignore target-branch, always go to main,
+    # and ignore the whole per-ecosystem config (GitHub limitation — see
+    # docs.github.com dependabot target-branch).
+    target-branch: "dev"
     schedule:
       interval: "weekly"
     cooldown:
@@ -18,8 +23,28 @@ updates:
       npm:
         patterns: ["*"]
 
+  # The site stays on TypeScript 6 — astro check does not support TS 7
+  # (packages/mcp-worker/AGENTS.md: worker TS 7, site TS 6, do not unify).
+  - package-ecosystem: "npm"
+    directory: "/packages/site"
+    target-branch: "dev"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      npm:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "typescript"
+        versions: [">= 7"]
+
   - package-ecosystem: "github-actions"
     directory: "/"
+    target-branch: "dev"
     schedule:
       interval: "weekly"
     cooldown:
