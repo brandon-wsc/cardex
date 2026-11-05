@@ -1,10 +1,14 @@
 import { applyD1Migrations, env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { D1Migration } from "@cloudflare/vitest-plugin";
+import fc from "fast-check";
+import { ISSUER_ALIASES, NETWORK_ALIASES } from "./aliases";
 import { listReports } from "./maintain";
 import {
+  applyLimit,
   getCard,
   getTerm,
+  isHttpUrl,
   listTags,
   lookupRates,
   reportIssue,
@@ -1714,5 +1718,143 @@ describe("report targets — PRD §4", () => {
     });
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.report_id).toMatch(/^rpt_/);
+  });
+});
+
+// Property-based specs: generated inputs instead of named examples, so
+// boundaries (limit clamps, URL schemes, alias containment, intake bounds)
+// are asserted as invariants. Literals mirror the private constants in
+// query.ts — a changed bound fails these specs loudly.
+describe("input invariants", () => {
+  it("applyLimit clamps into [1, 100] or fails with invalid_limit", () => {
+    fc.assert(
+      fc.property(
+        fc.oneof(fc.integer(), fc.double(), fc.constant(undefined)),
+        (n) => {
+          const r = applyLimit(n);
+          if (n === undefined) {
+            expect(r).toEqual({
+              limit: 5,
+              limit_requested: null,
+              clamped: false,
+            });
+          } else if (!Number.isInteger(n) || n < 1) {
+            expect(r).toMatchObject({ ok: false, error: "invalid_limit" });
+          } else {
+            expect(r).toEqual({
+              limit: Math.min(n, 100),
+              limit_requested: n,
+              clamped: n > 100,
+            });
+          }
+        },
+      ),
+    );
+  });
+
+  it("isHttpUrl accepts only parseable http(s) URLs", () => {
+    const badScheme = fc
+      .constantFrom("javascript", "data", "file", "ftp", "ws", "mailto", "tel")
+      .chain((scheme) => fc.string().map((rest) => `${scheme}:${rest}`));
+    fc.assert(
+      fc.property(fc.webUrl(), (url) => {
+        expect(isHttpUrl(url)).toBe(true);
+      }),
+    );
+    fc.assert(
+      fc.property(badScheme, (s) => {
+        expect(isHttpUrl(s)).toBe(false);
+      }),
+    );
+    fc.assert(
+      fc.property(fc.string(), (s) => {
+        if (!isHttpUrl(s)) return;
+        expect(["http:", "https:"]).toContain(new URL(s).protocol);
+      }),
+    );
+  });
+
+  it("resolve_alias returns only matches satisfying the containment rule", async () => {
+    const norm = (s: string) =>
+      s.trim().toLowerCase().replace(/\s+/g, " ");
+    const hits = (q: string, a: string) => {
+      const x = norm(q);
+      const y = norm(a);
+      if (!x || !y) return false;
+      if (x === y) return true;
+      if ([...x].length < 2 || [...y].length < 2) return false;
+      return x.includes(y) || y.includes(x);
+    };
+    const corpus = [
+      ...(
+        await tenv.DB.prepare("SELECT text FROM aliases").all<{
+          text: string;
+        }>()
+      ).results.map((r) => r.text),
+      ...Object.keys(ISSUER_ALIASES),
+      ...Object.keys(NETWORK_ALIASES),
+    ];
+    const queryArb = fc.oneof(
+      fc.string(),
+      fc.constantFrom(...corpus),
+      fc.constantFrom(...corpus).chain((a) =>
+        fc
+          .tuple(fc.nat(a.length), fc.nat(a.length))
+          .map(([i, j]) => a.slice(Math.min(i, j), Math.max(i, j))),
+      ),
+    );
+    await fc.assert(
+      fc.asyncProperty(queryArb, async (query) => {
+        const res = await resolveAlias(tenv.DB, { query, limit: 100 });
+        if (!res.ok) return;
+        for (const m of res.matches) {
+          expect(hits(query, m.text)).toBe(true);
+        }
+        expect(res.matches.length).toBeLessThanOrEqual(res.total);
+      }),
+      { numRuns: 30 },
+    );
+  });
+
+  it("report_issue refuses free text past its bound and admits text at it", async () => {
+    const base = { card_id: "card_dbs", field: "name", claimed_value: "x" };
+    const overBound = fc.oneof(
+      fc.record({
+        field: fc.string({ minLength: 101 }),
+        claimed_value: fc.constant("x"),
+      }),
+      fc.record({
+        field: fc.constant("name"),
+        claimed_value: fc.string({ minLength: 501 }),
+      }),
+      fc.record({
+        field: fc.constant("name"),
+        claimed_value: fc.constant("x"),
+        note: fc.string({ minLength: 2001 }),
+      }),
+    );
+    await fc.assert(
+      fc.asyncProperty(overBound, async (extra) => {
+        const res = await reportIssue(tenv.DB, { ...base, ...extra });
+        expect(res).toMatchObject({ ok: false, error: "invalid_report" });
+      }),
+      { numRuns: 30 },
+    );
+
+    const atBound = fc.record({
+      field: fc.string({ minLength: 1, maxLength: 100 }),
+      claimed_value: fc.string({ maxLength: 500 }),
+      note: fc.string({ maxLength: 2000 }),
+    });
+    await fc.assert(
+      fc.asyncProperty(atBound, async (input) => {
+        const res = await reportIssue(tenv.DB, {
+          card_id: "card_dbs",
+          ...input,
+        });
+        expect(res.ok).toBe(true);
+      }),
+      { numRuns: 30 },
+    );
   });
 });

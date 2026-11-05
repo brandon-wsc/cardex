@@ -546,6 +546,101 @@ describe("listReports / listProposals / getProposal", () => {
   });
 });
 
+// Model-based keyset spec: for any cursor, the page must equal the same
+// (reported_at DESC, id DESC) ordering recomputed in JS over the live
+// table — no duplicates, no gaps, regardless of timestamp collisions.
+describe("listReports keyset invariants", () => {
+  it("returns exactly the rows strictly after the cursor", async () => {
+    const stamps = fc.sample(
+      fc.constantFrom(
+        "2026-09-30T00:00:00Z",
+        "2026-10-01T00:00:00Z",
+        "2026-10-02T00:00:00Z",
+      ),
+      40,
+    );
+    await tenv.DB.batch(
+      stamps.map((ts, i) =>
+        tenv.DB
+          .prepare(
+            `INSERT INTO reports (id, target_kind, target_id, field, ` +
+              `claimed_value, reported_at) VALUES (?, 'card', 'card_dbs', ` +
+              `'name', 'x', ?)`,
+          )
+          .bind(`rpt_pbt_${String(i).padStart(2, "0")}`, ts),
+      ),
+    );
+
+    const { results: all } = await tenv.DB
+      .prepare("SELECT id, reported_at FROM reports")
+      .all<{ id: string; reported_at: string }>();
+    const ordered = [...all].sort(
+      (a, b) =>
+        b.reported_at.localeCompare(a.reported_at) ||
+        b.id.localeCompare(a.id),
+    );
+
+    const cursorArb = fc.oneof(
+      fc
+        .constantFrom(...all)
+        .map((r) => ({ before: r.reported_at, beforeId: r.id })),
+      fc.record({
+        before: fc.constantFrom(
+          "2026-09-30T00:00:00Z",
+          "2026-10-01T00:00:00Z",
+          "2026-10-02T00:00:00Z",
+          "2026-11-01T00:00:00Z",
+        ),
+        beforeId: fc.string({ minLength: 1, maxLength: 12 }),
+      }),
+    );
+    await fc.assert(
+      fc.asyncProperty(
+        cursorArb,
+        fc.integer({ min: 1, max: 60 }),
+        async (cursor, limit) => {
+          const res = await listReports(tenv.DB, {
+            before: cursor.before,
+            beforeId: cursor.beforeId,
+            limit,
+          });
+          if (!res.ok) throw new Error("unreachable");
+          const expected = ordered
+            .filter(
+              (r) =>
+                r.reported_at < cursor.before ||
+                (r.reported_at === cursor.before && r.id < cursor.beforeId),
+            )
+            .map((r) => r.id)
+            .slice(0, limit);
+          expect(res.reports.map((r) => r.id)).toEqual(expected);
+        },
+      ),
+      { numRuns: 40 },
+    );
+  });
+
+  it("without beforeId the cursor falls back to the timestamp alone", async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.constantFrom(
+          "2026-10-01T00:00:00Z",
+          "2026-10-02T00:00:00Z",
+          "2026-10-10T00:00:00Z",
+        ),
+        async (before) => {
+          const res = await listReports(tenv.DB, { before, limit: 100 });
+          if (!res.ok) throw new Error("unreachable");
+          expect(
+            res.reports.every((r) => (r.reported_at as string) < before),
+          ).toBe(true);
+        },
+      ),
+      { numRuns: 10 },
+    );
+  });
+});
+
 describe("decideProposal", () => {
   it("approve applies the patch and records the decider", async () => {
     const res = await decideProposal(tenv.DB, "prop_seed_001", {

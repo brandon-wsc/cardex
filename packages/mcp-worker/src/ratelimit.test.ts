@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import fc from "fast-check";
 import { overLimit, rateLimited } from "./ratelimit";
 
 // Specs for the best-effort per-IP limiter: fixed windows, failure-counted
@@ -35,5 +36,57 @@ describe("rateLimited / overLimit", () => {
     rateLimited("k4", 1, 60_000, t);
     expect(rateLimited("k4", 1, 60_000, t)).toBe(true);
     expect(rateLimited("k5", 1, 60_000, t)).toBe(false);
+  });
+});
+
+// Generated keys isolate each run from the module-level bucket map — the
+// invariants hold for any limit and any hit count inside one window.
+describe("rateLimited properties", () => {
+  it("grants exactly `limit` hits per window and denies the rest", () => {
+    fc.assert(
+      fc.property(
+        fc.uuid(),
+        fc.integer({ min: 1, max: 10 }),
+        fc.integer({ min: 0, max: 10 }),
+        (key, limit, extra) => {
+          const t = 1_000_000;
+          for (let i = 0; i < limit; i++) {
+            expect(rateLimited(key, limit, 60_000, t + i)).toBe(false);
+          }
+          for (let i = 0; i < extra; i++) {
+            expect(rateLimited(key, limit, 60_000, t + limit + i)).toBe(true);
+          }
+        },
+      ),
+    );
+  });
+
+  it("overLimit flips true exactly at the limit-th hit", () => {
+    fc.assert(
+      fc.property(
+        fc.uuid(),
+        fc.integer({ min: 1, max: 10 }),
+        (key, limit) => {
+          const t = 2_000_000;
+          for (let i = 0; i < limit; i++) {
+            expect(overLimit(key, limit, t + i)).toBe(false);
+            rateLimited(key, limit, 60_000, t + i);
+          }
+          expect(overLimit(key, limit, t + limit)).toBe(true);
+        },
+      ),
+    );
+  });
+
+  it("a fresh key is never limited on its first hit", () => {
+    fc.assert(
+      fc.property(
+        fc.uuid(),
+        fc.integer({ min: 1, max: 100 }),
+        (key, limit) => {
+          expect(rateLimited(key, limit, 60_000, 3_000_000)).toBe(false);
+        },
+      ),
+    );
   });
 });
