@@ -641,6 +641,52 @@ describe("listReports keyset invariants", () => {
   });
 });
 
+describe("listProposals invariants", () => {
+  it("returns only the requested status, newest first, capped by limit", async () => {
+    const statuses = ["pending", "applied", "rejected"] as const;
+    await tenv.DB.batch(
+      Array.from({ length: 12 }, (_, i) =>
+        tenv.DB
+          .prepare(
+            `INSERT INTO proposals (id, proposed_by, summary, evidence_url, ` +
+              `patches, status, created_at) VALUES (?, 'm', 's', ` +
+              `'https://e/x', '[]', ?, ?)`,
+          )
+          .bind(
+            `prop_pbt_${String(i).padStart(2, "0")}`,
+            statuses[i % 3],
+            `2026-10-${String(i + 1).padStart(2, "0")}T00:00:00Z`,
+          ),
+      ),
+    );
+    const { results: all } = await tenv.DB
+      .prepare("SELECT id, status, created_at FROM proposals")
+      .all<{ id: string; status: string; created_at: string }>();
+
+    await fc.assert(
+      fc.asyncProperty(
+        fc.option(
+          fc.constantFrom("pending", "applied", "rejected", "bogus"),
+          { nil: undefined },
+        ),
+        fc.integer({ min: -5, max: 150 }),
+        async (status, limit) => {
+          const res = await listProposals(tenv.DB, { status, limit });
+          if (!res.ok) return;
+          const pageLimit = Math.min(Math.max(limit, 1), 100);
+          const expected = all
+            .filter((r) => status === undefined || r.status === status)
+            .sort((a, b) => b.created_at.localeCompare(a.created_at))
+            .slice(0, pageLimit)
+            .map((r) => r.id);
+          expect(res.proposals.map((p) => p.id)).toEqual(expected);
+        },
+      ),
+      { numRuns: 30 },
+    );
+  });
+});
+
 describe("decideProposal", () => {
   it("approve applies the patch and records the decider", async () => {
     const res = await decideProposal(tenv.DB, "prop_seed_001", {

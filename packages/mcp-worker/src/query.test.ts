@@ -31,6 +31,18 @@ beforeEach(async () => {
   await tenv.DB.batch(statements.map((sql) => tenv.DB.prepare(sql)));
 });
 
+// JS re-implementation of the aliasHits rule in query.ts — the property
+// specs below use it as the model the SQL/JS production path must match.
+const normText = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+const aliasContain = (q: string, a: string) => {
+  const x = normText(q);
+  const y = normText(a);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  if ([...x].length < 2 || [...y].length < 2) return false;
+  return x.includes(y) || y.includes(x);
+};
+
 describe("lookup_rates", () => {
   it("returns matching rates for a tag", async () => {
     const res = await lookupRates(tenv.DB, { tag_id: "dining", limit: 100 });
@@ -1775,16 +1787,6 @@ describe("input invariants", () => {
   });
 
   it("resolve_alias returns only matches satisfying the containment rule", async () => {
-    const norm = (s: string) =>
-      s.trim().toLowerCase().replace(/\s+/g, " ");
-    const hits = (q: string, a: string) => {
-      const x = norm(q);
-      const y = norm(a);
-      if (!x || !y) return false;
-      if (x === y) return true;
-      if ([...x].length < 2 || [...y].length < 2) return false;
-      return x.includes(y) || y.includes(x);
-    };
     const corpus = [
       ...(
         await tenv.DB.prepare("SELECT text FROM aliases").all<{
@@ -1808,7 +1810,7 @@ describe("input invariants", () => {
         const res = await resolveAlias(tenv.DB, { query, limit: 100 });
         if (!res.ok) return;
         for (const m of res.matches) {
-          expect(hits(query, m.text)).toBe(true);
+          expect(aliasContain(query, m.text)).toBe(true);
         }
         expect(res.matches.length).toBeLessThanOrEqual(res.total);
       }),
@@ -1854,6 +1856,248 @@ describe("input invariants", () => {
         });
         expect(res.ok).toBe(true);
       }),
+      { numRuns: 30 },
+    );
+  });
+});
+
+// Model-vs-SQL specs: recompute the expected page in JS from the live
+// tables and require the tool output to equal it. The production path is
+// WHERE clauses + JOINs; the model is plain array filtering — agreement
+// across generated filters means the two interpretations of the same
+// contract cannot silently drift.
+describe("read-model invariants", () => {
+  it("lookup_rates returns exactly the rows its filters select, window-aware", async () => {
+    const rates = (
+      await tenv.DB
+        .prepare(
+          "SELECT r.id, r.card_id, r.effective_from, r.effective_to, " +
+            "c.issuer FROM rates r JOIN cards c ON c.id = r.card_id",
+        )
+        .all<{
+          id: string;
+          card_id: string;
+          effective_from: string | null;
+          effective_to: string | null;
+          issuer: string;
+        }>()
+    ).results;
+    const tagIds = new Set(
+      (
+        await tenv.DB.prepare("SELECT id FROM tags").all<{ id: string }>()
+      ).results.map((r) => r.id),
+    );
+    const cardIdList = (
+      await tenv.DB.prepare("SELECT id FROM cards").all<{ id: string }>()
+    ).results.map((r) => r.id);
+    const tagsByRate = new Map<string, string[]>();
+    for (const row of (
+      await tenv.DB
+        .prepare("SELECT rate_id, tag_id FROM rate_tags")
+        .all<{ rate_id: string; tag_id: string }>()
+    ).results) {
+      tagsByRate.set(row.rate_id, [
+        ...(tagsByRate.get(row.rate_id) ?? []),
+        row.tag_id,
+      ]);
+    }
+
+    const dateArb = fc
+      .tuple(
+        fc.integer({ min: 2024, max: 2030 }),
+        fc.integer({ min: 1, max: 12 }),
+        fc.integer({ min: 1, max: 28 }),
+      )
+      .map(
+        ([y, m, d]) =>
+          `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`,
+      );
+    const issuerCorpus = [
+      ...Object.keys(ISSUER_ALIASES),
+      ...Object.values(ISSUER_ALIASES),
+    ];
+    const inputArb = fc.record({
+      tag_id: fc.option(
+        fc.oneof(fc.constantFrom(...tagIds), fc.string({ minLength: 1 })),
+        { nil: undefined },
+      ),
+      card_ids: fc.option(
+        fc.array(
+          fc.oneof(fc.constantFrom(...cardIdList), fc.string({ minLength: 1 })),
+          { maxLength: 4 },
+        ),
+        { nil: undefined },
+      ),
+      issuer: fc.option(
+        fc.oneof(fc.constantFrom(...issuerCorpus), fc.string({ minLength: 1 })),
+        { nil: undefined },
+      ),
+      as_of: fc.option(fc.oneof(dateArb, fc.string({ minLength: 1 })), {
+        nil: undefined,
+      }),
+      limit: fc.option(fc.integer({ min: -5, max: 150 }), { nil: undefined }),
+    });
+
+    const issuerParamSet = (q: string) =>
+      new Set([
+        q,
+        ...Object.entries(ISSUER_ALIASES)
+          .filter(([text]) => aliasContain(q, text))
+          .map(([, iss]) => normText(iss)),
+      ]);
+    const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+    const byCardThenId = (a: { card_id: string; id: string }, b: { card_id: string; id: string }) =>
+      a.card_id === b.card_id ? cmp(a.id, b.id) : cmp(a.card_id, b.card_id);
+    const rowMatches = (
+      r: (typeof rates)[number],
+      tagId: string | undefined,
+      cardIds: string[] | null,
+      issuerParams: Set<string> | null,
+      asOf: string,
+    ) =>
+      (r.effective_from === null || r.effective_from <= asOf) &&
+      (r.effective_to === null || r.effective_to >= asOf) &&
+      (!tagId || (tagsByRate.get(r.id) ?? []).includes(tagId)) &&
+      (!cardIds || cardIds.includes(r.card_id)) &&
+      (!issuerParams || issuerParams.has(r.issuer.toLowerCase()));
+
+    type LookupInput = {
+      tag_id?: string;
+      card_ids?: string[];
+      issuer?: string;
+      as_of?: string;
+      limit?: number;
+    };
+    type Model =
+      | { error: "invalid_limit" | "invalid_date" | "missing_filter" }
+      | { total: number; ids: string[]; unknownTag: boolean };
+
+    type Norm =
+      | { error: "invalid_limit" | "invalid_date" | "missing_filter" }
+      | { issuerQuery: string | null; cardIds: string[] | null };
+
+    // Validation order is part of the contract: limit, then date,
+    // then the missing-filter guard.
+    const normalize = (input: LookupInput): Norm => {
+      if (
+        input.limit !== undefined &&
+        (!Number.isInteger(input.limit) || input.limit < 1)
+      ) {
+        return { error: "invalid_limit" as const };
+      }
+      if (
+        input.as_of !== undefined &&
+        !/^\d{4}-\d{2}-\d{2}$/.test(input.as_of)
+      ) {
+        return { error: "invalid_date" as const };
+      }
+      const issuerQuery =
+        input.issuer === undefined ? null : normText(input.issuer);
+      const cardIds = input.card_ids?.length ? input.card_ids : null;
+      if (!input.tag_id && !cardIds && !issuerQuery) {
+        return { error: "missing_filter" as const };
+      }
+      return { issuerQuery, cardIds };
+    };
+
+    const model = (input: LookupInput): Model => {
+      const n = normalize(input);
+      if ("error" in n) return n;
+      const issuerParams = n.issuerQuery ? issuerParamSet(n.issuerQuery) : null;
+      const tagKnown = !input.tag_id || tagIds.has(input.tag_id);
+      const asOf = input.as_of ?? new Date().toISOString().slice(0, 10);
+      const matched = tagKnown
+        ? rates.filter((r) =>
+            rowMatches(r, input.tag_id, n.cardIds, issuerParams, asOf),
+          )
+        : [];
+      const pageLimit =
+        input.limit === undefined ? 5 : Math.min(input.limit, 100);
+      const ids = [...matched]
+        .sort(byCardThenId)
+        .slice(0, pageLimit)
+        .map((r) => r.id);
+      return { total: matched.length, ids, unknownTag: !tagKnown };
+    };
+
+    await fc.assert(
+      fc.asyncProperty(inputArb, async (input) => {
+        const res = await lookupRates(tenv.DB, input);
+        const expected = model(input);
+        if ("error" in expected) {
+          expect(res).toMatchObject({ ok: false, error: expected.error });
+          return;
+        }
+        if (!res.ok) {
+          return expect.unreachable("lookup_rates rejected a valid input");
+        }
+        expect(res.total).toBe(expected.total);
+        if (expected.unknownTag) {
+          expect(res).toMatchObject({ unknown_tag_id: input.tag_id });
+        }
+        expect(res.records.map((r) => r.rate_id)).toEqual(expected.ids);
+      }),
+      { numRuns: 40 },
+    );
+  });
+
+  it("list_tags returns the id-ordered prefix capped by limit", async () => {
+    const all = (
+      await tenv.DB.prepare("SELECT id FROM tags ORDER BY id").all<{
+        id: string;
+      }>()
+    ).results.map((r) => r.id);
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: -3, max: 130 }),
+        async (limit) => {
+          const res = await listTags(tenv.DB, { limit });
+          if (limit < 1) {
+            expect(res).toMatchObject({ ok: false, error: "invalid_limit" });
+            return;
+          }
+          if (!res.ok) return;
+          expect(res.records.map((r) => r.id)).toEqual(
+            all.slice(0, Math.min(limit, 100)),
+          );
+          expect(res.total).toBe(all.length);
+        },
+      ),
+      { numRuns: 25 },
+    );
+  });
+
+  it("get_card returns all rates of the card ordered by id", async () => {
+    const cardIds = (
+      await tenv.DB.prepare("SELECT id FROM cards").all<{ id: string }>()
+    ).results.map((r) => r.id);
+    const ratesByCard = new Map<string, string[]>();
+    for (const row of (
+      await tenv.DB
+        .prepare("SELECT card_id, id FROM rates ORDER BY id")
+        .all<{ card_id: string; id: string }>()
+    ).results) {
+      ratesByCard.set(row.card_id, [
+        ...(ratesByCard.get(row.card_id) ?? []),
+        row.id,
+      ]);
+    }
+    await fc.assert(
+      fc.asyncProperty(
+        fc.oneof(fc.constantFrom(...cardIds), fc.string({ minLength: 1 })),
+        async (id) => {
+          const res = await getCard(tenv.DB, id);
+          if (!cardIds.includes(id)) {
+            expect(res).toMatchObject({ ok: false, error: "not_found" });
+            return;
+          }
+          if (!res.ok) return;
+          expect(res.rates.map((r) => r.rate_id)).toEqual(
+            ratesByCard.get(id) ?? [],
+          );
+          expect(res.rates.every((r) => r.card_id === id)).toBe(true);
+        },
+      ),
       { numRuns: 30 },
     );
   });
