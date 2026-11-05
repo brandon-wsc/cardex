@@ -1,0 +1,29 @@
+version: 2
+updates:
+  # pnpm workspace — one entry per manifest dir; the lockfile lives at root.
+  # cooldown mirrors .npmrc minimum-release-age=10080 (7 days): a release
+  # younger than a week is never proposed. Security updates bypass cooldown.
+  - package-ecosystem: "npm"
+    directories:
+      - "/"
+      - "/packages/*"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      npm:
+        patterns: ["*"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "ci"
+      include: "scope"
