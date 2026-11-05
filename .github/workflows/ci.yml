@@ -33,7 +33,12 @@ jobs:
             echo "(feat|feature|bugfix|fix|hotfix|release|chore)/lowercase-hyphen-slug"
             exit 1
           fi
+      # Dependabot security-update PRs use GitHub's fixed "Bump x from a to b"
+      # format — the bot cannot rewrite its commits, so the format checks are
+      # unenforceable on its branches. Version-update PRs get conventional
+      # subjects from commit-message config; security-update ones get a pass.
       - name: PR title is a Conventional Commit subject, ASCII-only
+        if: ${{ !startsWith(github.head_ref, 'dependabot/') }}
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
@@ -47,6 +52,7 @@ jobs:
           fi
           echo "PR title ok"
       - name: Commit subjects are Conventional Commits, ASCII-only
+        if: ${{ !startsWith(github.head_ref, 'dependabot/') }}
         run: |
           bad=0
           while IFS= read -r subj; do
