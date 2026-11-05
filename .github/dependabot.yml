@@ -7,6 +7,11 @@ updates:
     directories:
       - "/"
       - "/packages/*"
+    # Version updates land on dev like every other change; the owner promotes
+    # dev -> main. Security updates ignore target-branch, always go to main,
+    # and ignore the whole per-ecosystem config (GitHub limitation — see
+    # docs.github.com dependabot target-branch).
+    target-branch: "dev"
     schedule:
       interval: "weekly"
     cooldown:
@@ -20,6 +25,7 @@ updates:
 
   - package-ecosystem: "github-actions"
     directory: "/"
+    target-branch: "dev"
     schedule:
       interval: "weekly"
     cooldown:
