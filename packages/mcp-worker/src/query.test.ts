@@ -2117,6 +2117,21 @@ describe("read-model invariants", () => {
       };
     };
 
+    // fc.statistics samples the generator and prints its outcome
+    // distribution; the counter pins a floor on it so a change that
+    // quietly starves the matched path fails here instead of going
+    // silently vacuous.
+    fc.statistics(
+      inputArb,
+      (input: LookupInput) => {
+        const m = model(input);
+        if ("error" in m) return m.error;
+        if (m.unknownTag) return "unknown_tag";
+        return m.total === 0 ? "matched_none" : "matched";
+      },
+      { numRuns: 60 },
+    );
+    let matched = 0;
     await fc.assert(
       fc.asyncProperty(inputArb, async (input: LookupInput) => {
         const res = await lookupRates(tenv.DB, input);
@@ -2128,6 +2143,7 @@ describe("read-model invariants", () => {
         if (!res.ok) {
           return expect.unreachable("lookup_rates rejected a valid input");
         }
+        if (expected.total > 0) matched += 1;
         expect(res.limit).toBe(expected.pageLimit);
         expect(res.limit_requested).toBe(input.limit ?? null);
         expect(res.clamped).toBe((input.limit ?? 0) > 100);
@@ -2139,6 +2155,7 @@ describe("read-model invariants", () => {
       }),
       { numRuns: 60 },
     );
+    expect(matched).toBeGreaterThanOrEqual(10);
   });
 
   it("list_tags returns the id-ordered prefix capped by limit", async () => {
