@@ -71,6 +71,18 @@ jobs:
         if: ${{ !contains(github.event.pull_request.labels.*.name, 'contract-exempt') }}
         run: node scripts/contract-gate.mjs ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}
 
+  secrets:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history — a secret committed three commits back still leaks
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   lint:
     name: eslint complexity gate
     runs-on: ubuntu-latest
