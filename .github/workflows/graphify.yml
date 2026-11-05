@@ -43,7 +43,7 @@ jobs:
       - name: Install graphify (pinned, >=7d old per .npmrc policy)
         run: uv tool install "graphifyy[sql]==0.9.100"
       - name: Restore previous graph (keeps semantic enrichment)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: graphify-out
           key: graphify-${{ github.sha }}
