@@ -23,6 +23,11 @@ jobs:
           if printf '%s' "$branch" | grep -qxE 'dev|develop|main|master'; then
             exit 0
           fi
+          # Dependabot branches are not type/slug either — dependabot.yml has
+          # no branchPrefix option, so the bot gets a path-based exemption.
+          if printf '%s' "$branch" | grep -qE '^dependabot/'; then
+            exit 0
+          fi
           if ! printf '%s' "$branch" | grep -qE '^(feat|feature|bugfix|fix|hotfix|release|chore)/[a-z0-9]+([.-][a-z0-9]+)*$'; then
             echo "::error::branch '$branch' must match type/slug per Conventional Branch —"
             echo "(feat|feature|bugfix|fix|hotfix|release|chore)/lowercase-hyphen-slug"
