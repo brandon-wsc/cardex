@@ -57,6 +57,20 @@ jobs:
           if [ "$bad" -eq 0 ]; then echo "commit subjects ok"; fi
           exit "$bad"
 
+  contract:
+    name: Contract gate (code ↔ PRD ↔ spec)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: contract-exempt label skips the gate
+        if: contains(github.event.pull_request.labels.*.name, 'contract-exempt')
+        run: echo "skipped via contract-exempt label"
+      - name: Check drift both ways
+        if: ${{ !contains(github.event.pull_request.labels.*.name, 'contract-exempt') }}
+        run: node scripts/contract-gate.mjs ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}
+
   lint:
     name: eslint complexity gate
     runs-on: ubuntu-latest
