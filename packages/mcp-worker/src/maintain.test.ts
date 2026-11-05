@@ -594,6 +594,7 @@ describe("listReports keyset invariants", () => {
         beforeId: fc.string({ minLength: 1, maxLength: 12 }),
       }),
     );
+    let nonEmpty = 0;
     await fc.assert(
       fc.asyncProperty(
         cursorArb,
@@ -613,11 +614,15 @@ describe("listReports keyset invariants", () => {
             )
             .map((r) => r.id)
             .slice(0, limit);
+          if (res.reports.length > 0) nonEmpty += 1;
           expect(res.reports.map((r) => r.id)).toEqual(expected);
         },
       ),
       { numRuns: 40 },
     );
+    // Coverage floor: most cursors sit mid-table, so empty pages should
+    // be the minority — a generator regression starving them is caught.
+    expect(nonEmpty).toBeGreaterThanOrEqual(10);
   });
 
   it("without beforeId the cursor falls back to the timestamp alone", async () => {
