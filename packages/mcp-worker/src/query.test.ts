@@ -1799,6 +1799,8 @@ describe("input invariants", () => {
     const queryArb = fc.oneof(
       fc.string(),
       fc.constantFrom(...corpus),
+      // Single code point — under the ≥2 threshold, must match nothing.
+      fc.constantFrom(...corpus.map((a) => [...a][0])),
       fc.constantFrom(...corpus).chain((a) =>
         fc
           .tuple(fc.nat(a.length), fc.nat(a.length))
@@ -1868,6 +1870,27 @@ describe("input invariants", () => {
 // contract cannot silently drift.
 describe("read-model invariants", () => {
   it("lookup_rates returns exactly the rows its filters select, window-aware", async () => {
+    // The seed has no windowed rates — without these fixtures every row is
+    // vacuously in-window and the as_of clause is never exercised.
+    const windowFixtures: [string, string | null, string | null][] = [
+      ["rate_pbt_past", "2020-01-01", "2020-12-31"],
+      ["rate_pbt_current", "2025-01-01", "2027-12-31"],
+      ["rate_pbt_future", "2028-01-01", "2028-12-31"],
+      ["rate_pbt_open_from", null, "2026-06-30"],
+      ["rate_pbt_open_to", "2026-06-01", null],
+    ];
+    await tenv.DB.batch(
+      windowFixtures.map(([id, from, to]) =>
+        tenv.DB
+          .prepare(
+            `INSERT INTO rates (id, card_id, kind, value, unit, ` +
+              `effective_from, effective_to) VALUES (?, 'card_dbs', ` +
+              `'rebate_percent', 1, 'percent', ?, ?)`,
+          )
+          .bind(id, from, to),
+      ),
+    );
+
     const rates = (
       await tenv.DB
         .prepare(
@@ -1902,41 +1925,105 @@ describe("read-model invariants", () => {
       ]);
     }
 
-    const dateArb = fc
-      .tuple(
-        fc.integer({ min: 2024, max: 2030 }),
-        fc.integer({ min: 1, max: 12 }),
-        fc.integer({ min: 1, max: 28 }),
-      )
-      .map(
-        ([y, m, d]) =>
-          `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`,
-      );
+    // Bias the generators at the edges where interpretation bugs live:
+    // dates sitting on or beside real effective windows, issuer queries
+    // that are substrings/case-variants of known aliases, and limit values
+    // straddling the clamp. mostly() keeps fields present ~2/3 of the time
+    // so AND-combinations dominate over single-filter calls.
+    const day = (iso: string, delta: number) => {
+      const d = new Date(`${iso}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + delta);
+      return d.toISOString().slice(0, 10);
+    };
+    const windowEdges = new Set<string>();
+    for (const r of rates) {
+      for (const d of [r.effective_from, r.effective_to]) {
+        if (!d) continue;
+        windowEdges.add(d);
+        windowEdges.add(day(d, -1));
+        windowEdges.add(day(d, 1));
+      }
+    }
+    const dateArb = fc.oneof(
+      fc.constantFrom(...windowEdges),
+      fc
+        .tuple(
+          fc.integer({ min: 2024, max: 2030 }),
+          fc.integer({ min: 1, max: 12 }),
+          fc.integer({ min: 1, max: 28 }),
+        )
+        .map(
+          ([y, m, d]) =>
+            `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`,
+        ),
+    );
     const issuerCorpus = [
       ...Object.keys(ISSUER_ALIASES),
       ...Object.values(ISSUER_ALIASES),
     ];
-    const inputArb = fc.record({
-      tag_id: fc.option(
-        fc.oneof(fc.constantFrom(...tagIds), fc.string({ minLength: 1 })),
-        { nil: undefined },
+    const issuerArb = fc.oneof(
+      fc.constantFrom(...issuerCorpus),
+      fc
+        .constantFrom(...Object.keys(ISSUER_ALIASES))
+        .chain((k) =>
+          fc
+            .tuple(fc.nat(k.length), fc.nat(k.length))
+            .map(([i, j]) => k.slice(Math.min(i, j), Math.max(i, j))),
+        ),
+      fc.constantFrom(...issuerCorpus).map((s) => ` ${s.toUpperCase()}  `),
+      fc.string({ minLength: 1 }),
+    );
+    const mostly = <T>(arb: fc.Arbitrary<T>) =>
+      fc.oneof(fc.constant(undefined), arb, arb);
+    const richArb = fc.record({
+      tag_id: mostly(
+        fc.oneof(
+          fc.constantFrom(...tagIds),
+          fc.constantFrom(...tagIds),
+          fc.constantFrom("tag_nope", "ghost_tag"),
+          fc.string({ minLength: 1 }),
+        ),
       ),
-      card_ids: fc.option(
+      card_ids: mostly(
         fc.array(
-          fc.oneof(fc.constantFrom(...cardIdList), fc.string({ minLength: 1 })),
+          fc.oneof(
+            fc.constantFrom(...cardIdList),
+            fc.string({ minLength: 1 }),
+          ),
           { maxLength: 4 },
         ),
-        { nil: undefined },
       ),
-      issuer: fc.option(
-        fc.oneof(fc.constantFrom(...issuerCorpus), fc.string({ minLength: 1 })),
-        { nil: undefined },
+      issuer: mostly(issuerArb),
+      as_of: mostly(fc.oneof(dateArb, fc.string({ minLength: 1 }))),
+      limit: mostly(
+        fc.oneof(
+          fc.constantFrom(-1, 0, 1, 2, 5, 99, 100, 101, 150),
+          fc.integer({ min: -5, max: 150 }),
+        ),
       ),
-      as_of: fc.option(fc.oneof(dateArb, fc.string({ minLength: 1 })), {
-        nil: undefined,
-      }),
-      limit: fc.option(fc.integer({ min: -5, max: 150 }), { nil: undefined }),
     });
+    // And-combinations alone rarely produce non-empty pages — this branch
+    // generates exactly-one-filter calls with real values so the matched
+    // path (sorting, limit slicing, refs) is exercised often too.
+    const cleanArb = fc
+      .oneof(
+        fc.constantFrom(...tagIds).map((tag_id) => ({ tag_id })),
+        fc
+          .subarray(cardIdList, { minLength: 1 })
+          .map((card_ids) => ({ card_ids })),
+        fc.constantFrom(...issuerCorpus).map((issuer) => ({ issuer })),
+      )
+      .chain((base) =>
+        fc
+          .record({
+            as_of: fc.option(dateArb, { nil: undefined }),
+            limit: fc.option(fc.integer({ min: 1, max: 120 }), {
+              nil: undefined,
+            }),
+          })
+          .map((extra) => ({ ...base, ...extra })),
+      );
+    const inputArb = fc.oneof(cleanArb, richArb);
 
     const issuerParamSet = (q: string) =>
       new Set([
@@ -1970,7 +2057,12 @@ describe("read-model invariants", () => {
     };
     type Model =
       | { error: "invalid_limit" | "invalid_date" | "missing_filter" }
-      | { total: number; ids: string[]; unknownTag: boolean };
+      | {
+          total: number;
+          ids: string[];
+          unknownTag: boolean;
+          pageLimit: number;
+        };
 
     type Norm =
       | { error: "invalid_limit" | "invalid_date" | "missing_filter" }
@@ -2017,11 +2109,16 @@ describe("read-model invariants", () => {
         .sort(byCardThenId)
         .slice(0, pageLimit)
         .map((r) => r.id);
-      return { total: matched.length, ids, unknownTag: !tagKnown };
+      return {
+        total: matched.length,
+        ids,
+        unknownTag: !tagKnown,
+        pageLimit,
+      };
     };
 
     await fc.assert(
-      fc.asyncProperty(inputArb, async (input) => {
+      fc.asyncProperty(inputArb, async (input: LookupInput) => {
         const res = await lookupRates(tenv.DB, input);
         const expected = model(input);
         if ("error" in expected) {
@@ -2031,13 +2128,16 @@ describe("read-model invariants", () => {
         if (!res.ok) {
           return expect.unreachable("lookup_rates rejected a valid input");
         }
+        expect(res.limit).toBe(expected.pageLimit);
+        expect(res.limit_requested).toBe(input.limit ?? null);
+        expect(res.clamped).toBe((input.limit ?? 0) > 100);
         expect(res.total).toBe(expected.total);
         if (expected.unknownTag) {
           expect(res).toMatchObject({ unknown_tag_id: input.tag_id });
         }
         expect(res.records.map((r) => r.rate_id)).toEqual(expected.ids);
       }),
-      { numRuns: 40 },
+      { numRuns: 60 },
     );
   });
 

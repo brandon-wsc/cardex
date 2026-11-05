@@ -78,6 +78,25 @@ describe("rateLimited properties", () => {
     );
   });
 
+  it("a hit exactly at resetAt rolls into a fresh window", () => {
+    fc.assert(
+      fc.property(
+        fc.uuid(),
+        fc.integer({ min: 1, max: 10 }),
+        (key, limit) => {
+          const t = 4_000_000;
+          for (let i = 0; i < limit; i++) {
+            rateLimited(key, limit, 60_000, t);
+          }
+          // One ms inside the window the bucket is still saturated; at
+          // resetAt the window expires (<=) and the hit counts fresh.
+          expect(rateLimited(key, limit, 60_000, t + 59_999)).toBe(true);
+          expect(rateLimited(key, limit, 60_000, t + 60_000)).toBe(false);
+        },
+      ),
+    );
+  });
+
   it("a fresh key is never limited on its first hit", () => {
     fc.assert(
       fc.property(
