@@ -1,11 +1,13 @@
 import { applyD1Migrations, env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { D1Migration } from "@cloudflare/vitest-plugin";
+import fc from "fast-check";
 import {
   decideProposal,
   getProposal,
   listProposals,
   listReports,
+  parsePatch,
   proposeChange,
   validatePatch,
 } from "./maintain";
@@ -113,6 +115,202 @@ describe("validatePatch", () => {
       set: { merchant: "KFC" },
     });
     expect(errors).toContain("insert missing required 'term_id'");
+  });
+});
+
+// Property-based specs for the same ADR 0002 boundary: instead of naming
+// example rows, these assert invariants over generated inputs — any table
+// outside FACT_TABLES is refused, any non-column key is refused, and no key
+// shape can locate a row it should not. FACT_TABLES is private to
+// maintain.ts; drift between this mirror and the source fails loudly
+// because a removed table starts failing the whitelist property.
+describe("validatePatch invariants", () => {
+  const FACT_TABLE_NAMES = [
+    "alias_cards",
+    "alias_tags",
+    "aliases",
+    "cards",
+    "rate_tags",
+    "rate_terms",
+    "rates",
+    "tags",
+    "term_merchants",
+    "terms",
+  ] as const;
+
+  const scalarArb = fc.oneof(fc.string(), fc.integer(), fc.constant(null));
+  const scalarMapArb = fc.dictionary(fc.string(), scalarArb);
+
+  const tableInfo = async (table: string) => {
+    const { results } = await tenv.DB
+      .prepare(`PRAGMA table_info(${table})`)
+      .all<{ name: string; pk: number }>();
+    return results;
+  };
+  const pkColumns = (rows: { name: string; pk: number }[]) =>
+    rows
+      .filter((r) => r.pk > 0)
+      .sort((a, b) => a.pk - b.pk)
+      .map((r) => r.name);
+
+  it("parsePatch accepts only scalar key/set maps, for any input", () => {
+    fc.assert(
+      fc.property(fc.anything(), (raw) => {
+        const p = parsePatch(raw);
+        if (p === null) return;
+        expect(["insert", "update", "delete"]).toContain(p.op);
+        expect(typeof p.table).toBe("string");
+        expect(typeof p.id).toBe("string");
+        for (const m of [p.key, p.set]) {
+          if (m === undefined) continue;
+          expect(Array.isArray(m)).toBe(false);
+          expect(
+            Object.values(m).every(
+              (v) =>
+                v === null || typeof v === "string" || typeof v === "number",
+            ),
+          ).toBe(true);
+        }
+      }),
+    );
+  });
+
+  it("rejects every table outside the facts whitelist", async () => {
+    const outside = fc
+      .string({ minLength: 1 })
+      .filter((t) => !(FACT_TABLE_NAMES as readonly string[]).includes(t));
+    await fc.assert(
+      fc.asyncProperty(outside, async (table) => {
+        const errors = await validatePatch(tenv.DB, {
+          op: "update",
+          table,
+          id: "x",
+          set: { a: 1 },
+        });
+        expect(errors).toEqual([
+          `'${table}' is outside the patchable facts whitelist`,
+        ]);
+      }),
+      { numRuns: 30 },
+    );
+  });
+
+  it("rejects every set key that is not a real column", async () => {
+    const columns = new Map<string, string[]>();
+    for (const t of FACT_TABLE_NAMES) {
+      columns.set(t, (await tableInfo(t)).map((r) => r.name));
+    }
+    const arb = fc.constantFrom(...FACT_TABLE_NAMES).chain((table) =>
+      fc.record({
+        table: fc.constant(table),
+        op: fc.constantFrom("insert" as const, "update" as const),
+        bogus: fc
+          .string({ minLength: 1 })
+          .filter((s) => !(columns.get(table) ?? []).includes(s)),
+        set: scalarMapArb,
+      }),
+    );
+    await fc.assert(
+      fc.asyncProperty(arb, async ({ table, op, bogus, set }) => {
+        const errors = await validatePatch(tenv.DB, {
+          op,
+          table,
+          id: "prop_x",
+          set: { ...set, [bogus]: 1 },
+        });
+        expect(errors).toContain(`'${bogus}' is not a column of ${table}`);
+      }),
+      { numRuns: 50 },
+    );
+  });
+
+  it("rejects updates that write a primary key column", async () => {
+    const pks = new Map<string, string[]>();
+    for (const t of FACT_TABLE_NAMES) {
+      pks.set(t, pkColumns(await tableInfo(t)));
+    }
+    const arb = fc.constantFrom(...FACT_TABLE_NAMES).chain((table) =>
+      fc.record({
+        table: fc.constant(table),
+        pk: fc.constantFrom(...(pks.get(table) ?? ["id"])),
+        set: scalarMapArb,
+      }),
+    );
+    await fc.assert(
+      fc.asyncProperty(arb, async ({ table, pk, set }) => {
+        const cols = pks.get(table) ?? [];
+        const errors = await validatePatch(tenv.DB, {
+          op: "update",
+          table,
+          id: "row_x",
+          key: Object.fromEntries(cols.map((c) => [c, "row_x"])),
+          set: { ...set, [pk]: "changed" },
+        });
+        expect(errors).toContain(`cannot update primary key '${pk}'`);
+      }),
+      { numRuns: 30 },
+    );
+  });
+
+  it("rejects update/delete when the key cannot locate the row", async () => {
+    const pks = new Map<string, string[]>();
+    for (const t of FACT_TABLE_NAMES) {
+      pks.set(t, pkColumns(await tableInfo(t)));
+    }
+    const single = FACT_TABLE_NAMES.filter(
+      (t) => (pks.get(t) ?? []).length === 1,
+    );
+    const composite = FACT_TABLE_NAMES.filter(
+      (t) => (pks.get(t) ?? []).length > 1,
+    );
+
+    // Single-pk: a key naming a different id can never locate the row.
+    await fc.assert(
+      fc.asyncProperty(
+        fc.constantFrom(...single),
+        fc.string({ minLength: 1 }),
+        fc.string({ minLength: 1 }),
+        async (table, id, other) => {
+          fc.pre(other !== id);
+          const pk = (pks.get(table) ?? [])[0];
+          const errors = await validatePatch(tenv.DB, {
+            op: "update",
+            table,
+            id,
+            key: { [pk]: other },
+            set: { x: 1 },
+          });
+          expect(errors).toContain("key does not match id");
+        },
+      ),
+      { numRuns: 20 },
+    );
+
+    // Composite-pk: dropping any pk column leaves the row unfindable.
+    const compositeArb = fc.constantFrom(...composite).chain((table) =>
+      fc.record({
+        table: fc.constant(table),
+        drop: fc.constantFrom(...(pks.get(table) ?? [])),
+      }),
+    );
+    await fc.assert(
+      fc.asyncProperty(compositeArb, async ({ table, drop }) => {
+        const cols = pks.get(table) ?? [];
+        const key = Object.fromEntries(
+          cols.filter((c) => c !== drop).map((c) => [c, "v"]),
+        );
+        const errors = await validatePatch(tenv.DB, {
+          op: "delete",
+          table,
+          id: "x+y",
+          key,
+        });
+        expect(errors).toContain(
+          `delete on ${table} must name {${cols.join(", ")}} to find the row`,
+        );
+      }),
+      { numRuns: 20 },
+    );
   });
 });
 

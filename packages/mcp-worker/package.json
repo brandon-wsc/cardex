@@ -21,6 +21,7 @@
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.4.7",
     "@types/node": "22.13.14",
+    "fast-check": "^4.10.2",
     "tsx": "4.23.15",
     "typescript": "7.0.2",
     "vitest": "4.1.11",
