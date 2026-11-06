@@ -71,6 +71,15 @@ jobs:
         if: ${{ !contains(github.event.pull_request.labels.*.name, 'contract-exempt') }}
         run: node scripts/contract-gate.mjs ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}
 
+  prd-map:
+    name: PRD row ↔ spec title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Whole-repo state, not a diff — every §4–§6 row must map to a spec
+      # title in docs/prd-rows.json, so contract-exempt cannot skip it.
+      - run: node scripts/prd-rows-gate.mjs
+
   secrets:
     name: gitleaks
     runs-on: ubuntu-latest
