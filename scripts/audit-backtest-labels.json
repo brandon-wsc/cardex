@@ -6,7 +6,7 @@
   { "id": "packages/mcp-worker/src/demo.ts:72", "fnName": "stopWrangler", "label": "ok", "note": "already gone" },
   { "id": "packages/mcp-worker/src/demo.ts:89", "fnName": "waitForServer", "label": "ok", "note": "retry loop until server up" },
   { "id": "packages/mcp-worker/src/index.ts:123", "fnName": "handleProposalDecide", "label": "?", "note": "bad body → {}; decision check at :136 still rejects, so arguably ok — worth seeing what Jev says" },
-  { "id": "packages/mcp-worker/src/maintain.ts:569", "fnName": "decideProposal", "label": "ok", "note": "batch failure → structured apply_failed" },
+  { "id": "packages/mcp-worker/src/maintain.ts:578", "fnName": "decideProposal", "label": "ok", "note": "batch failure → structured apply_failed" },
   { "id": "packages/mcp-worker/src/query.ts:29", "fnName": "isIllustrative", "label": "ok", "note": "unparseable URL → illustrative=true, conservative" },
   { "id": "packages/mcp-worker/src/query.ts:65", "fnName": "isHttpUrl", "label": "ok", "note": "unparseable URL → false, validator reject" }
 ]
