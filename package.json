@@ -18,8 +18,8 @@
     "test": "pnpm --dir packages/mcp-worker test"
   },
   "devDependencies": {
-    "@typescript-eslint/parser": "8.72.0",
     "eslint": "10.13.0",
-    "jscpd": "5.4.2"
+    "jscpd": "5.4.2",
+    "typescript-eslint": "8.72.1"
   }
 }
