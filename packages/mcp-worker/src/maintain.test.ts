@@ -8,7 +8,9 @@ import {
   listProposals,
   listReports,
   parsePatch,
+  patchStatements,
   proposeChange,
+  quoteSqlIdent,
   validatePatch,
 } from "./maintain";
 import { getTerm } from "./query";
@@ -689,6 +691,122 @@ describe("listProposals invariants", () => {
       ),
       { numRuns: 30 },
     );
+  });
+});
+
+// Defense in depth for the apply path: validatePatch whitelists identifiers,
+// and patchStatements quotes them so a skipped-validation caller fails
+// closed instead of executing a smuggled fragment. TableSpec is private, so
+// the spec is rebuilt from the same PRAGMA the source reads.
+describe("patchStatements identifier quoting", () => {
+  const specFor = async (table: string) => {
+    const { results } = await tenv.DB
+      .prepare(`PRAGMA table_info(${table})`)
+      .all<{
+        name: string;
+        notnull: number;
+        dflt_value: string | null;
+        pk: number;
+      }>();
+    const pk = results
+      .filter((r) => r.pk > 0)
+      .sort((a, b) => a.pk - b.pk)
+      .map((r) => r.name);
+    const nonKeyRequired = results
+      .filter((r) => r.notnull === 1 && r.dflt_value === null && r.pk === 0)
+      .map((r) => r.name);
+    return {
+      pk,
+      required: [...pk, ...nonKeyRequired],
+      columns: results.map((r) => r.name),
+    };
+  };
+
+  it("quoteSqlIdent wraps identifiers and escapes embedded quotes", () => {
+    expect(quoteSqlIdent("quota_n")).toBe('"quota_n"');
+    expect(quoteSqlIdent('quota"n')).toBe('"quota""n"');
+  });
+
+  it("quotes the table and column identifiers in a generated INSERT", async () => {
+    const spec = await specFor("terms");
+    const [stmt] = patchStatements(
+      {
+        op: "insert",
+        table: "terms",
+        id: "term_new",
+        set: { card_id: "card_dbs", kind: "quota", text: "t" },
+      },
+      spec,
+    );
+    expect(stmt.sql).toBe(
+      'INSERT INTO "terms" ("card_id", "id", "kind", "text") ' +
+        "VALUES (?, ?, ?, ?)",
+    );
+    expect(stmt.params).toEqual(["card_dbs", "term_new", "quota", "t"]);
+  });
+
+  it("quotes identifiers in generated UPDATE and DELETE", async () => {
+    const spec = await specFor("terms");
+    const [upd] = patchStatements(
+      {
+        op: "update",
+        table: "terms",
+        id: "term_dbs_quota",
+        set: { quota_n: 1 },
+      },
+      spec,
+    );
+    expect(upd.sql).toBe(
+      'UPDATE "terms" SET "quota_n" = ? WHERE "id" = ?',
+    );
+    expect(upd.params).toEqual([1, "term_dbs_quota"]);
+
+    const [del] = patchStatements(
+      { op: "delete", table: "terms", id: "term_dbs_quota" },
+      spec,
+    );
+    expect(del.sql).toBe('DELETE FROM "terms" WHERE "id" = ?');
+    expect(del.params).toEqual(["term_dbs_quota"]);
+  });
+
+  it("quotes every pk column in the WHERE of a composite-key patch", async () => {
+    const spec = await specFor("rate_tags");
+    const [del] = patchStatements(
+      {
+        op: "delete",
+        table: "rate_tags",
+        id: "rate_hsbc_dining+dining",
+        key: { rate_id: "rate_hsbc_dining", tag_id: "dining" },
+      },
+      spec,
+    );
+    expect(del.sql).toBe(
+      'DELETE FROM "rate_tags" WHERE "rate_id" = ? AND "tag_id" = ?',
+    );
+    expect(del.params).toEqual(["rate_hsbc_dining", "dining"]);
+  });
+
+  it("turns a bogus set key into an inert quoted identifier", async () => {
+    const spec = await specFor("terms");
+    const [stmt] = patchStatements(
+      {
+        op: "update",
+        table: "terms",
+        id: "term_dbs_quota",
+        set: { "quota_n = 0, kind": 1 },
+      },
+      spec,
+    );
+    // The whole bogus key is one quoted identifier — no `=` escapes it.
+    expect(stmt.sql).toBe(
+      'UPDATE "terms" SET "quota_n = 0, kind" = ? WHERE "id" = ?',
+    );
+    // Fails closed against the real database instead of applying.
+    await expect(
+      tenv.DB.prepare(stmt.sql)
+        .bind(...stmt.params)
+        .run(),
+    ).rejects.toThrow();
   });
 });
 

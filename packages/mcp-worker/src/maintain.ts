@@ -372,8 +372,15 @@ export async function listProposals(
   return { ok: true as const, proposals: rows.results };
 }
 
+// validatePatch whitelists every identifier before apply, but quote anyway
+// so a future call path that skips validation fails closed — a bogus `set`
+// key becomes one inert quoted identifier instead of injectable SQL.
+export function quoteSqlIdent(ident: string): string {
+  return `"${ident.replace(/"/g, '""')}"`;
+}
+
 function pkWhere(spec: TableSpec): string {
-  return spec.pk.map((col) => `${col} = ?`).join(" AND ");
+  return spec.pk.map((col) => `${quoteSqlIdent(col)} = ?`).join(" AND ");
 }
 
 function pkParams(spec: TableSpec, key: Record<string, Scalar>): Scalar[] {
@@ -430,7 +437,7 @@ export async function getProposal(db: D1Database, id: string) {
   };
 }
 
-function patchStatements(
+export function patchStatements(
   patch: Patch,
   spec: TableSpec,
 ): { sql: string; params: Scalar[] }[] {
@@ -444,7 +451,8 @@ function patchStatements(
     return [
       {
         sql:
-          `INSERT INTO ${patch.table} (${cols.join(", ")}) ` +
+          `INSERT INTO ${quoteSqlIdent(patch.table)} ` +
+          `(${cols.map(quoteSqlIdent).join(", ")}) ` +
           `VALUES (${cols.map(() => "?").join(", ")})`,
         params: cols.map((c) => set[c]),
       },
@@ -462,8 +470,9 @@ function patchStatements(
     return [
       {
         sql:
-          `UPDATE ${patch.table} SET ` +
-          `${cols.map((c) => `${c} = ?`).join(", ")} WHERE ${where}`,
+          `UPDATE ${quoteSqlIdent(patch.table)} SET ` +
+          `${cols.map((c) => `${quoteSqlIdent(c)} = ?`).join(", ")} ` +
+          `WHERE ${where}`,
         params: [...cols.map((c) => set[c]), ...keyParams],
       },
     ];
@@ -471,7 +480,7 @@ function patchStatements(
 
   return [
     {
-      sql: `DELETE FROM ${patch.table} WHERE ${where}`,
+      sql: `DELETE FROM ${quoteSqlIdent(patch.table)} WHERE ${where}`,
       params: keyParams,
     },
   ];
