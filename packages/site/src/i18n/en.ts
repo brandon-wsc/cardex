@@ -23,10 +23,6 @@ export const en: UI = {
     languageLabel: "Language",
     skip: "Skip to content",
   },
-  notice: {
-    tag: "PRE-ALPHA",
-    text: "Card figures are illustrative while we verify issuer terms. Don't rely on them yet.",
-  },
   hero: {
     titleLines: ["Know which card ", "to tap."],
     accentLine: 1,

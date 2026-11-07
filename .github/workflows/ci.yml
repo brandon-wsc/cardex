@@ -23,22 +23,12 @@ jobs:
           if printf '%s' "$branch" | grep -qxE 'dev|develop|main|master'; then
             exit 0
           fi
-          # Dependabot branches are not type/slug either — dependabot.yml has
-          # no branchPrefix option, so the bot gets a path-based exemption.
-          if printf '%s' "$branch" | grep -qE '^dependabot/'; then
-            exit 0
-          fi
           if ! printf '%s' "$branch" | grep -qE '^(feat|feature|bugfix|fix|hotfix|release|chore)/[a-z0-9]+([.-][a-z0-9]+)*$'; then
             echo "::error::branch '$branch' must match type/slug per Conventional Branch —"
             echo "(feat|feature|bugfix|fix|hotfix|release|chore)/lowercase-hyphen-slug"
             exit 1
           fi
-      # Dependabot security-update PRs use GitHub's fixed "Bump x from a to b"
-      # format — the bot cannot rewrite its commits, so the format checks are
-      # unenforceable on its branches. Version-update PRs get conventional
-      # subjects from commit-message config; security-update ones get a pass.
       - name: PR title is a Conventional Commit subject, ASCII-only
-        if: ${{ !startsWith(github.head_ref, 'dependabot/') }}
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
@@ -52,7 +42,6 @@ jobs:
           fi
           echo "PR title ok"
       - name: Commit subjects are Conventional Commits, ASCII-only
-        if: ${{ !startsWith(github.head_ref, 'dependabot/') }}
         run: |
           bad=0
           while IFS= read -r subj; do
@@ -81,6 +70,15 @@ jobs:
       - name: Check drift both ways
         if: ${{ !contains(github.event.pull_request.labels.*.name, 'contract-exempt') }}
         run: node scripts/contract-gate.mjs ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }}
+
+  prd-map:
+    name: PRD row ↔ spec title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Whole-repo state, not a diff — every §4–§6 row must map to a spec
+      # title in docs/prd-rows.json, so contract-exempt cannot skip it.
+      - run: node scripts/prd-rows-gate.mjs
 
   secrets:
     name: gitleaks
@@ -134,5 +132,10 @@ jobs:
       # snapshot actually loads into a fresh local D1 before specs run.
       - name: seed.sql loads into a fresh local D1
         run: pnpm migrate && pnpm seed
+      # Semantic integrity rules over the loaded facts DB (orphan FKs,
+      # unit/kind pairs, positive values, windows, group/priority). No
+      # path filter — it runs on every PR even when the seed is unchanged.
+      - name: Data integrity suite
+        run: pnpm data:check
       - run: pnpm test
       - run: pnpm --dir packages/mcp-worker typecheck
