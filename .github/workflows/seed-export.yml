@@ -39,7 +39,7 @@ jobs:
           # --force-with-lease check.
           ref: dev
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
         with:
           version: 11.20.0
       - uses: actions/setup-node@v4
