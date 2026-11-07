@@ -185,6 +185,17 @@ describe("resolve_alias", () => {
     expect(hit?.tag_ids).toContain("dining");
   });
 
+  it("resolves spoken dining merchant names to the dining tag", async () => {
+    // Hero-demo merchants (BRA-22): the names a caller passes as said.
+    for (const query of ["譚仔", "TamJai", "壽司郎"]) {
+      const res = await resolveAlias(tenv.DB, { query });
+      expect(res.ok).toBe(true);
+      if (!res.ok) continue;
+      const dining = res.matches.find((m) => m.tag_ids.includes("dining"));
+      expect(dining, `expected a dining match for ${query}`).toBeDefined();
+    }
+  });
+
   it("resolves a card nickname and contains-matches a longer query", async () => {
     const exact = await resolveAlias(tenv.DB, { query: "hsbc red" });
     const cardHit = exact.ok
@@ -925,6 +936,24 @@ describe("audit-driven term kinds", () => {
       "merchant_list:term_hsbc_merchant_list",
     );
     if (res.ok) expect(res.merchant_checked).toBe("壽司郎");
+  });
+
+  it("scores the hero path: alias supplies the tag, merchant clears the whitelist", async () => {
+    // BRA-22 — same shape as the site demo call in packages/site/src/data/demo.ts.
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 280,
+      alias: "譚仔",
+      merchant: "譚仔",
+      card_ids: ["card_hsbc_red", "card_aeon"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.merchant_checked).toBe("譚仔");
+    const row = res.candidates.find((c) => c.rate_id === "rate_hsbc_dining");
+    expect(row?.unknown_exclusions).not.toContain(
+      "merchant_list:term_hsbc_merchant_list",
+    );
+    expect(row?.calculated_rebate_hkd).toBe(22.4);
   });
 
   it("echoes exclusive_group and priority on competing rate rows", async () => {
