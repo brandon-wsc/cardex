@@ -1,0 +1,50 @@
+name: Audit gate
+
+# Advisory LLM audit (ADR 0010): Jev scores catch/.catch() candidates in the
+# diff against docs/audit-rules.md and reports findings as check-run
+# annotations. Always concludes success or neutral — never blocks merge.
+# Fork PRs get no secrets and a read-only GITHUB_TOKEN: the script reports
+# "skipped" and exits 0 either way.
+
+on:
+  pull_request:
+
+concurrency:
+  group: audit-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: jev error-handling audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.20.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.4
+          cache: pnpm
+      # Candidate extraction uses the TS compiler API resolved from the site
+      # package (mcp-worker's TS7 has no JS API), so deps must be installed.
+      - run: pnpm install --frozen-lockfile
+      - name: Jev audit
+        env:
+          # The OpenRouter key lives under OPENAI_API_KEY (same convention as
+          # graphify-semantic.yml). TYPESAFE_API_KEY, if ever added, wins.
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUDIT_EXEMPT: ${{ contains(github.event.pull_request.labels.*.name, 'audit-exempt') && '1' || '' }}
+        run: |
+          node scripts/audit-gate.mjs \
+            ${{ github.event.pull_request.base.sha }} \
+            ${{ github.event.pull_request.head.sha }}

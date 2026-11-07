@@ -10,17 +10,9 @@
 //   node scripts/audit-backtest.mjs run --prs N   # also replay the last N merged PRs (noise count only)
 
 import { execFileSync } from "node:child_process";
-import { createRequire } from "node:module";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
-
-const ROOT = resolve(import.meta.dirname, "..");
-// mcp-worker pins TypeScript 7 (native binary, no JS API); the site package
-// carries 6.0.3 which still exposes createSourceFile. Parse-only, so either
-// would do — resolve from site.
-const SITE_PKG = resolve(ROOT, "packages/site/package.json");
-const requireFromSite = createRequire(SITE_PKG);
-const ts = requireFromSite("typescript");
+import { ROOT, callersOf, findCandidates, jev } from "./lib/audit-common.mjs";
 
 const OUT_DIR = resolve(ROOT, "scripts/out");
 const LABELS_PATH = resolve(ROOT, "scripts/audit-backtest-labels.json");
@@ -28,27 +20,7 @@ const RESULTS_PATH = resolve(OUT_DIR, "audit-backtest-results.csv");
 const RULE_PATH = resolve(ROOT, "docs/audit-rules.md");
 
 const SCAN_DIRS = ["packages/mcp-worker/src"];
-const MODEL = "jev-1.14";
 const RUNS = 3; // repeat calls per variant — stability signal
-
-// TypeSafe direct first (no geo gate); OpenRouter fallback is geo-restricted
-// for some regions — it 403s before reaching TypeSafe. The OpenRouter key
-// may arrive as OPENROUTER_API_KEY or OPENAI_API_KEY — the repo stores it
-// under OPENAI_API_KEY (same convention as graphify-semantic.yml, which
-// points the OpenAI-compatible base URL at OpenRouter).
-const OPENROUTER_KEY =
-  process.env.OPENROUTER_API_KEY ?? process.env.OPENAI_API_KEY;
-const API =
-  process.env.TYPESAFE_API_KEY != null
-    ? {
-        url: "https://api.typesafe.ai/v1/systemone",
-        key: process.env.TYPESAFE_API_KEY,
-      }
-    : {
-        url: "https://openrouter.ai/api/alpha/decisions",
-        key: OPENROUTER_KEY,
-        model: `typesafe/${MODEL}`,
-      };
 
 // Manually applied to the extracted function text; each becomes a known-bad
 // sample. The patch must match the candidate function verbatim.
@@ -70,7 +42,7 @@ const MUTATIONS = [
     note: "malformed JWT segment → empty object passes through parse",
   },
   {
-    base: "packages/mcp-worker/src/maintain.ts:569",
+    base: "packages/mcp-worker/src/maintain.ts:578",
     find: `return fail("apply_failed", e instanceof Error ? e.message : String(e));`,
     replace: `return { ok: true as const, status: "applied" };`,
     note: "failed db.batch → proposal reported applied with nothing written",
@@ -141,121 +113,6 @@ function tsFiles(dir) {
     .split("\n")
     .filter((f) => f && !f.endsWith(".test.ts") && !f.endsWith(".d.ts"));
   return out;
-}
-
-function isFunctionNode(node) {
-  return (
-    ts.isFunctionDeclaration(node) ||
-    ts.isFunctionExpression(node) ||
-    ts.isArrowFunction(node) ||
-    ts.isMethodDeclaration(node)
-  );
-}
-
-function functionName(fn) {
-  if (fn.name) return fn.name.getText();
-  if (ts.isVariableDeclaration(fn.parent) && ts.isIdentifier(fn.parent.name))
-    return fn.parent.name.getText();
-  if (ts.isPropertyAssignment(fn.parent) && ts.isIdentifier(fn.parent.name))
-    return fn.parent.name.getText();
-  return "<anonymous>";
-}
-
-function findCandidates(relPath) {
-  const abs = resolve(ROOT, relPath);
-  const source = readFileSync(abs, "utf8");
-  const sf = ts.createSourceFile(relPath, source, ts.ScriptTarget.Latest, true);
-  const found = [];
-  const visit = (node, enclosing) => {
-    const fn = isFunctionNode(node) ? node : enclosing;
-    if (ts.isCatchClause(node)) {
-      found.push({ node, enclosing: fn, kind: "catch" });
-    } else if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      node.expression.name.text === "catch"
-    ) {
-      found.push({ node, enclosing: fn, kind: ".catch" });
-    }
-    ts.forEachChild(node, (child) => visit(child, fn));
-  };
-  ts.forEachChild(sf, (n) => visit(n, null));
-  return found.map(({ node, enclosing, kind }) => {
-    const { line } = ts.getLineAndCharacterOfPosition(sf, node.getStart());
-    const scopeNode = enclosing ?? sf;
-    const scopeText = scopeNode.getText(sf);
-    const fnName = enclosing ? functionName(enclosing) : "<module>";
-    return {
-      id: `${relPath}:${line + 1}`,
-      file: relPath,
-      line: line + 1,
-      kind,
-      fnName,
-      fnText: scopeText,
-      fileText: source,
-    };
-  });
-}
-
-function callersOf(cand) {
-  if (cand.fnName === "<module>" || cand.fnName === "<anonymous>") return "";
-  const sf = ts.createSourceFile(
-    cand.file,
-    cand.fileText,
-    ts.ScriptTarget.Latest,
-    true,
-  );
-  const enclosing = [];
-  const seen = new Set();
-  const visit = (node, enclosingFn) => {
-    const fn = isFunctionNode(node) ? node : enclosingFn;
-    if (
-      ts.isIdentifier(node) &&
-      node.text === cand.fnName &&
-      fn &&
-      fn.getText(sf) !== cand.fnText &&
-      !cand.fnText.includes(fn.getText(sf)) && // not inside the candidate itself
-      !seen.has(fn)
-    ) {
-      seen.add(fn);
-      enclosing.push({ name: functionName(fn), text: fn.getText(sf) });
-    }
-    ts.forEachChild(node, (c) => visit(c, fn));
-  };
-  ts.forEachChild(sf, (n) => visit(n, null));
-  return enclosing
-    .map((c) => `--- caller ${c.name} ---\n${c.text}`)
-    .join("\n\n");
-}
-
-// --- Jev ---------------------------------------------------------------------
-
-async function jev(state, questions) {
-  if (!API.key)
-    throw new Error(
-      "set TYPESAFE_API_KEY (direct) or OPENROUTER_API_KEY / OPENAI_API_KEY",
-    );
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const res = await fetch(API.url, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${API.key}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: API.model ?? MODEL,
-        state,
-        questions,
-      }),
-    });
-    if (res.ok) return await res.json();
-    if (res.status === 429 || res.status >= 500) {
-      await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
-      continue;
-    }
-    throw new Error(`decisions ${res.status}: ${await res.text()}`);
-  }
-  throw new Error("decisions: retries exhausted");
 }
 
 // --- scoring variants --------------------------------------------------------

@@ -1,8 +1,10 @@
 # Audit rules — error handling
 
 Working rules for the Jev-based audit gate (warning-only, not a merge
-blocker). Draft status: thresholds and scope are tuned by the backtest in
-`scripts/audit-backtest.mjs` before the gate goes live.
+blocker — [ADR 0010](adr/0010-advisory-audit-gate.md)). The gate lives in
+`scripts/audit-gate.mjs`; calibration came from `scripts/audit-backtest.mjs`.
+The question text under each rule below is what the gate sends verbatim —
+update the script and this file together.
 
 ## Gate flow
 
@@ -99,6 +101,8 @@ wording below is deliberately terse and is what the gate sends verbatim.
 
 ### TEST-01 — mock bypasses the unit under test
 
+- **status**: drafted, not wired into the gate yet — v1 covers ERR-01/02/03
+  only.
 - **applies to**: `*.test.ts` / spec files.
 - **instructions**: Does the test mock away the very code path it claims
   to verify, so the assertion can pass without the real logic running?
