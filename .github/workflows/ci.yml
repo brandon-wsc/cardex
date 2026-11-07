@@ -132,5 +132,10 @@ jobs:
       # snapshot actually loads into a fresh local D1 before specs run.
       - name: seed.sql loads into a fresh local D1
         run: pnpm migrate && pnpm seed
+      # Semantic integrity rules over the loaded facts DB (orphan FKs,
+      # unit/kind pairs, positive values, windows, group/priority). No
+      # path filter — it runs on every PR even when the seed is unchanged.
+      - name: Data integrity suite
+        run: pnpm data:check
       - run: pnpm test
       - run: pnpm --dir packages/mcp-worker typecheck
