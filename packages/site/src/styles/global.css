@@ -85,10 +85,6 @@ code { font-family: var(--font-mono); font-size: 0.92em; }
 .lang a[aria-current="page"] { background: var(--color-ink); color: var(--color-paper); }
 .lang a:not([aria-current="page"]):hover { background: var(--color-paper-2); }
 
-.notice { border-bottom: var(--rule-hair) solid var(--color-rule); background: var(--color-paper-2); font-size: var(--text-xs); color: var(--color-ink-2); }
-.notice .wrap { padding-top: var(--space-xs); padding-bottom: var(--space-xs); }
-.notice b { color: var(--color-accent); font-family: var(--font-mono); font-weight: 600; letter-spacing: 0.04em; margin-right: var(--space-xs); }
-
 /* ── Hero (split) ─────────────────────────────────────── */
 .hero { padding: var(--space-3xl) 0; }
 .hero .wrap { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr); gap: var(--space-3xl); align-items: start; }

@@ -21,10 +21,6 @@ export const zhHK = {
     languageLabel: "語言",
     skip: "跳到主要內容",
   },
-  notice: {
-    tag: "PRE-ALPHA",
-    text: "我哋仲核實緊發卡行條款，而家啲數字只係示範，暫時唔好靠佢做決定。",
-  },
   hero: {
     titleLines: ["碌邊張卡，", "問一句", "就知。"],
     accentLine: 1,
