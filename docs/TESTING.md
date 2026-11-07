@@ -20,3 +20,5 @@ Add commands to the root [`AGENTS.md`](../AGENTS.md) when they actually run.
 `score_candidates` tests, if the tool exists, assert that the result echoes `assumptions` and lists `unknown_exclusions`. They do not assert a winner.
 
 Seed fixtures are committed. A test that needs the network to pass is a bug in the test.
+
+`pnpm data:check` is the facts-integrity gate for the prod snapshot, not a spec tier: `scripts/data-check.mjs` migrate+seeds the local D1, then runs semantic rules that cannot live in DDL — orphan FKs on every declared relation, `unit` matching rate `kind`, `rates.value > 0`, ordered `effective_from`/`effective_to` windows, and `exclusive_group` pairing with an integer `priority`. Violations fail with the offending row ids. The script self-tests first — every rule must trip on a planted violation in an in-memory copy (`--selftest-only` runs just that), so a silently broken check cannot go green. CI runs it on every PR with no path filter.

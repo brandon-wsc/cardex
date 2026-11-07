@@ -9,6 +9,7 @@
     "migrate": "pnpm --dir packages/mcp-worker migrate",
     "seed": "pnpm --dir packages/mcp-worker seed",
     "export-seed": "bash scripts/export-seed.sh",
+    "data:check": "pnpm migrate && pnpm seed && node --disable-warning=ExperimentalWarning scripts/data-check.mjs",
     "demo": "pnpm build:site && pnpm migrate && pnpm seed && pnpm --dir packages/mcp-worker demo",
     "dup": "jscpd packages/mcp-worker/src && node scripts/dup-baseline.mjs",
     "prd-rows": "node scripts/prd-rows-gate.mjs",

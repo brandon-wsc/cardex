@@ -53,6 +53,7 @@ pnpm install
 pnpm migrate    # apply D1 migrations to the local database
 pnpm seed       # load seed/seed.sql into local D1
 pnpm export-seed # rebuild seed/seed.sql from prod D1 (facts tables only)
+pnpm data:check # migrate+seed, then facts-integrity rules vs loaded local D1
 pnpm dev        # build site, then wrangler dev — site at http://localhost:8787, MCP at /mcp
 pnpm dev:site   # Astro dev server for page work (no /mcp, no /admin/api)
 pnpm build:site # astro check + build → packages/site/dist (needed before test/dev/deploy)
