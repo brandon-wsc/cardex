@@ -314,6 +314,35 @@ describe("validatePatch invariants", () => {
       { numRuns: 20 },
     );
   });
+
+  it("rejects insert when set names a different primary key than the id", async () => {
+    const pks = new Map<string, string[]>();
+    for (const t of FACT_TABLE_NAMES) {
+      pks.set(t, pkColumns(await tableInfo(t)));
+    }
+    const single = FACT_TABLE_NAMES.filter(
+      (t) => (pks.get(t) ?? []).length === 1,
+    );
+    await fc.assert(
+      fc.asyncProperty(
+        fc.constantFrom(...single),
+        fc.string({ minLength: 1 }),
+        fc.string({ minLength: 1 }),
+        async (table, id, other) => {
+          fc.pre(other !== id);
+          const pk = (pks.get(table) ?? [])[0];
+          const errors = await validatePatch(tenv.DB, {
+            op: "insert",
+            table,
+            id,
+            set: { [pk]: other },
+          });
+          expect(errors).toContain(`set.${pk} does not match id`);
+        },
+      ),
+      { numRuns: 20 },
+    );
+  });
 });
 
 describe("proposeChange", () => {

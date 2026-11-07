@@ -136,6 +136,16 @@ function rowKey(patch: Patch, spec: TableSpec): Record<string, Scalar> | null {
     : patchKey(patch, spec);
 }
 
+function insertPkDisagreesWithId(
+  patch: Patch,
+  spec: TableSpec,
+): string | null {
+  if (spec.pk.length !== 1 || !patch.set) return null;
+  const pk = spec.pk[0];
+  if (!(pk in patch.set) || patch.set[pk] === patch.id) return null;
+  return `set.${pk} does not match id`;
+}
+
 function validateInsert(
   patch: Patch,
   spec: TableSpec,
@@ -144,6 +154,8 @@ function validateInsert(
   if (!patch.set || Object.keys(patch.set).length === 0) {
     errors.push("insert requires a non-empty set");
   } else {
+    const pkMismatch = insertPkDisagreesWithId(patch, spec);
+    if (pkMismatch) errors.push(pkMismatch);
     const merged = { ...patch.set };
     if (spec.pk.length === 1 && !(spec.pk[0] in merged)) {
       merged[spec.pk[0]] = patch.id;
