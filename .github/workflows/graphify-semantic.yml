@@ -71,7 +71,7 @@ jobs:
       - name: Add index redirect to graph.html
         run: printf '<!doctype html><meta http-equiv="refresh" content="0; url=graph.html">' > graphify-out/index.html
       - name: Deploy cardex-graph worker
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
