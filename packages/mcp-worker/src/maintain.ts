@@ -144,6 +144,13 @@ function validateInsert(
   if (!patch.set || Object.keys(patch.set).length === 0) {
     errors.push("insert requires a non-empty set");
   } else {
+    if (
+      spec.pk.length === 1 &&
+      spec.pk[0] in patch.set &&
+      patch.set[spec.pk[0]] !== patch.id
+    ) {
+      errors.push(`set.${spec.pk[0]} does not match id`);
+    }
     const merged = { ...patch.set };
     if (spec.pk.length === 1 && !(spec.pk[0] in merged)) {
       merged[spec.pk[0]] = patch.id;
