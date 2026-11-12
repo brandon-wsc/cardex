@@ -10,3 +10,7 @@ worker-configuration.d.ts
 .playwright-mcp/
 graphify-out/
 scripts/out/
+
+# Agent skill runtime artifacts
+.agents/skills/*/evidence/
+.agents/skills/*/runs/
