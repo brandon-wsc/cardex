@@ -97,6 +97,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # money-scan's --diff compares against the PR base commit.
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
         with:
           version: 11.20.0
@@ -108,6 +111,10 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
+      # ADR 0011: the same cardex/money-math rule, scoped to this PR's
+      # diff so new float money math is called out where it lands.
+      - name: Money-math scan on changed files
+        run: node scripts/money-scan.mjs --diff ${{ github.event.pull_request.base.sha }}
 
   test:
     name: vitest + typecheck
