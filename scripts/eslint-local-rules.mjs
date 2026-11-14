@@ -9,7 +9,8 @@
 //             projectService: ask the TypeScript checker directly. A
 //             *computed* number operand (any number-typed value that is
 //             not a compile-time literal) inside arithmetic, rounding
-//             calls, or a computed-vs-computed comparison is a finding.
+//             or clamp calls, or a computed-vs-computed comparison is
+//             a finding.
 //             Dec is exempt by type; literals (5 - 3, x > 0, cmp() < 0)
 //             are folds and sign checks, not money math. Renaming a
 //             variable cannot dodge it — this is the mode that proves
@@ -89,6 +90,7 @@ const isCountOrTime = (node) =>
     node.callee.object.name === "Date");
 
 const ROUNDING_MEMBERS = new Set(["round", "floor", "ceil", "trunc"]);
+const CLAMP_MEMBERS = new Set(["min", "max"]);
 
 const moneyMathRule = {
   meta: {
@@ -201,14 +203,15 @@ const moneyMathRule = {
         const callee = node.callee;
         if (callee.type !== "MemberExpression" || callee.computed) return;
         const prop = callee.property;
-        const isRounding =
+        const isFloatMath =
           (callee.object.type === "Identifier" &&
             callee.object.name === "Math" &&
             prop.type === "Identifier" &&
-            ROUNDING_MEMBERS.has(prop.name)) ||
+            (ROUNDING_MEMBERS.has(prop.name) ||
+              CLAMP_MEMBERS.has(prop.name))) ||
           (prop.type === "Identifier" &&
             (prop.name === "toFixed" || prop.name === "toPrecision"));
-        if (!isRounding) return;
+        if (!isFloatMath) return;
         const target =
           callee.object.type === "Identifier" && callee.object.name === "Math"
             ? node.arguments

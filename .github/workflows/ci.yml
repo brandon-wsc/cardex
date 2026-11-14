@@ -115,6 +115,7 @@ jobs:
       # diff so new float money math is called out where it lands.
       - name: Money-math scan on changed files
         run: node scripts/money-scan.mjs --diff ${{ github.event.pull_request.base.sha }}
+      - run: pnpm test:money-rule
 
   test:
     name: vitest + typecheck

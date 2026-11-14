@@ -648,9 +648,16 @@ export async function scoreCandidates(
     );
   }
   const fxRate = assumptions.hkd_per_foreign_unit ?? null;
+  if (fxRate !== null && !Number.isFinite(fxRate)) {
+    return fail(
+      "missing_fx_rate",
+      "assumptions.hkd_per_foreign_unit must be finite",
+      seed,
+    );
+  }
   let amountHkdDec = Dec.of(spend);
   if (currency !== "HKD" && hasAmount) {
-    if (fxRate === null || !Number.isFinite(fxRate) || fxRate <= 0) {
+    if (fxRate === null || fxRate <= 0) {
       return fail(
         "missing_fx_rate",
         "non-HKD amount needs a finite assumptions.hkd_per_foreign_unit",

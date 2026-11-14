@@ -2372,6 +2372,18 @@ describe("exact decimal scoring — ADR 0011", () => {
     if (!infFx.ok) expect(infFx.error).toBe("missing_fx_rate");
   });
 
+  it("rejects a supplied non-finite hkd_per_foreign_unit on an HKD spend", async () => {
+    for (const fx of [Infinity, Number.NaN]) {
+      const res = await scoreCandidates(tenv.DB, {
+        amount_hkd: 800,
+        tag_ids: ["dining"],
+        assumptions: { hkd_per_foreign_unit: fx },
+      });
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error).toBe("missing_fx_rate");
+    }
+  });
+
   it("agrees with integer-cent math on arbitrary spend amounts", async () => {
     // rate_dbs_dining_base is 1%: expected value is cents × 1% rounded
     // half-up — computable exactly in integers.
