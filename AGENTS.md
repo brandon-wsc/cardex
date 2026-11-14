@@ -62,6 +62,7 @@ pnpm test       # vitest — specs from the PRD tables, inside workerd + real D1
 pnpm typecheck  # Worker tsc + astro check
 pnpm dup        # jscpd clone scan → docs/dup-baseline/ (advisory, no gate)
 pnpm prd-rows   # PRD §4–§6 row ↔ spec-title gate + AGENTS.md pnpm-cmd check
+pnpm money-scan # cardex/money-math scan over all ts/tsx; --diff <ref> for changed files (ADR 0011)
 ```
 
 Package manager is pnpm (`packageManager` in the root `package.json`). `.npmrc` sets `minimum-release-age=10080` (minutes). Install with a pinned version published at least 7 days ago. Never use `latest` or an unbounded range, and never weaken `.npmrc` to get an install through.
