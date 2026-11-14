@@ -1,4 +1,5 @@
 import { ISSUER_ALIASES, NETWORK_ALIASES } from "./aliases";
+import { Dec } from "./decimal";
 
 // ADR 0005: illustrative is per-record — a rate or term is verified when
 // source_url is a real URL (not the example.invalid placeholder host the
@@ -256,10 +257,6 @@ function aliasHits(query: string, alias: string): boolean {
   if (q === a) return true;
   if ([...q].length < 2 || [...a].length < 2) return false;
   return q.includes(a) || a.includes(q);
-}
-
-function round2(value: number): number {
-  return Math.round(value * 100) / 100;
 }
 
 function placeholders(count: number): string {
@@ -625,8 +622,8 @@ export async function scoreCandidates(
     );
   }
   const spend = (hasAmountHkd ? input.amount_hkd : input.amount)!;
-  if (!(spend > 0)) {
-    return fail("invalid_amount", "amount must be positive", seed);
+  if (!Number.isFinite(spend) || spend <= 0) {
+    return fail("invalid_amount", "amount must be a finite positive number", seed);
   }
 
   const currency = (input.currency ?? "HKD").trim().toUpperCase();
@@ -634,17 +631,33 @@ export async function scoreCandidates(
     return fail("invalid_currency", "currency must be a three-letter code", seed);
   }
   const assumptions = input.assumptions ?? {};
+  // ADR 0011: money moves through Dec (BigInt rational), never raw float.
+  // A non-finite assumption is rejected up front rather than poisoning
+  // a comparison downstream; the fx rate gets its own failure code.
+  if (
+    [
+      assumptions.month_to_date_rebate_hkd,
+      assumptions.month_to_date_spend_hkd,
+      assumptions.hkd_per_point,
+    ].some((v) => v !== undefined && !Number.isFinite(v))
+  ) {
+    return fail(
+      "invalid_amount",
+      "numeric assumptions must be finite",
+      seed,
+    );
+  }
   const fxRate = assumptions.hkd_per_foreign_unit ?? null;
-  let amountHkd = spend;
+  let amountHkdDec = Dec.of(spend);
   if (currency !== "HKD" && hasAmount) {
-    if (fxRate === null || !(fxRate > 0)) {
+    if (fxRate === null || !Number.isFinite(fxRate) || fxRate <= 0) {
       return fail(
         "missing_fx_rate",
-        "non-HKD amount needs assumptions.hkd_per_foreign_unit",
+        "non-HKD amount needs a finite assumptions.hkd_per_foreign_unit",
         seed,
       );
     }
-    amountHkd = round2(spend * fxRate);
+    amountHkdDec = Dec.of(spend).mul(fxRate).round(2);
   }
 
   const asOf = checkAsOf(input.as_of, seed);
@@ -779,16 +792,18 @@ export async function scoreCandidates(
       key: string;
       status: ConditionStatus;
     }[] = [];
-    let calculated: number | null = null;
+    let calculated: Dec | null = null;
 
-    if (rate.kind === "rebate_percent") {
-      calculated = round2((amountHkd * rate.value) / 100);
+    if (!Number.isFinite(rate.value)) {
+      unknown.push("rate_value");
+    } else if (rate.kind === "rebate_percent") {
+      calculated = amountHkdDec.mul(rate.value).div(100);
     } else if (assumptions.hkd_per_point === undefined) {
       unknown.push("points_value");
     } else if (rate.unit === "points_per_hkd") {
-      calculated = round2(amountHkd * rate.value * assumptions.hkd_per_point);
+      calculated = amountHkdDec.mul(rate.value).mul(assumptions.hkd_per_point);
     } else if (rate.unit === "hkd_per_mile" || rate.unit === "hkd_per_point") {
-      calculated = round2((amountHkd / rate.value) * assumptions.hkd_per_point);
+      calculated = amountHkdDec.div(rate.value).mul(assumptions.hkd_per_point);
     } else {
       unknown.push(`points_unit:${rate.unit}`);
     }
@@ -820,12 +835,19 @@ export async function scoreCandidates(
           condition("unchecked");
           continue;
         }
-        if (calculated === null || term.cap_hkd === null) {
+        if (
+          calculated === null ||
+          term.cap_hkd === null ||
+          !Number.isFinite(term.cap_hkd)
+        ) {
           condition("passed");
           continue;
         }
-        const remaining = Math.max(0, term.cap_hkd - assumptions.month_to_date_rebate_hkd);
-        calculated = round2(Math.min(calculated, remaining));
+        const remainingDec = Dec.max(
+          Dec.of(term.cap_hkd).sub(assumptions.month_to_date_rebate_hkd),
+          Dec.of(0),
+        );
+        calculated = Dec.min(calculated, remainingDec);
         condition("applied");
         continue;
       }
@@ -848,13 +870,13 @@ export async function scoreCandidates(
           condition("caller_settled");
           continue;
         }
-        if (term.threshold_hkd === null) {
+        if (term.threshold_hkd === null || !Number.isFinite(term.threshold_hkd)) {
           unknown.push(key);
           condition("unchecked");
           continue;
         }
         if (term.period === "per_transaction") {
-          if (amountHkd < term.threshold_hkd) {
+          if (amountHkdDec.cmp(term.threshold_hkd) < 0) {
             failed.push(`min_spend_unmet:${term.id}`);
             calculated = null;
             condition("failed");
@@ -869,7 +891,7 @@ export async function scoreCandidates(
           condition("unchecked");
           continue;
         }
-        if (mtdSpend + amountHkd < term.threshold_hkd) {
+        if (amountHkdDec.add(mtdSpend).cmp(term.threshold_hkd) < 0) {
           failed.push(`min_spend_unmet:${term.id}`);
           calculated = null;
           condition("failed");
@@ -929,7 +951,7 @@ export async function scoreCandidates(
       kind: rate.kind,
       value: rate.value,
       unit: rate.unit,
-      calculated_rebate_hkd: calculated,
+      calculated_rebate_hkd: calculated === null ? null : calculated.round(2).toNumber(),
       unknown_exclusions: unknown,
       failed_terms: failed,
       conditions,
@@ -955,7 +977,7 @@ export async function scoreCandidates(
     ok: true as const,
     provenance: provenanceFor(candidates),
     seed_as_of: seed,
-    amount_hkd: amountHkd,
+    amount_hkd: amountHkdDec.toNumber(),
     currency,
     fx_rate: fxRate,
     tag_ids: tagList,
