@@ -43,7 +43,7 @@
     "`limit` above 100": "clamps limit above 100 and echoes limit_requested",
     "Score with no tag and no usable alias": "rejects a spend with no tags or usable alias as missing_spend",
     "Score with a `merchant` and no usable tags": "clarifies an unmapped merchant instead of generic missing_spend",
-    "Score with both or neither of `amount_hkd` / `amount`, or a non-positive amount": "requires exactly one of amount_hkd and amount",
+    "Score with both or neither of `amount_hkd` / `amount`, or a non-positive or non-finite amount": "requires exactly one of amount_hkd and amount",
     "Score `currency` that is not three letters": "rejects a currency that is not three letters",
     "Score non-HKD `amount` without `hkd_per_foreign_unit`": "rejects a non-HKD amount without hkd_per_foreign_unit",
     "Cap or exclusion the caller did not settle": "lists unchecked exclusions and hides checked ones",

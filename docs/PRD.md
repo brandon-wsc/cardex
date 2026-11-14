@@ -105,8 +105,8 @@ Public intake is bounded. `evidence_url`, when present, must be an `http:`/`http
 
 Inputs:
 
-- `amount_hkd` or `amount` — exactly one is required and must be > 0, else `invalid_amount`. `amount_hkd` is already in HKD; `amount` is denominated in `currency` ([ADR 0006](adr/0006-score-currency.md)).
-- `currency` — an ISO 4217 three-letter code, normalized to upper case. Absent means the caller asserted nothing about billing currency; the spend is still treated as HKD units. A value that is not three letters → `invalid_currency`. `assumptions.hkd_per_foreign_unit` — HKD per one unit of `currency`; required when `amount` is given with a non-HKD `currency`, else `missing_fx_rate`. The spend converts as `amount × rate`, rounded to cents, before any scoring. `amount_hkd` with a non-HKD `currency` means the caller converted the amount itself.
+- `amount_hkd` or `amount` — exactly one is required and must be a finite number > 0, else `invalid_amount`. `amount_hkd` is already in HKD; `amount` is denominated in `currency` ([ADR 0006](adr/0006-score-currency.md)).
+- `currency` — an ISO 4217 three-letter code, normalized to upper case. Absent means the caller asserted nothing about billing currency; the spend is still treated as HKD units. A value that is not three letters → `invalid_currency`. `assumptions.hkd_per_foreign_unit` — HKD per one unit of `currency`; required when `amount` is given with a non-HKD `currency`, else `missing_fx_rate`. The spend converts as `amount × rate`, rounded half-up to cents, before any scoring. `amount_hkd` with a non-HKD `currency` means the caller converted the amount itself.
 - `card_ids?` — restricts scoring to those cards. This is the held-set path after the user confirms their wallet; Cardex never learns why the set was chosen. Alias hits contribute their `card_ids` to the same scope.
 - Tags come from `tag_ids` and from `alias` (via the same match as `resolve_alias`). No tags at all → `missing_spend`, or `unmapped_merchant` when `merchant` was passed — that failure echoes the merchant and lists `valid_tag_ids`, so the caller can ask its user to classify the spend; Cardex never guesses the category from the merchant name. Resolved tag ids that do not exist are echoed as `unknown_tag_ids` — the call still scores the tags that resolved, and an all-unknown list returns `ok` with empty `candidates`. Same ok-plus-flag contract as `lookup_rates`' `unknown_tag_id`.
 - `as_of` — filters windowed terms. Default today.
@@ -115,6 +115,8 @@ Inputs:
 - `assumptions.month_to_date_spend_hkd` — eligible spend already made this period, used only to check cumulative `min_spend` gates.
 - `assumptions.hkd_per_point` — how the caller values one unit (point or mile) of a `points` rate's `unit`.
 - `assumptions.checked_exclusions` — keys the caller asserts do **not** apply. Clears any term by `<kind>:<term id>` (and plain `exclusion_key` for exclusions). Keys that matched no scored term are echoed on the envelope as `unmatched_checked_exclusions`.
+
+All scoring arithmetic is exact decimal math over BigInt rationals ([ADR 0011](adr/0011-decimal-scoring.md)) — IEEE-754 doubles cannot express `0.1` or a `.xx5` midpoint, so binary float would mis-round boundary cases and mis-judge threshold comparisons. Reported money (`calculated_rebate_hkd`, the echoed `amount_hkd`) is rounded half-up to cents at the boundary; comparisons and subtractions never see float error. Non-finite numeric input (`NaN`, `Infinity`) in the spend or `assumptions` is `invalid_amount`; a non-finite `hkd_per_foreign_unit` is `missing_fx_rate`.
 
 For each matching rate:
 
@@ -171,7 +173,7 @@ A cleared exclusion is the caller saying "this does not apply", not Cardex decid
 | `limit` above 100 | Clamped, `clamped: true` |
 | Score with no tag and no usable alias | `ok: false`, `error: "missing_spend"` |
 | Score with a `merchant` and no usable tags | `ok: false`, `error: "unmapped_merchant"` — echoes the merchant and lists `valid_tag_ids` |
-| Score with both or neither of `amount_hkd` / `amount`, or a non-positive amount | `ok: false`, `error: "invalid_amount"` |
+| Score with both or neither of `amount_hkd` / `amount`, or a non-positive or non-finite amount | `ok: false`, `error: "invalid_amount"` |
 | Score `currency` that is not three letters | `ok: false`, `error: "invalid_currency"` |
 | Score non-HKD `amount` without `hkd_per_foreign_unit` | `ok: false`, `error: "missing_fx_rate"` |
 | Cap or exclusion the caller did not settle | Row still returned. The gap is in `unknown_exclusions` |

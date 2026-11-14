@@ -14,6 +14,8 @@
     "dup": "jscpd packages/mcp-worker/src && node scripts/dup-baseline.mjs",
     "prd-rows": "node scripts/prd-rows-gate.mjs",
     "lint": "eslint",
+    "money-scan": "node scripts/money-scan.mjs",
+    "test:money-rule": "node --test scripts/eslint-local-rules.test.mjs",
     "typecheck": "pnpm --dir packages/mcp-worker typecheck && pnpm --dir packages/site check",
     "test": "pnpm --dir packages/mcp-worker test"
   },
