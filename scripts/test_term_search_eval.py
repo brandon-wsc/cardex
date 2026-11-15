@@ -211,6 +211,30 @@ class TermSearchEvalTests(unittest.TestCase):
               texts[16:])],
         )
 
+    def test_rerank_summary_reports_score_separation(self):
+        cases = [
+            {"id": "hit", "relevant_ids": ["a"]},
+            {"id": "miss", "relevant_ids": []},
+        ]
+        ranked = {
+            "hit": [
+                {"term_id": "b", "rerank_score": 0.95},
+                {"term_id": "a", "rerank_score": 0.70},
+            ],
+            "miss": [{"term_id": "c", "rerank_score": 0.40}],
+        }
+        summary = evaluation.summarize_rerank(cases, ranked)
+        self.assertEqual(summary["positive_top1"]["max"], 0.95)
+        self.assertEqual(summary["negative_top1"]["max"], 0.40)
+        self.assertEqual(summary["positive_gold"]["min"], 0.70)
+        self.assertAlmostEqual(summary["separation_margin"], 0.30)
+        summary = evaluation.summarize_rerank(
+            [{"id": "only-neg", "relevant_ids": []}],
+            {"only-neg": [{"term_id": "c", "rerank_score": 0.5}]},
+        )
+        self.assertIsNone(summary["positive_top1"])
+        self.assertNotIn("separation_margin", summary)
+
     def test_ollama_http_error_and_unreachable_server_fail_closed(self):
         with patch.object(
             evaluation.urllib.request, "urlopen",
