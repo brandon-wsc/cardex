@@ -1,0 +1,23 @@
+{"corpus_sha256":"9ba01aef88fa886c5bd4aca20be0d02f8a3c693f3d7e21e1cf1529628c03cd2d","cases":[
+  {"id":"hsbc-octopus-zh","language":"yue","query":"HSBC Red 八達通自動增值有冇網購回贈？","as_of":"2026-11-15","card_id":"card_hsbc_red","relevant_ids":["term_hsbc_octopus"]},
+  {"id":"hsbc-cap-zh","language":"yue","query":"匯豐 Red 網上消費每個月賺幾多就封頂？","as_of":"2026-11-15","card_id":"card_hsbc_red","relevant_ids":["term_hsbc_online_cap"]},
+  {"id":"hsbc-two-conditions","language":"en","query":"HSBC Red online spend limit and Octopus top-up exception","as_of":"2026-11-15","card_id":"card_hsbc_red","relevant_ids":["term_hsbc_online_cap","term_hsbc_octopus"]},
+  {"id":"hsbc-merchants","language":"yue","query":"Red 卡喺譚仔食飯係咪指定商戶？","as_of":"2026-11-15","card_id":"card_hsbc_red","relevant_ids":["term_hsbc_merchant_list"]},
+  {"id":"dbs-register-zh","language":"yue","query":"DBS Eminent 要唔要喺 app 報名先有額外回贈？","as_of":"2026-11-15","card_id":"card_dbs","relevant_ids":["term_dbs_register"]},
+  {"id":"dbs-minimum","language":"en","query":"DBS Eminent designated dining needs a minimum single transaction?","as_of":"2026-11-15","card_id":"card_dbs","relevant_ids":["term_dbs_min_spend"]},
+  {"id":"dbs-wallet-limit","language":"yue","query":"DBS 電子錢包消費每月首幾多錢有獎賞？","as_of":"2026-11-15","card_id":"card_dbs","relevant_ids":["term_dbs_ewallet_cap"]},
+  {"id":"citi-hotel-dining","language":"en","query":"Citi Cash Back hotel banquet eligible for restaurant cashback?","as_of":"2026-11-15","card_id":"card_citi_cash","relevant_ids":["term_citi_dining_excl"]},
+  {"id":"citi-uk-eea","language":"en","query":"Citi overseas rebate when swiping at a physical shop in London","as_of":"2026-11-15","card_id":"card_citi_cash","relevant_ids":["term_citi_geo"]},
+  {"id":"bea-goal-ride","language":"yue","query":"BEA GOAL 坐 Uber 可唔可以食本地交通回贈？","as_of":"2026-11-15","card_id":"card_bea_goal","relevant_ids":["term_bea_goal_excl"]},
+  {"id":"mmpower-register","language":"zh","query":"MMPOWER 是否需要預先登記先有網購加碼？","as_of":"2026-11-15","card_id":"card_hs_mmpower","relevant_ids":["term_hs_mmpower_register"]},
+  {"id":"travel-plus-location","language":"yue","query":"Travel+ 日本實體店簽帳 7% 有冇地區限制？","as_of":"2026-11-15","card_id":"card_hs_travel_plus","relevant_ids":["term_hs_travel_geo"]},
+  {"id":"mox-payroll-historic","language":"en","query":"Mox payroll 25k bonus eligibility in May 2026","as_of":"2026-05-15","card_id":"card_mox","relevant_ids":["term_mox_payroll"]},
+  {"id":"mox-payroll-expired","language":"en","query":"Mox payroll 25k bonus eligibility in November 2026","as_of":"2026-11-15","card_id":"card_mox","relevant_ids":[]},
+  {"id":"no-such-perk","language":"en","query":"HSBC Red airport lounge access membership rules","as_of":"2026-11-15","card_id":"card_hsbc_red","relevant_ids":[]},
+  {"id":"no-known-term","language":"en","query":"Is there a free airport limousine transfer?","as_of":"2026-11-15","card_id":null,"relevant_ids":[]},
+  {"id":"no-cantonese-lounge","language":"yue","query":"HSBC Red 有冇機場貴賓室免費入場？","as_of":"2026-11-15","card_id":"card_hsbc_red","relevant_ids":[]},
+  {"id":"no-cantonese-cinema","language":"yue","query":"DBS Eminent 喺戲院買飛有冇額外八厘回贈？","as_of":"2026-11-15","card_id":"card_dbs","relevant_ids":[]},
+  {"id":"unscoped-registration","language":"yue","query":"邊張卡嘅額外回贈要喺銀行 app 先登記？","as_of":"2026-11-15","card_id":null,"relevant_ids":["term_dbs_register","term_hs_mmpower_register"]},
+  {"id":"unscoped-fx-fee","language":"yue","query":"信用卡外幣簽帳有冇另外收手續費？","as_of":"2026-11-15","card_id":null,"relevant_ids":["term_citi_fx_fee"]},
+  {"id":"sogo-specific","language":"yue","query":"AEON WAKUWAKU 網上消費有咩唔計獎賞？","as_of":"2026-11-15","card_id":"card_aeon","relevant_ids":["term_aeon_online_excl"]}
+]}
