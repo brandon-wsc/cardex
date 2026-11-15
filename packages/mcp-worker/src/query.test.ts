@@ -14,7 +14,9 @@ import {
   reportIssue,
   resolveAlias,
   scoreCandidates,
+  searchTerms,
 } from "./query";
+import type { TermSearchDeps } from "./query";
 
 // Specs are sourced from PRD §4–§6: one table row, one test.
 const tenv = env as unknown as {
@@ -214,6 +216,199 @@ describe("get_term", () => {
     const res = await getTerm(tenv.DB, "term_nope");
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error).toBe("not_found");
+  });
+});
+
+// ADR 0014: the index only nominates ids — injected deps stand in for the
+// embed + vector query so the specs pin the D1-revalidation contract, not a
+// model. Hits named "term_ghost" simulate stale pointers the index can hold.
+describe("search_terms", () => {
+  const fakeDeps = (
+    hits: { id: string; score: number }[],
+    overrides: Partial<TermSearchDeps> = {},
+  ): TermSearchDeps => ({
+    embed: () => Promise.resolve([[0.5, 0.5]]),
+    queryIndex: () => Promise.resolve(hits),
+    ...overrides,
+  });
+
+  it("hydrates vector-ranked candidates from D1 in rank order", async () => {
+    const res = await searchTerms(
+      tenv.DB,
+      fakeDeps([
+        { id: "term_citi_super_cap", score: 0.9 },
+        { id: "term_hsbc_dining_cap", score: 0.8 },
+      ]),
+      { query: "supermarket cap", as_of: "2026-11-01" },
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok || !("records" in res)) return;
+    expect(res.records.map((r) => r.id)).toEqual([
+      "term_citi_super_cap",
+      "term_hsbc_dining_cap",
+    ]);
+    expect(res.records[0].kind).toBe("cap");
+    expect(res.records[0].cap_hkd).toBe(200);
+    expect(res.records[0].similarity).toBe(0.9);
+    expect(res.records[1].similarity).toBe(0.8);
+    expect(res.records[0].illustrative).toBe(true);
+    expect(res.total).toBe(2);
+    expect(res.dropped_ids).toEqual([]);
+  });
+
+  it("drops candidates below min_similarity before hydration", async () => {
+    const res = await searchTerms(
+      tenv.DB,
+      fakeDeps([
+        { id: "term_citi_super_cap", score: 0.9 },
+        { id: "term_hsbc_dining_cap", score: 0.4 },
+      ]),
+      {
+        query: "supermarket cap",
+        min_similarity: 0.5,
+        as_of: "2026-11-01",
+      },
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok || !("records" in res)) return;
+    expect(res.records.map((r) => r.id)).toEqual(["term_citi_super_cap"]);
+    // The floor runs before hydration — it is not a revalidation drop.
+    expect(res.dropped_ids).toEqual([]);
+    expect(res.total).toBe(1);
+  });
+
+  it("rejects an out-of-range min_similarity with invalid_query", async () => {
+    for (const min_similarity of [-0.1, 1.5]) {
+      const res = await searchTerms(tenv.DB, fakeDeps([]), {
+        query: "cap",
+        min_similarity,
+      });
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error).toBe("invalid_query");
+    }
+  });
+
+  it("drops candidates that fail D1 revalidation and echoes dropped_ids", async () => {
+    const res = await searchTerms(
+      tenv.DB,
+      fakeDeps([
+        { id: "term_citi_expired_cap", score: 0.95 },
+        { id: "term_ghost", score: 0.9 },
+        { id: "term_hsbc_octopus", score: 0.7 },
+      ]),
+      { query: "octopus top-up", as_of: "2026-11-01" },
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok || !("records" in res)) return;
+    expect(res.records.map((r) => r.id)).toEqual(["term_hsbc_octopus"]);
+    // The expired term and the id D1 never heard of both surface as dropped.
+    expect(res.dropped_ids).toEqual(["term_citi_expired_cap", "term_ghost"]);
+    expect(res.total).toBe(1);
+  });
+
+  it("returns compact candidate pointers with detail candidates", async () => {
+    const res = await searchTerms(
+      tenv.DB,
+      fakeDeps([{ id: "term_hsbc_register", score: 0.88 }]),
+      { query: "要唔要事先登記", detail: "candidates", as_of: "2026-11-01" },
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok || !("candidates" in res)) return;
+    expect(res.candidates).toEqual([
+      {
+        term_id: "term_hsbc_register",
+        card_id: "card_hsbc_red",
+        kind: "registration_required",
+        similarity: 0.88,
+      },
+    ]);
+  });
+
+  it("scopes candidates to card_id at hydration, dropping other cards' ids", async () => {
+    const res = await searchTerms(
+      tenv.DB,
+      fakeDeps([
+        { id: "term_citi_super_cap", score: 0.9 },
+        { id: "term_hsbc_dining_cap", score: 0.85 },
+      ]),
+      { query: "rebate cap", card_id: "card_hsbc_red", as_of: "2026-11-01" },
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok || !("records" in res)) return;
+    expect(res.records.map((r) => r.id)).toEqual(["term_hsbc_dining_cap"]);
+    expect(res.dropped_ids).toEqual(["term_citi_super_cap"]);
+  });
+
+  it("returns an empty page with unknown_card_id for an unknown card", async () => {
+    const res = await searchTerms(
+      tenv.DB,
+      fakeDeps([{ id: "term_hsbc_dining_cap", score: 0.9 }]),
+      { query: "cap", card_id: "card_nope", as_of: "2026-11-01" },
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect((res as { unknown_card_id?: string }).unknown_card_id).toBe(
+      "card_nope",
+    );
+    expect(res.total).toBe(0);
+  });
+
+  it("rejects an empty query with invalid_query", async () => {
+    for (const query of ["", "   "]) {
+      const res = await searchTerms(tenv.DB, fakeDeps([]), { query });
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error).toBe("invalid_query");
+    }
+  });
+
+  it("fails search_unavailable when retrieval is unconfigured or errors", async () => {
+    const unconfigured = await searchTerms(tenv.DB, null, {
+      query: "cap",
+    });
+    expect(unconfigured.ok).toBe(false);
+    if (!unconfigured.ok) {
+      expect(unconfigured.error).toBe("search_unavailable");
+    }
+
+    const brokenEmbed = await searchTerms(
+      tenv.DB,
+      fakeDeps([], {
+        embed: () => Promise.reject(new Error("ai down")),
+      }),
+      { query: "cap" },
+    );
+    expect(brokenEmbed.ok).toBe(false);
+    if (!brokenEmbed.ok) {
+      expect(brokenEmbed.error).toBe("search_unavailable");
+    }
+
+    const brokenIndex = await searchTerms(
+      tenv.DB,
+      fakeDeps([], {
+        queryIndex: () => Promise.reject(new Error("index down")),
+      }),
+      { query: "cap" },
+    );
+    expect(brokenIndex.ok).toBe(false);
+    if (!brokenIndex.ok) {
+      expect(brokenIndex.error).toBe("search_unavailable");
+    }
+  });
+
+  it("honors limit over surviving rows and reports the pre-limit total", async () => {
+    const res = await searchTerms(
+      tenv.DB,
+      fakeDeps([
+        { id: "term_hsbc_dining_cap", score: 0.9 },
+        { id: "term_hsbc_octopus", score: 0.8 },
+        { id: "term_hsbc_merchant_list", score: 0.7 },
+      ]),
+      { query: "hsbc terms", limit: 2, as_of: "2026-11-01" },
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok || !("records" in res)) return;
+    expect(res.records).toHaveLength(2);
+    expect(res.total).toBe(3);
   });
 });
 

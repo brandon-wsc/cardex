@@ -42,5 +42,23 @@
       "database_id": "d0616cb0-2def-4466-8568-8abd53ae41e8",
       "migrations_dir": "migrations"
     }
+  ],
+  // ADR 0014 (experimental): search_terms embeds the query with Workers AI
+  // bge-m3, takes nearest neighbors from a Vectorize index of Term pointers,
+  // then revalidates every hit against D1. The index is a derived candidate
+  // store only — it never serves facts. The owner creates/populates
+  // cardex-terms via scripts/term_search_index.py; an absent or empty index
+  // degrades to search_unavailable / empty pages, never wrong facts.
+  //
+  // Local dev: AI bindings always call the remote (metered) API and Vectorize
+  // has no local mode at all, so `wrangler dev` answers search_unavailable —
+  // the fail-closed path. Setting "remote": true on both opts a local run
+  // into the real resources; tests inject fakes and never touch these.
+  "ai": { "binding": "AI" },
+  "vectorize": [
+    {
+      "binding": "TERMS_INDEX",
+      "index_name": "cardex-terms"
+    }
   ]
 }

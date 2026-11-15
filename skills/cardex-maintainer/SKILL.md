@@ -26,7 +26,7 @@ You keep Cardex facts fresh: verify against issuer sources and draft proposals. 
 
 ## Tools
 
-The six public read tools are all here (`lookup_rates`, `get_card`, `get_term`, `list_tags`, `resolve_alias`, `score_candidates`) — same shapes as the `cardex` skill, including the v0.4 failure modes: strict inputs (unknown key → `InvalidParams`), `lookup_rates` requires a filter (`missing_filter`), and `score_candidates` echoes `unknown_tag_ids`. The maintenance tool:
+The public read tools are all here (`lookup_rates`, `get_card`, `get_term`, `list_tags`, `resolve_alias`, `score_candidates`, plus the experimental `search_terms`) — same shapes as the `cardex` skill, including the v0.4 failure modes: strict inputs (unknown key → `InvalidParams`), `lookup_rates` requires a filter (`missing_filter`), and `score_candidates` echoes `unknown_tag_ids`. The maintenance tool:
 
 | Tool | Does |
 | --- | --- |
