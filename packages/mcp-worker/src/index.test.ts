@@ -30,7 +30,7 @@ const baseEnv = {
   MAINTAINER_TOKEN: "test-token",
   ADMIN_EMAIL: "owner@example.com",
   DEV_ADMIN_EMAIL: "owner@example.com",
-  ASSETS: { fetch: async () => new Response("asset") },
+  ASSETS: { fetch: () => Promise.resolve(new Response("asset")) },
 };
 
 function call(

@@ -86,3 +86,9 @@ keep independent windows — registration deadline (RYC: 31 Oct) ≠ spend windo
 (AEON DAY), `rolling_window` (all welcome offers; needs anchor +
 days/months), `per_transaction` (per-txn gates), and `none` for uncapped.
 Statement-cycle is a real, current Citi convention — keep it.
+
+## Post-audit: annual fee
+
+Annual fee was considered for the term-kind enum and deliberately went to a
+separate `card_fees` table instead — a fee is a record on the card with its
+own provenance, not a condition on a rate ([ADR 0012](adr/0012-card-fees.md)).

@@ -13,7 +13,7 @@ import {
   quoteSqlIdent,
   validatePatch,
 } from "./maintain";
-import { getTerm } from "./query";
+import { getCard, getTerm } from "./query";
 
 // Specs for the maintenance surface in ADR 0002: structured patches only,
 // propose ≠ apply, approve is atomic.
@@ -41,6 +41,58 @@ describe("validatePatch", () => {
         set: { quota_n: 15000 },
       }),
     ).toEqual([]);
+  });
+
+  it("accepts a well-formed insert on card_fees", async () => {
+    expect(
+      await validatePatch(tenv.DB, {
+        op: "insert",
+        table: "card_fees",
+        id: "fee_mox_annual",
+        set: {
+          card_id: "card_hsbc_red",
+          kind: "annual",
+          waiver_policy: "on_request",
+          text: "Annual fee reportedly waivable on request.",
+        },
+      }),
+    ).toEqual([]);
+  });
+
+  it("rejects a card_fees row whose waiver_policy contradicts fee_hkd", async () => {
+    for (const [fee_hkd, waiver_policy] of [
+      [0, "on_request" as const],
+      [800, "not_applicable" as const],
+      [-5, "unknown" as const],
+    ]) {
+      const errors = await validatePatch(tenv.DB, {
+        op: "insert",
+        table: "card_fees",
+        id: "fee_bad_pair",
+        set: {
+          card_id: "card_hsbc_red",
+          kind: "annual",
+          fee_hkd,
+          waiver_policy,
+          text: "A fee amount and waiver policy must tell the same story.",
+        },
+      });
+      expect(errors).toContain(
+        "card_fees row violates fee_hkd/waiver_policy pairing",
+      );
+    }
+  });
+
+  it("rejects an update that would make fee_hkd contradict waiver_policy", async () => {
+    const errors = await validatePatch(tenv.DB, {
+      op: "update",
+      table: "card_fees",
+      id: "fee_scb_simply_annual",
+      set: { waiver_policy: "on_request" },
+    });
+    expect(errors).toContain(
+      "card_fees row violates fee_hkd/waiver_policy pairing",
+    );
   });
 
   it("rejects a table outside the facts whitelist", async () => {
@@ -862,6 +914,42 @@ describe("decideProposal", () => {
       decided_by: "owner@cardex.dev",
       decided_at: expect.any(String),
     });
+  });
+
+  it("approve applies a card_fees insert, visible through get_card", async () => {
+    const proposed = await proposeChange(tenv.DB, {
+      summary: "add HSBC Red annual fee",
+      evidence_url: "https://example.invalid/evidence",
+      patches: [
+        {
+          op: "insert" as const,
+          table: "card_fees",
+          id: "fee_prop_annual",
+          set: {
+            card_id: "card_hsbc_red",
+            kind: "annual",
+            fee_hkd: 2000,
+            waiver_policy: "on_request",
+            text: "Fee added via proposal.",
+          },
+        },
+      ],
+    });
+    expect(proposed.ok).toBe(true);
+    if (!proposed.ok) return;
+
+    const res = await decideProposal(tenv.DB, proposed.proposal_id, {
+      decision: "approve",
+      decided_by: "owner@cardex.dev",
+    });
+    expect(res.ok).toBe(true);
+
+    const card = await getCard(tenv.DB, "card_hsbc_red");
+    expect(card.ok).toBe(true);
+    if (!card.ok) return;
+    const fee = card.fees.find((f) => f.id === "fee_prop_annual");
+    expect(fee?.fee_hkd).toBe(2000);
+    expect(fee?.waiver_policy).toBe("on_request");
   });
 
   it("reject requires a decision note", async () => {

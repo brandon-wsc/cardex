@@ -141,6 +141,63 @@ describe("get_card", () => {
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error).toBe("not_found");
   });
+
+  it("returns the card's fee records inline with per-record provenance", async () => {
+    const res = await getCard(tenv.DB, "card_hsbc_red");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.fees.map((f) => f.id)).toEqual(["fee_hsbc_red_annual"]);
+    const fee = res.fees[0];
+    expect(fee.kind).toBe("annual");
+    expect(fee.fee_hkd).toBe(2000);
+    expect(fee.waiver_policy).toBe("on_request");
+    expect(fee.waiver_source_url).toBeNull();
+    expect(fee.illustrative).toBe(true);
+  });
+
+  it("verifies a fee on its own source_url, not the waiver citation", async () => {
+    const res = await getCard(tenv.DB, "card_dbs");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    // A community waiver citation does not verify the fee itself.
+    expect(res.fees[0].waiver_source_url).toContain("flyformiles.hk");
+    expect(res.fees[0].source_url).toBeNull();
+    expect(res.fees[0].fee_hkd).toBeNull();
+    expect(res.fees[0].waiver_policy).toBe("unknown");
+    expect(res.fees[0].illustrative).toBe(true);
+  });
+
+  it("marks a cited fee verified and lifts the payload to mixed-seed", async () => {
+    const res = await getCard(tenv.DB, "card_scb_simply");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const fee = res.fees.find((f) => f.id === "fee_scb_simply_annual");
+    expect(fee?.fee_hkd).toBe(0);
+    expect(fee?.waiver_policy).toBe("not_applicable");
+    expect(fee?.illustrative).toBe(false);
+    expect(res.provenance.kind).toBe("mixed-seed");
+  });
+
+  it("returns an empty fees list for a card with no fee rows", async () => {
+    const res = await getCard(tenv.DB, "card_aeon");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.fees).toEqual([]);
+    expect(res.provenance.kind).toBe("synthetic-seed");
+  });
+
+  it("returns all fee rows ordered by id, including out-of-window rows", async () => {
+    const res = await getCard(tenv.DB, "card_boc_sogo");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    // The fixture inserts the 2026 row before the 2025 row — the payload sorts.
+    expect(res.fees.map((f) => f.id)).toEqual([
+      "fee_boc_annual_2025",
+      "fee_boc_annual_2026",
+    ]);
+    // The expired 2025 schedule still returns: get_card is an audit fetch.
+    expect(res.fees[0].effective_to).toBe("2025-12-31");
+  });
 });
 
 describe("get_term", () => {
@@ -392,6 +449,23 @@ describe("score_candidates", () => {
       "card_dbs",
       "card_hsbc_red",
     ]);
+  });
+
+  it("never reads card_fees — a fee is per-year, not per-spend", async () => {
+    // card_dbs carries a fee row in the fixture; scoring it must not
+    // surface fee fields on the payload or any candidate.
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+      card_ids: ["card_dbs"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res).not.toHaveProperty("fees");
+    for (const c of res.candidates) {
+      expect(c).not.toHaveProperty("fee_hkd");
+      expect(c).not.toHaveProperty("waiver_policy");
+    }
   });
 
   it("echoes the assumptions it used", async () => {
@@ -2247,6 +2321,162 @@ describe("read-model invariants", () => {
             ratesByCard.get(id) ?? [],
           );
           expect(res.rates.every((r) => r.card_id === id)).toBe(true);
+        },
+      ),
+      { numRuns: 30 },
+    );
+  });
+});
+
+// ADR 0011: score math is exact decimal — IEEE-754 doubles cannot express
+// 0.1 or a .xx5 midpoint, so rounding and threshold comparisons run on
+// BigInt rationals, never on the binary float.
+describe("exact decimal scoring — ADR 0011", () => {
+  it("rounds calculated_rebate_hkd half-up on a .xx5 midpoint", async () => {
+    // 125.5 × 1% = 1.255 — binary stores 1.2549999…, so a naive
+    // Math.round(x * 100) / 100 drops a cent.
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 125.5,
+      tag_ids: ["dining"],
+      card_ids: ["card_dbs"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const row = res.candidates.find((c) => c.rate_id === "rate_dbs_dining_base");
+    expect(row?.calculated_rebate_hkd).toBe(1.26);
+  });
+
+  it("rounds a converted amount half-up to cents", async () => {
+    // 1.55 USD × 0.5 = 0.775 — binary stores 0.7749999…, naive rounding
+    // drops it to 0.77.
+    const res = await scoreCandidates(tenv.DB, {
+      amount: 1.55,
+      currency: "USD",
+      tag_ids: ["dining"],
+      assumptions: { hkd_per_foreign_unit: 0.5 },
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.amount_hkd).toBe(0.78);
+  });
+
+  it("applies the remaining cap without subtraction drift", async () => {
+    // 300 − 298.995 is 1.005 in decimal but 1.0049999… in binary — the
+    // clamped figure must round to 1.01, not 1.00.
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+      card_ids: ["card_hsbc_red"],
+      assumptions: { month_to_date_rebate_hkd: 298.995 },
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const hsbc = res.candidates.find((c) => c.rate_id === "rate_hsbc_dining");
+    expect(hsbc?.calculated_rebate_hkd).toBe(1.01);
+  });
+
+  it("compares a cumulative min_spend exactly at the threshold", async () => {
+    // 0.1 + 0.7 < 0.8 in binary (0.7999999999999999): a gate the spend
+    // exactly meets must not fail. Fixture threshold is HK$0.80.
+    await tenv.DB.prepare(
+      "INSERT INTO rates (id, card_id, kind, value, unit, source_url, " +
+        "last_verified_at, effective_from, effective_to, exclusive_group, priority) " +
+        "VALUES ('rate_edge_min', 'card_aeon', 'rebate_percent', 1, 'percent', " +
+        "'https://example.invalid/edge', '2026-10-01', NULL, NULL, NULL, NULL)",
+    ).run();
+    await tenv.DB.prepare(
+      "INSERT INTO rate_tags (rate_id, tag_id) VALUES ('rate_edge_min', 'dining')",
+    ).run();
+    await tenv.DB.prepare(
+      "INSERT INTO terms (id, card_id, kind, text, source_url, last_verified_at, " +
+        "effective_from, effective_to, cap_hkd, threshold_hkd, quota_n, " +
+        "register_by, post_within_days, anchor, anchor_days, period, exclusion_key) " +
+        "VALUES ('term_edge_min', 'card_aeon', 'min_spend', 'Illustrative cumulative HK$0.80 gate.', " +
+        "'https://example.invalid/edge', '2026-10-01', NULL, NULL, NULL, 0.8, NULL, " +
+        "NULL, NULL, NULL, NULL, 'calendar_month', NULL)",
+    ).run();
+    await tenv.DB.prepare(
+      "INSERT INTO rate_terms (rate_id, term_id) VALUES ('rate_edge_min', 'term_edge_min')",
+    ).run();
+
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 0.7,
+      tag_ids: ["dining"],
+      card_ids: ["card_aeon"],
+      assumptions: { month_to_date_spend_hkd: 0.1 },
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const row = res.candidates.find((c) => c.rate_id === "rate_edge_min");
+    expect(row?.failed_terms).not.toContain("min_spend_unmet:term_edge_min");
+    expect(row?.calculated_rebate_hkd).toBe(0.01);
+  });
+
+  it("rejects non-finite numeric input with invalid_amount or missing_fx_rate", async () => {
+    const inf = await scoreCandidates(tenv.DB, {
+      amount_hkd: Infinity,
+      tag_ids: ["dining"],
+    });
+    expect(inf.ok).toBe(false);
+    if (!inf.ok) expect(inf.error).toBe("invalid_amount");
+
+    const nanPoint = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["overseas"],
+      assumptions: { hkd_per_point: Number.NaN },
+    });
+    expect(nanPoint.ok).toBe(false);
+    if (!nanPoint.ok) expect(nanPoint.error).toBe("invalid_amount");
+
+    const infMtd = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+      assumptions: { month_to_date_rebate_hkd: Infinity },
+    });
+    expect(infMtd.ok).toBe(false);
+    if (!infMtd.ok) expect(infMtd.error).toBe("invalid_amount");
+
+    const infFx = await scoreCandidates(tenv.DB, {
+      amount: 100,
+      currency: "USD",
+      tag_ids: ["dining"],
+      assumptions: { hkd_per_foreign_unit: Infinity },
+    });
+    expect(infFx.ok).toBe(false);
+    if (!infFx.ok) expect(infFx.error).toBe("missing_fx_rate");
+  });
+
+  it("rejects a supplied non-finite hkd_per_foreign_unit on an HKD spend", async () => {
+    for (const fx of [Infinity, Number.NaN]) {
+      const res = await scoreCandidates(tenv.DB, {
+        amount_hkd: 800,
+        tag_ids: ["dining"],
+        assumptions: { hkd_per_foreign_unit: fx },
+      });
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error).toBe("missing_fx_rate");
+    }
+  });
+
+  it("agrees with integer-cent math on arbitrary spend amounts", async () => {
+    // rate_dbs_dining_base is 1%: expected value is cents × 1% rounded
+    // half-up — computable exactly in integers.
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: 1, max: 10_000_000 }),
+        async (cents) => {
+          const res = await scoreCandidates(tenv.DB, {
+            amount_hkd: cents / 100,
+            tag_ids: ["dining"],
+            card_ids: ["card_dbs"],
+          });
+          expect(res.ok).toBe(true);
+          if (!res.ok) return;
+          const row = res.candidates.find(
+            (c) => c.rate_id === "rate_dbs_dining_base",
+          );
+          const expected = Math.floor((cents + 50) / 100) / 100;
+          expect(row?.calculated_rebate_hkd).toBe(expected);
         },
       ),
       { numRuns: 30 },

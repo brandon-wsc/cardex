@@ -11,6 +11,10 @@ Product and architecture decisions. STATUS may point here; **ADRs are the record
 | [0005](./0005-record-provenance.md) | Per-record provenance, computed envelope | Accepted |
 | [0006](./0006-score-currency.md) | Currency-aware scoring input | Accepted |
 | [0007](./0007-owner-only-report-triage.md) | Owner-only report triage | Accepted — supersedes 0002 report reads |
+| [0008](./0008-admin-identity-fail-closed.md) | Admin identity fails closed | Accepted |
+| [0009](./0009-candidate-conditions.md) | Per-condition status on score rows | Accepted |
+| [0010](./0010-advisory-audit-gate.md) | Advisory LLM audit gate on pull requests | Accepted |
+| [0011](./0011-decimal-scoring.md) | Exact decimal scoring | Accepted |
 
 ## Format
 

@@ -13,6 +13,7 @@ DELETE FROM term_merchants;
 DELETE FROM terms;
 DELETE FROM rates;
 DELETE FROM tags;
+DELETE FROM card_fees;
 DELETE FROM cards;
 DELETE FROM reports;
 DELETE FROM proposals;
@@ -27,6 +28,38 @@ INSERT INTO cards (id, name, issuer, network) VALUES
   ('card_dbs',        'DBS Eminent Visa Signature',      'DBS',                'visa'),
   ('card_aeon',       'AEON Mastercard',                 'AEON',               'mastercard'),
   ('card_boc_sogo',   'BOC SOGO Visa Signature Card',    'BOC',                'visa');
+
+-- Card-fee fixtures (ADR 0012): one illustrative on_request fee, one verified
+-- no-fee row, one unknown row with only a community waiver citation.
+INSERT INTO card_fees (id, card_id, kind, fee_hkd, waiver_policy,
+                       waiver_source_url, text, source_url, last_verified_at,
+                       effective_from, effective_to) VALUES
+  ('fee_hsbc_red_annual', 'card_hsbc_red', 'annual', 2000, 'on_request',
+   NULL,
+   'Illustrative HK$2,000 annual fee — holders report retention waives it on request.',
+   'https://example.invalid/cardex-seed/hsbc-red-kfs', '2026-10-01',
+   '2026-01-01', NULL),
+  ('fee_scb_simply_annual', 'card_scb_simply', 'annual', 0, 'not_applicable',
+   NULL,
+   'Illustrative: no annual fee.',
+   'https://www.sc.com/hk/credit-cards/simplycash/', '2026-10-01',
+   '2026-01-01', NULL),
+  ('fee_dbs_annual', 'card_dbs', 'annual', NULL, 'unknown',
+   'https://flyformiles.hk/dbs-eminent-annual-fee',
+   'Illustrative: community reports a fee, amount and waiver unresearched.',
+   NULL, NULL, NULL, NULL),
+  -- Two rows on one card, inserted in reverse id order to pin the ORDER BY;
+  -- the 2025 row is expired and still returned (get_card is an audit fetch).
+  ('fee_boc_annual_2026', 'card_boc_sogo', 'annual', 800, 'on_request',
+   'https://mrmiles.hk/boc-sogo-waiver',
+   'Illustrative 2026 fee schedule — community reports waivable on request.',
+   'https://example.invalid/cardex-seed/boc-sogo-kfs', '2026-10-01',
+   '2026-01-01', NULL),
+  ('fee_boc_annual_2025', 'card_boc_sogo', 'annual', 600, 'none_known',
+   NULL,
+   'Illustrative expired 2025 fee schedule.',
+   'https://example.invalid/cardex-seed/boc-sogo-kfs-2025', '2025-10-01',
+   '2025-01-01', '2025-12-31');
 
 INSERT INTO tags (id, label, kind) VALUES
   ('dining',      'Dining',      'category'),

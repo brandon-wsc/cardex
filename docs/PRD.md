@@ -1,6 +1,6 @@
 # Cardex — PRD
 
-Status: Draft v0.4 · Owner: Brandon · Last updated: 2026-11-01
+Status: Draft v0.5 · Owner: Brandon · Last updated: 2026-11-15
 
 Cardex is a pair: a **playbook** that teaches a personal agent how to reason about Hong Kong credit cards, and a **facts backend** — a Cloudflare Worker in `packages/mcp-worker`, a public remote MCP endpoint backed by D1. The playbook ships in `skills/cardex` ([ADR 0001](adr/0001-product-shape.md)); this document specifies the backend and its contract. Query data is the synthetic seed in `seed/seed.sql` — invented numbers, not issuer terms.
 
@@ -54,10 +54,13 @@ Language is in [`CONTEXT.md`](../CONTEXT.md). This section is the v1 data model;
 | **Card** | `id`, `name`, `issuer`, `network` | A product, not someone's plastic |
 | **Rate** | `id`, `card_id`, `kind`, `value`, `unit`, `tag_ids`, `term_ids`, `exclusive_group`, `priority` | `kind` is `rebate_percent` or `points`. `value` + `unit` preserve the published figure and its unit (e.g. `4` + `hkd_per_mile`, `2` + `points_per_hkd`) — never a normalized bare float. Rates sharing an `exclusive_group` never stack on one spend — the caller keeps the single applicable row with the best `priority` (1 is highest precedence, modelling issuer precedence clauses such as MMPOWER's fixed tier order). Rows tied on `priority` still cannot stack; the caller chooses among them (highest `calculated_rebate_hkd` is the sane pick). `exclusive_group` NULL means the rate belongs to no set — it can stack with grouped and ungrouped rows alike. `priority` orders rows inside a group only and is NULL for ungrouped rates |
 | **Term** | `id`, `card_id`, `kind`, `text`, `source_url`, `last_verified_at`, `effective_from`, `effective_to`, kind fields | Kinds are audited against real issuer mechanics ([term-kind-audit.md](term-kind-audit.md)): `cap`, `exclusion`, `fx_fee`, `min_spend`, `registration_required`, `channel`, `mcc`, `quota`, `merchant_list`, `geo`, `targeted`, `eligibility`. Kind fields are sparse: `cap_hkd`, `threshold_hkd` (min_spend), `quota_n`, `register_by`, `post_within_days`, `anchor` + `anchor_days` (rolling windows), `period`, `exclusion_key`. `merchant_list` members live in `term_merchants` |
+| **Card fee** | `id`, `card_id`, `kind`, `fee_hkd`, `waiver_policy`, `waiver_source_url`, `text`, `source_url`, `last_verified_at`, `effective_from`, `effective_to` | A charge on the card itself — a record, not a rate condition, so it lives in `card_fees`, not `terms` ([ADR 0012](adr/0012-card-fees.md)). `kind` is `annual`. `fee_hkd` NULL means a fee exists but the amount is unresearched; `0` pairs with `waiver_policy` `not_applicable`. `source_url` cites the fee (issuer KFS/tariff); `waiver_source_url` cites the waiver claim — a community post is acceptable there. Fee rows never enter `score_candidates` math; the caller combines them with scoring itself |
 | **Alias** | `text`, `tag_ids`, `card_ids`, `issuers`, `networks` | Free text → those refs. Tag/card mappings live in D1 (`alias_tags`, `alias_cards`); issuer/network mappings live in `src/aliases.ts` — both sets are near-closed, so one file keeps the whole map reviewable. Values are canonical strings matching `cards.issuer` / `cards.network`. Any side may be empty |
 | **Report** | `id`, `target_id`, `field`, `claimed_value`, `evidence_url`, `note`, `reported_at` | Quarantine table. Query tools never read it; only the maintenance loop does |
 
 `period` vocabulary observed in the wild (open string, not an enum): `statement_month`, `statement_cycle`, `calendar_month`, `promo_period`, `promo_phase`, `event_date`, `rolling_window`, `per_transaction`, `none`.
+
+`waiver_policy` vocabulary (closed enum): `not_applicable` (the fee is 0), `first_year`, `spend_threshold`, `conditional` (other issuer-published conditions, e.g. relationship balance), `on_request` (community-reported), `none_known` (researched, no waiver found), `unknown` (not researched). Nuance goes in the row's `text`, never in new values. An unresearched card has no fee row at all — coverage is three-state: absent row = not researched; `fee_hkd = 0` + `not_applicable` = verified no-fee; `waiver_policy = 'unknown'` = fee known, waiver unchecked ([ADR 0012](adr/0012-card-fees.md)).
 
 ### 3.4 Language of facts
 
@@ -88,7 +91,7 @@ Tool inputs are strict objects: an unrecognized key (`tag` instead of `tag_id`, 
 | Tool | Input | Returns |
 |---|---|---|
 | `lookup_rates` | `tag_id?`, `card_ids?: string[]`, `issuer?`, `as_of?`, `limit?` — at least one of `tag_id` / `card_ids` / `issuer` is required | Matching rates, all filters AND. Each row: rate id, card id and name, issuer, kind, value, unit, tag ids, term ids, `effective_from`, `effective_to` (§3.3 — `null` is open-ended), `exclusive_group`, `priority`, `source_url`, `last_verified_at`, `illustrative`. `total` is the pre-limit count. The payload echoes the applied filters as `filters: { tag_id, card_ids, issuer, issuer_canonical, as_of }`. `issuer` compares against the canonical `cards.issuer` string (normalized) or resolves through the issuer alias map via the same `aliasHits` rule as `resolve_alias` — exact, or either-contains when both sides are ≥2 characters — never catalog-wide substring; `issuer_canonical` lists the canonical issuer names the input resolved to. Unknown `tag_id` → empty page plus `unknown_tag_id` |
-| `get_card` | `id` | One card, all its rate rows in the `lookup_rates` shape — including out-of-window rows, whose `effective_from`/`effective_to` dates are what mark them as expired (§3.3) — and the term ids those rates cite. Unknown id → `not_found` |
+| `get_card` | `id` | One card, all its rate rows in the `lookup_rates` shape — including out-of-window rows, whose `effective_from`/`effective_to` dates are what mark them as expired (§3.3) — the term ids those rates cite, and `fees`: the card's `card_fees` rows inline, each carrying `illustrative` and folded into the payload's `provenance` (§3.1; returned regardless of window, like the rate rows). Unknown id → `not_found` |
 | `get_term` | `id` | One term. Unknown id → `not_found` |
 | `list_tags` | `limit?` | Tag id + label |
 | `resolve_alias` | `query`, `limit?` | Each hit: the alias text, tag ids, card ids, issuers, networks. DB aliases and the code-side issuer/network maps are merged by alias text. No hit → `matches: []`. Match is normalized (trim, lowercase, collapsed spaces): exact, or either string contains the other when both are at least 2 characters |
@@ -105,8 +108,8 @@ Public intake is bounded. `evidence_url`, when present, must be an `http:`/`http
 
 Inputs:
 
-- `amount_hkd` or `amount` — exactly one is required and must be > 0, else `invalid_amount`. `amount_hkd` is already in HKD; `amount` is denominated in `currency` ([ADR 0006](adr/0006-score-currency.md)).
-- `currency` — an ISO 4217 three-letter code, normalized to upper case. Absent means the caller asserted nothing about billing currency; the spend is still treated as HKD units. A value that is not three letters → `invalid_currency`. `assumptions.hkd_per_foreign_unit` — HKD per one unit of `currency`; required when `amount` is given with a non-HKD `currency`, else `missing_fx_rate`. The spend converts as `amount × rate`, rounded to cents, before any scoring. `amount_hkd` with a non-HKD `currency` means the caller converted the amount itself.
+- `amount_hkd` or `amount` — exactly one is required and must be a finite number > 0, else `invalid_amount`. `amount_hkd` is already in HKD; `amount` is denominated in `currency` ([ADR 0006](adr/0006-score-currency.md)).
+- `currency` — an ISO 4217 three-letter code, normalized to upper case. Absent means the caller asserted nothing about billing currency; the spend is still treated as HKD units. A value that is not three letters → `invalid_currency`. `assumptions.hkd_per_foreign_unit` — HKD per one unit of `currency`; required when `amount` is given with a non-HKD `currency`, else `missing_fx_rate`. The spend converts as `amount × rate`, rounded half-up to cents, before any scoring. `amount_hkd` with a non-HKD `currency` means the caller converted the amount itself.
 - `card_ids?` — restricts scoring to those cards. This is the held-set path after the user confirms their wallet; Cardex never learns why the set was chosen. Alias hits contribute their `card_ids` to the same scope.
 - Tags come from `tag_ids` and from `alias` (via the same match as `resolve_alias`). No tags at all → `missing_spend`, or `unmapped_merchant` when `merchant` was passed — that failure echoes the merchant and lists `valid_tag_ids`, so the caller can ask its user to classify the spend; Cardex never guesses the category from the merchant name. Resolved tag ids that do not exist are echoed as `unknown_tag_ids` — the call still scores the tags that resolved, and an all-unknown list returns `ok` with empty `candidates`. Same ok-plus-flag contract as `lookup_rates`' `unknown_tag_id`.
 - `as_of` — filters windowed terms. Default today.
@@ -115,6 +118,8 @@ Inputs:
 - `assumptions.month_to_date_spend_hkd` — eligible spend already made this period, used only to check cumulative `min_spend` gates.
 - `assumptions.hkd_per_point` — how the caller values one unit (point or mile) of a `points` rate's `unit`.
 - `assumptions.checked_exclusions` — keys the caller asserts do **not** apply. Clears any term by `<kind>:<term id>` (and plain `exclusion_key` for exclusions). Keys that matched no scored term are echoed on the envelope as `unmatched_checked_exclusions`.
+
+All scoring arithmetic is exact decimal math over BigInt rationals ([ADR 0011](adr/0011-decimal-scoring.md)) — IEEE-754 doubles cannot express `0.1` or a `.xx5` midpoint, so binary float would mis-round boundary cases and mis-judge threshold comparisons. Reported money (`calculated_rebate_hkd`, the echoed `amount_hkd`) is rounded half-up to cents at the boundary; comparisons and subtractions never see float error. Non-finite numeric input (`NaN`, `Infinity`) in the spend or `assumptions` is `invalid_amount`; a non-finite `hkd_per_foreign_unit` is `missing_fx_rate`.
 
 For each matching rate:
 
@@ -165,13 +170,14 @@ A cleared exclusion is the caller saying "this does not apply", not Cardex decid
 | Unknown input key on any tool | Protocol `InvalidParams` error — the handler never runs |
 | `lookup_rates` with no `tag_id` / `card_ids` / `issuer` | `ok: false`, `error: "missing_filter"` |
 | Unknown card or term id | `ok: false`, `error: "not_found"` |
+| Card with no fee rows | `ok: true`, `fees: []` — "not researched" is an explicit answer ([ADR 0012](adr/0012-card-fees.md)) |
 | Unknown tag on lookup | `ok: true`, empty page, `unknown_tag_id` set |
 | Unknown tag ids on score | `ok: true`, `unknown_tag_ids` lists them; all-unknown → empty `candidates` |
 | Alias matches nothing | `ok: true`, `matches: []` |
 | `limit` above 100 | Clamped, `clamped: true` |
 | Score with no tag and no usable alias | `ok: false`, `error: "missing_spend"` |
 | Score with a `merchant` and no usable tags | `ok: false`, `error: "unmapped_merchant"` — echoes the merchant and lists `valid_tag_ids` |
-| Score with both or neither of `amount_hkd` / `amount`, or a non-positive amount | `ok: false`, `error: "invalid_amount"` |
+| Score with both or neither of `amount_hkd` / `amount`, or a non-positive or non-finite amount | `ok: false`, `error: "invalid_amount"` |
 | Score `currency` that is not three letters | `ok: false`, `error: "invalid_currency"` |
 | Score non-HKD `amount` without `hkd_per_foreign_unit` | `ok: false`, `error: "missing_fx_rate"` |
 | Cap or exclusion the caller did not settle | Row still returned. The gap is in `unknown_exclusions` |

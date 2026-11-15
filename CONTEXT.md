@@ -47,3 +47,11 @@ _Avoid_: Edge case, caveat
 **Exclusive group**:
 A named set of rates that cannot stack on one spend — at most one row in the group earns. The caller keeps the applicable row with the best `priority` (1 wins). A rate with no group stacks freely.
 _Avoid_: Tier, combo, category bucket
+
+**Fee**:
+A charge an issuer puts on a card, such as an annual fee. A record on the card itself, not a condition on a rate.
+_Avoid_: Charge, cost
+
+**Waiver**:
+A way a fee is not charged — issuer-stated (first year, spend threshold) or community-reported (waived on request). The record states which kind of claim it is and who said it.
+_Avoid_: Discount, exemption
