@@ -9,7 +9,7 @@ import {
   listReports,
 } from "./maintain.js";
 import { buildMaintainerServer } from "./maintainer-server.js";
-import { buildServer } from "./server.js";
+import { buildServer, termSearchDeps } from "./server.js";
 
 // These four live in .dev.vars locally and are `wrangler secret put` in
 // prod, so generated Env types only see them when .dev.vars exists (CI has
@@ -221,9 +221,12 @@ export default {
       ) {
         return new Response("Too many requests", { status: 429 });
       }
-      const mcp = createMcpHandler(() => buildServer(env.DB), {
-        route: "/mcp",
-      });
+      const mcp = createMcpHandler(
+        () => buildServer(env.DB, termSearchDeps(env)),
+        {
+          route: "/mcp",
+        },
+      );
       return mcp(request, env, ctx);
     }
 
@@ -248,9 +251,12 @@ export default {
         );
         return json({ error: "unauthorized" }, 401);
       }
-      const mcp = createMcpHandler(() => buildMaintainerServer(env.DB), {
-        route: "/maintainer",
-      });
+      const mcp = createMcpHandler(
+        () => buildMaintainerServer(env.DB, termSearchDeps(env)),
+        {
+          route: "/maintainer",
+        },
+      );
       return mcp(request, env, ctx);
     }
 

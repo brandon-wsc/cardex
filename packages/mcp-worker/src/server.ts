@@ -9,7 +9,9 @@ import {
   reportIssue,
   resolveAlias,
   scoreCandidates,
+  searchTerms,
 } from "./query.js";
+import type { TermSearchDeps } from "./query.js";
 
 const SEED_NOTE =
   "Synthetic seed. Illustrative numbers, not issuer terms. Does not name a best card. Confirm with the issuer.";
@@ -43,11 +45,42 @@ export function payload(value: object) {
 
 const limit = z.number().int().optional();
 
-// The six public read tools, shared between /mcp and /maintainer (ADR 0002 —
+export const TERM_SEARCH_MODEL = "@cf/baai/bge-m3";
+
+// ADR 0014: wire the deployed bindings into the injected deps the query
+// layer uses — a missing binding (or a test calling with no deps) makes the
+// tool answer search_unavailable rather than guess at a fallback.
+export function termSearchDeps(env: Env): TermSearchDeps | null {
+  if (!env.AI || !env.TERMS_INDEX) return null;
+  const ai = env.AI;
+  const index = env.TERMS_INDEX;
+  return {
+    embed: async (texts) => {
+      const out = await ai.run(TERM_SEARCH_MODEL, { text: texts });
+      if (!("data" in out) || !out.data) {
+        throw new Error("bge-m3 returned no embedding data");
+      }
+      return out.data;
+    },
+    queryIndex: async (vector, topK) => {
+      const res = await index.query(vector, {
+        topK,
+        returnMetadata: "none",
+      });
+      return res.matches.map((match) => ({ id: match.id, score: match.score }));
+    },
+  };
+}
+
+// The public read tools, shared between /mcp and /maintainer (ADR 0002 —
 // the maintainer surface exposes fact reads plus its own write-lite tools).
 // Every input schema is strict: an unrecognized key is an InvalidParams
 // error, never a silently stripped filter.
-export function registerReadTools(server: McpServer, db: D1Database): void {
+export function registerReadTools(
+  server: McpServer,
+  db: D1Database,
+  searchDeps: TermSearchDeps | null = null,
+): void {
   server.registerTool(
     "lookup_rates",
     {
@@ -105,6 +138,22 @@ export function registerReadTools(server: McpServer, db: D1Database): void {
   );
 
   server.registerTool(
+    "search_terms",
+    {
+      description: `EXPERIMENTAL — semantic discovery of relevant terms by free-text query (e.g. 粵語 descriptions of a condition). Returns candidates revalidated against D1: detail "terms" (default) returns the terms, "candidates" returns compact {term_id, card_id, kind, similarity} pointers for a get_term follow-up. A hit means "possibly relevant", never that the term applies to a spend; an empty answer means nothing survived revalidation. ${SEED_NOTE}`,
+      inputSchema: strictInput({
+        query: z.string(),
+        card_id: z.string().optional(),
+        as_of: z.string().optional(),
+        detail: z.enum(["terms", "candidates"]).optional(),
+        limit,
+      }),
+      annotations: { readOnlyHint: true },
+    },
+    async (args) => payload(await searchTerms(db, searchDeps, args)),
+  );
+
+  server.registerTool(
     "score_candidates",
     {
       description: `Calculate rebate for a spend under explicit assumptions. Lists exclusions it could not check. Tag ids that do not resolve are echoed as unknown_tag_ids. A merchant that maps to no tag fails unmapped_merchant with the valid tag list — it is never guessed. Spend is amount_hkd, or amount + currency + assumptions.hkd_per_foreign_unit for non-HKD billing. Does not pick a winner. ${SEED_NOTE}`,
@@ -133,9 +182,12 @@ export function registerReadTools(server: McpServer, db: D1Database): void {
   );
 }
 
-export function buildServer(db: D1Database): McpServer {
+export function buildServer(
+  db: D1Database,
+  searchDeps: TermSearchDeps | null = null,
+): McpServer {
   const server = new McpServer({ name: "cardex", version: "0.0.1" });
-  registerReadTools(server, db);
+  registerReadTools(server, db, searchDeps);
 
   server.registerTool(
     "report_issue",

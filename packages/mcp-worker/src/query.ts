@@ -109,7 +109,9 @@ type FailureCode =
   | "missing_filter"
   | "missing_spend"
   | "unmapped_merchant"
-  | "missing_fx_rate";
+  | "missing_fx_rate"
+  | "invalid_query"
+  | "search_unavailable";
 
 export interface Failure {
   ok: false;
@@ -526,6 +528,197 @@ export async function getTerm(db: D1Database, id: string) {
     provenance: provenanceFor([{ illustrative }]),
     seed_as_of: seed,
     term: { ...term, illustrative },
+  };
+}
+
+// ADR 0014 (experimental): semantic Term discovery. The vector index only
+// ever nominates candidate term ids — hydration applies the card_id filter
+// and the as_of window against D1, so the index can shrink the result set
+// (stale/expired pointers drop out as dropped_ids) but can never widen it
+// or supply a fact. Retrieval artifacts (similarity) appear only in the
+// candidates payload; "terms" rows are pure D1 records, same shape as
+// get_term.
+export interface TermSearchDeps {
+  embed(texts: string[]): Promise<number[][]>;
+  queryIndex(
+    vector: number[],
+    topK: number,
+  ): Promise<{ id: string; score: number }[]>;
+}
+
+// topK 100 is Vectorize's max without values/metadata; over-fetching versus
+// limit buys room for the ids hydration will drop.
+const SEARCH_TOPK_CAP = 100;
+
+async function rankedCandidates(
+  deps: TermSearchDeps,
+  query: string,
+  topK: number,
+): Promise<{ order: string[]; scoreById: Map<string, number> }> {
+  const [vector] = await deps.embed([query]);
+  if (!Array.isArray(vector) || vector.length === 0) {
+    throw new Error("empty embedding");
+  }
+  const seen = new Set<string>();
+  const order: string[] = [];
+  const scoreById = new Map<string, number>();
+  for (const hit of await deps.queryIndex(vector, topK)) {
+    if (seen.has(hit.id)) continue;
+    seen.add(hit.id);
+    order.push(hit.id);
+    scoreById.set(hit.id, hit.score);
+  }
+  return { order, scoreById };
+}
+
+async function hydrateTerms(
+  db: D1Database,
+  order: string[],
+  cardId: string | undefined,
+  asOf: string,
+): Promise<{ surviving: TermRow[]; droppedIds: string[] }> {
+  const params: unknown[] = [...order];
+  const where = [
+    order.length ? `t.id IN (${placeholders(order.length)})` : "0",
+    windowContains("t.effective"),
+  ];
+  params.push(asOf, asOf);
+  if (cardId !== undefined) {
+    where.push("t.card_id = ?");
+    params.push(cardId);
+  }
+  const { results } = await db
+    .prepare(`SELECT t.* FROM terms t WHERE ${where.join(" AND ")}`)
+    .bind(...params)
+    .all<TermRow>();
+  const byId = new Map(results.map((row) => [row.id, row]));
+  const surviving = order.flatMap((id) => {
+    const row = byId.get(id);
+    return row ? [row] : [];
+  });
+  return {
+    surviving,
+    droppedIds: order.filter((id) => !byId.has(id)),
+  };
+}
+
+function emptyTermPage(
+  seed: string | null,
+  page: LimitApplied,
+  query: string,
+  detail: "terms" | "candidates",
+  cardId: string,
+  asOf: string,
+) {
+  return {
+    ok: true as const,
+    provenance: PROVENANCE,
+    seed_as_of: seed,
+    ...page,
+    query,
+    detail,
+    filters: { card_id: cardId, as_of: asOf },
+    total: 0,
+    unknown_card_id: cardId,
+    dropped_ids: [] as string[],
+    ...(detail === "candidates"
+      ? { candidates: [] as never[] }
+      : { records: [] as never[] }),
+  };
+}
+
+// eslint-disable-next-line complexity -- request pipeline: validate → retrieve → hydrate → shape, each step linear
+export async function searchTerms(
+  db: D1Database,
+  deps: TermSearchDeps | null,
+  input: {
+    query?: string;
+    as_of?: string;
+    card_id?: string;
+    limit?: number;
+    detail?: "terms" | "candidates";
+  },
+) {
+  const seed = await seedDate(db);
+  if (!deps) {
+    return fail(
+      "search_unavailable",
+      "term search is not configured on this deployment",
+      seed,
+    );
+  }
+  const page = applyLimit(input.limit, seed);
+  if ("ok" in page) return page;
+  const asOf = checkAsOf(input.as_of, seed);
+  if (typeof asOf !== "string") return asOf;
+  const query = input.query?.trim() ?? "";
+  if (!query) {
+    return fail("invalid_query", "query must be non-empty text", seed);
+  }
+  const detail = input.detail ?? "terms";
+
+  if (input.card_id !== undefined) {
+    const card = await db
+      .prepare("SELECT id FROM cards WHERE id = ?")
+      .bind(input.card_id)
+      .first();
+    if (!card) {
+      return emptyTermPage(
+        seed, page, query, detail, input.card_id, asOf,
+      );
+    }
+  }
+
+  let ranked: { order: string[]; scoreById: Map<string, number> };
+  try {
+    // eslint-disable-next-line cardex/money-math -- topK is a result count, not a money value
+    const topK = Math.min(Math.max(page.limit * 4, 32), SEARCH_TOPK_CAP);
+    ranked = await rankedCandidates(deps, query, topK);
+  } catch {
+    return fail("search_unavailable", "embed or index query failed", seed);
+  }
+  const { surviving, droppedIds } = await hydrateTerms(
+    db,
+    ranked.order,
+    input.card_id,
+    asOf,
+  );
+  const pageRows = surviving.slice(0, page.limit);
+
+  const envelope = {
+    ok: true as const,
+    seed_as_of: seed,
+    ...page,
+    query,
+    detail,
+    filters: { card_id: input.card_id ?? null, as_of: asOf },
+    total: surviving.length,
+    dropped_ids: droppedIds,
+  };
+  if (detail === "candidates") {
+    return {
+      ...envelope,
+      provenance: provenanceFor(
+        pageRows.map((row) => ({
+          illustrative: isIllustrative(row.source_url, row.last_verified_at),
+        })),
+      ),
+      candidates: pageRows.map((row) => ({
+        term_id: row.id,
+        card_id: row.card_id,
+        kind: row.kind,
+        similarity: ranked.scoreById.get(row.id) ?? null,
+      })),
+    };
+  }
+  const records = pageRows.map((row) => ({
+    ...row,
+    illustrative: isIllustrative(row.source_url, row.last_verified_at),
+  }));
+  return {
+    ...envelope,
+    provenance: provenanceFor(records),
+    records,
   };
 }
 

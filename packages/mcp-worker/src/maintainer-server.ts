@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { proposeChange } from "./maintain.js";
 import { payload, registerReadTools, strictInput } from "./server.js";
+import type { TermSearchDeps } from "./query.js";
 
 const patch = strictInput({
   op: z.enum(["insert", "update", "delete"]),
@@ -18,12 +19,15 @@ const patch = strictInput({
 
 // /maintainer's MCP surface: fact reads plus proposals. Public reports are
 // reviewed through /admin, never exposed to the maintenance agent.
-export function buildMaintainerServer(db: D1Database): McpServer {
+export function buildMaintainerServer(
+  db: D1Database,
+  searchDeps: TermSearchDeps | null = null,
+): McpServer {
   const server = new McpServer({
     name: "cardex-maintainer",
     version: "0.0.1",
   });
-  registerReadTools(server, db);
+  registerReadTools(server, db, searchDeps);
 
   server.registerTool(
     "propose_change",

@@ -42,7 +42,7 @@ function errorText(res: unknown): string {
 }
 
 describe("public tool surface", () => {
-  it("exposes only the seven PRD tools — no report reads or proposals", async () => {
+  it("exposes only the PRD tools — no report reads or proposals", async () => {
     const { client, server } = await connect();
     try {
       const { tools } = await client.listTools();
@@ -55,6 +55,7 @@ describe("public tool surface", () => {
           "report_issue",
           "resolve_alias",
           "score_candidates",
+          "search_terms",
         ].sort(),
       );
     } finally {
