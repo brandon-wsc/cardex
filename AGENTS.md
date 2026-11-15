@@ -64,6 +64,9 @@ pnpm dup        # jscpd clone scan → docs/dup-baseline/ (advisory, no gate)
 pnpm prd-rows   # PRD §4–§6 row ↔ spec-title gate + AGENTS.md pnpm-cmd check
 pnpm money-scan # cardex/money-math scan over all ts/tsx; --diff <ref> runs as advisory PR check (ADR 0013)
 pnpm test:money-rule # regression tests for the money-math ESLint rule
+python3 scripts/term_search_eval.py # manual Term-search lexical eval against a pinned D1 seed
+python3 scripts/term_search_eval.py --provider ollama # add local BGE-M3 embeddings (requires ollama serve + pulled model)
+python3 -m unittest discover -s scripts -p 'test_term_search_eval.py' # offline eval harness tests
 ```
 
 Package manager is pnpm (`packageManager` in the root `package.json`). `.npmrc` sets `minimum-release-age=10080` (minutes). Install with a pinned version published at least 7 days ago. Never use `latest` or an unbounded range, and never weaken `.npmrc` to get an install through.
