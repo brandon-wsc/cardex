@@ -67,7 +67,7 @@ export function registerReadTools(server: McpServer, db: D1Database): void {
   server.registerTool(
     "get_card",
     {
-      description: `One card by id, plus its rate summaries and term ids. ${SEED_NOTE}`,
+      description: `One card by id, plus its rate summaries, term ids, and fee records. ${SEED_NOTE}`,
       inputSchema: strictInput({ id: z.string() }),
       annotations: { readOnlyHint: true },
     },

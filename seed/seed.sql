@@ -11,6 +11,7 @@ DELETE FROM term_merchants;
 DELETE FROM terms;
 DELETE FROM rates;
 DELETE FROM tags;
+DELETE FROM card_fees;
 DELETE FROM cards;
 DELETE FROM reports;
 DELETE FROM proposals;

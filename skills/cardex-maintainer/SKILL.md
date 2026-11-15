@@ -45,7 +45,7 @@ The six public read tools are all here (`lookup_rates`, `get_card`, `get_term`, 
 Each patch is `{op, table, id, key?, set?}` — never raw SQL; malformed or non-whitelisted patches get the whole proposal rejected.
 
 - `op`: `insert` | `update` | `delete`
-- `table`: a facts table — `cards`, `tags`, `rates`, `rate_tags`, `terms`, `rate_terms`, `term_merchants`, `aliases`, `alias_tags`, `alias_cards`. Not `reports`, not `proposals`, not `meta`.
+- `table`: a facts table — `cards`, `card_fees`, `tags`, `rates`, `rate_tags`, `terms`, `rate_terms`, `term_merchants`, `aliases`, `alias_tags`, `alias_cards`. Not `reports`, not `proposals`, not `meta`.
 - `id`: the row's identity label (also the primary key for single-key tables).
 - `set`: `{column: value}` — any real column of that table works; columns are checked against the live schema.
 - `key`: required for `update`/`delete` on composite-key tables (`rate_tags`, `rate_terms`, `term_merchants`, `alias_tags`, `alias_cards`) — give all pk columns, e.g. `{"rate_id": "rate_x", "tag_id": "dining"}`.

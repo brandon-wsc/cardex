@@ -43,7 +43,7 @@ Inputs are strict: an unrecognized argument key is a protocol `InvalidParams` er
 | --- | --- | --- |
 | `resolve_alias` | You have a merchant name, nickname, or free text (`茶餐廳`, `hsbc red`, `淘寶`) and need tag or card ids | `query`, `limit` |
 | `lookup_rates` | You need the rates for a tag, set of cards, or issuer | `tag_id`, `card_ids`, `issuer`, `as_of`, `limit` — at least one filter required |
-| `get_card` | You need one card's details and its rate summaries | `id` |
+| `get_card` | You need one card's details, fee records, and its rate summaries | `id` |
 | `get_term` | A rate cites `term_ids` you cannot evaluate | `id` |
 | `list_tags` | You need the canonical spend tags | `limit` |
 | `score_candidates` | You want the rebate math for a spend under your own assumptions | `amount_hkd` **or** `amount` + `currency`, `tag_ids`, `card_ids`, `alias`, `merchant`, `assumptions`, `as_of`, `limit` |
