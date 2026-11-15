@@ -6,6 +6,7 @@
     "`get_term`": "returns the term",
     "`list_tags`": "returns tags honoring limit and total",
     "`resolve_alias`": "resolves a merchant alias to its tags",
+    "`search_terms`": "hydrates vector-ranked candidates from D1 in rank order",
     "`score_candidates`": "calculates rebate as amount × value / 100",
     "`report_issue`": "writes report_issue to the quarantined reports table",
     "`rebate_percent`": "calculates rebate as amount × value / 100",
@@ -53,6 +54,9 @@
     "Report with a non-http(s) `evidence_url` or an over-limit field": "rejects a report with a non-http(s) or overlong evidence_url",
     "Report queue over 500 in 24 h": "rejects new reports once the daily intake cap is hit",
     "Per-IP budget exceeded (any surface)": "429s /mcp past the per-IP budget before the tool runs",
-    "Admin API non-GET from a cross-site caller": "rejects cross-site POSTs via fetch metadata or Origin"
+    "Admin API non-GET from a cross-site caller": "rejects cross-site POSTs via fetch metadata or Origin",
+    "`search_terms` with an empty `query`": "rejects an empty query with invalid_query",
+    "`search_terms` retrieval unconfigured or the embed/index call fails": "fails search_unavailable when retrieval is unconfigured",
+    "Vector candidates failing D1 revalidation": "drops candidates that fail D1 revalidation and echoes dropped_ids"
   }
 }

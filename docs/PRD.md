@@ -95,6 +95,7 @@ Tool inputs are strict objects: an unrecognized key (`tag` instead of `tag_id`, 
 | `get_term` | `id` | One term. Unknown id → `not_found` |
 | `list_tags` | `limit?` | Tag id + label |
 | `resolve_alias` | `query`, `limit?` | Each hit: the alias text, tag ids, card ids, issuers, networks. DB aliases and the code-side issuer/network maps are merged by alias text. No hit → `matches: []`. Match is normalized (trim, lowercase, collapsed spaces): exact, or either string contains the other when both are at least 2 characters |
+| `search_terms` | `query`, `as_of?`, `card_id?`, `limit?`, `detail?: "terms" \| "candidates"` | Experimental semantic Term discovery ([ADR 0014](adr/0014-semantic-term-search.md)): the query is embedded, the nearest term vectors are taken as candidates, and every candidate is revalidated against D1 — `card_id` scope and the `as_of` window are enforced at hydration, and ids that fail (deleted, expired, another card's) echo as `dropped_ids`. Surviving rows keep vector rank order. Default `detail: "terms"` returns the rows in the `get_term` shape; `"candidates"` returns `{term_id, card_id, kind, similarity}` pointers for a follow-up `get_term` — `similarity` is a retrieval signal, never a fact or an applicability claim. An empty answer means nothing survived revalidation, not that no such term exists. Unknown `card_id` → empty page plus `unknown_card_id` |
 | `score_candidates` | `amount_hkd`, `tag_ids?`, `card_ids?`, `alias?`, `merchant?`, `assumptions?`, `as_of?`, `limit?` | One row per matching rate. See §5 |
 | `report_issue` | exactly one of `card_id` / `rate_id` / `term_id`, `field`, `claimed_value`, `evidence_url?`, `note?` | `{ ok: true, report_id }`. Writes only to the reports table. There is no public read-back tool |
 
@@ -174,6 +175,9 @@ A cleared exclusion is the caller saying "this does not apply", not Cardex decid
 | Unknown tag on lookup | `ok: true`, empty page, `unknown_tag_id` set |
 | Unknown tag ids on score | `ok: true`, `unknown_tag_ids` lists them; all-unknown → empty `candidates` |
 | Alias matches nothing | `ok: true`, `matches: []` |
+| `search_terms` with an empty `query` | `ok: false`, `error: "invalid_query"` |
+| `search_terms` retrieval unconfigured or the embed/index call fails | `ok: false`, `error: "search_unavailable"` — never a silent lexical fallback |
+| Vector candidates failing D1 revalidation | Dropped before the page; echoed as `dropped_ids`, never returned |
 | `limit` above 100 | Clamped, `clamped: true` |
 | Score with no tag and no usable alias | `ok: false`, `error: "missing_spend"` |
 | Score with a `merchant` and no usable tags | `ok: false`, `error: "unmapped_merchant"` — echoes the merchant and lists `valid_tag_ids` |
@@ -219,6 +223,7 @@ Until the portal ships, steps 3–4 collapse into the owner applying approved ch
 | Store | D1 | Query store and offline seed per [ADR 0001](adr/0001-product-shape.md) |
 | Query | Async functions in `query.ts` against `env.DB` | Tool I/O authority; the demo and the Worker call the same functions |
 | Seed | `seed/seed.sql` via `wrangler d1 execute --local` | Idempotent, auditable in git |
+| Term discovery | Workers AI `@cf/baai/bge-m3` + Vectorize index of Term pointers | Semantic candidate recall only — D1 revalidates every hit ([ADR 0014](adr/0014-semantic-term-search.md)); experimental |
 | Tests | vitest over `query.ts` + CI job | §5 logic is pure; behavior is the gate ([TESTING.md](TESTING.md)) |
 
 Dependencies are pinned. `.npmrc` refuses a release younger than 7 days.
@@ -234,7 +239,7 @@ Dependencies are pinned. `.npmrc` refuses a release younger than 7 days.
 
 ## 11. Out of Scope
 
-A consumer "which card" app, a wallet, a second approver on the portal (one owner, per ADR 0002), auth on the read path, request-time scraping, embedding search, personal data of any kind, and any copy that names a best card.
+A consumer "which card" app, a wallet, a second approver on the portal (one owner, per ADR 0002), auth on the read path, request-time scraping, embedding search beyond the experimental `search_terms` path ([ADR 0014](adr/0014-semantic-term-search.md)), personal data of any kind, and any copy that names a best card.
 
 ## 12. Open Questions
 
