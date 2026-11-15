@@ -27,6 +27,11 @@ export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: { configPath: "./wrangler.jsonc" },
+      // Vectorize has no local simulator, so its wrangler binding would
+      // otherwise start a remote proxy session needing CLOUDFLARE_API_TOKEN
+      // — unavailable in CI and pointless here: search_terms tests inject
+      // fakes and never touch the real bindings (ADR 0014).
+      remoteBindings: false,
       miniflare: {
         bindings: {
           TEST_MIGRATIONS: migrations,
