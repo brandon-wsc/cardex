@@ -57,3 +57,13 @@ Vectorize's current documented limits include 1,536 dimensions per vector, 64-by
 3. **Only if warranted:** create a fresh `feat/term-search` branch from the then-current `dev`, update the PRD and add an ADR for the new contract before/with code, then implement, test and review the new read path. Avoid stacking a RAG PR on an unmerged eval PR; keep the dependency and decision visible. Sources for repo workflow: [execution conventions](EXECUTION.md), [PRD §11](PRD.md).
 
 This is a proposed eval plan and possible interface, **not** a claimed performance result or an approval to add embedding search.
+
+## Prototype implementation (2026-11-16, `feat/term-search`)
+
+An experimental `search_terms` prototype landed on a feature branch per step 3 above — [ADR 0014](adr/0014-semantic-term-search.md) records the contract. Deliberate deviations/confirmations versus the sketch above:
+
+- **Chunking is row-level:** one curated `terms` row = one vector (median 175 chars, max 486); the embedded document is `"card_name kind text"`, the same shape the eval used — contextual context from structured fields, not generated text. `merchant_list` terms stay one vector each despite enumerating merchants; a per-member fan-out is a documented later option.
+- **Metadata is pointers only:** `card_id`, `kind`, `effective_from`, `effective_to`, `embed_hash`. `card_id` scope and the `as_of` window are enforced at **D1 hydration**, not trusted to index-side metadata filters — filters are a scale optimization the prototype does not configure.
+- **Index sync is manual:** `scripts/term_search_index.py` reads D1 (`wrangler d1 execute`, local or remote; seed export is the fallback), embeds via local Ollama by default, and emits NDJSON for `wrangler vectorize upsert` plus a stale-id list via `--check-stale`. No apply-path hook — D1 writes never depend on the index.
+- **Local dev degrades honestly:** Vectorize has no local binding mode and AI bindings always call remote (metered), so `wrangler dev` answers `search_unavailable` — the fail-closed path — rather than silently lexical-fallback. Tests inject `embed`/`queryIndex` fakes and never touch billable surfaces.
+- **Known gap stands:** no similarity cutoff ships; the stress set's 8/8 no-answer false hits mean low-ranked hits may be noise. `similarity` is exposed only in `detail: "candidates"`.
