@@ -28,13 +28,14 @@ export default tseslint.config(
     },
   },
   {
-    // ADR 0011: money math goes through Dec — the rule is name-based and
-    // also runs standalone via `pnpm money-scan` (CI diffs).
+    // ADR 0011: money math goes through Dec. ADR 0013: the rule is
+    // advisory — it warns here and gates nothing; the money-scan
+    // workflow reports findings as a non-required check on PR diffs.
     files: ["packages/**/*.{ts,tsx}"],
     languageOptions: { parser: tseslint.parser },
     plugins: { cardex },
     rules: {
-      "cardex/money-math": "error",
+      "cardex/money-math": "warn",
     },
   },
 );
