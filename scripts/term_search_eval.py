@@ -19,6 +19,9 @@ CASES_PATH = ROOT / "scripts/term-search-eval-cases.json"
 MODEL = "@cf/baai/bge-m3"
 OLLAMA_MODEL = "bge-m3:567m-fp16"
 EMBED_BATCH = 16
+RERANK_MODEL_ID = "BAAI/bge-reranker-base"
+RERANK_MODEL_DIR = ROOT / "scripts/out/models/bge-reranker-base"
+RERANK_WINDOW = 10
 STOPWORDS = {
     "a", "an", "and", "are", "at", "be", "by", "card", "for", "from",
     "in", "is", "of", "on", "or", "the", "to", "with",
@@ -140,6 +143,110 @@ def semantic_search(query_vector, terms, vectors, top_k=5):
     ]
     ranks.sort(key=lambda row: (-row[0], row[1]))
     return [term_id for _, term_id in ranks[:top_k]]
+
+
+def sigmoid(value):
+    return 1 / (1 + math.exp(-value))
+
+
+def load_reranker(model_dir=RERANK_MODEL_DIR):
+    try:
+        import onnxruntime
+        from tokenizers import Tokenizer
+    except ImportError as error:
+        raise RuntimeError(
+            "--rerank needs `onnxruntime` and `tokenizers` in the running "
+            "Python (e.g. `uv venv scripts/out/venv && uv pip install "
+            "--python scripts/out/venv/bin/python onnxruntime tokenizers`, "
+            "then run with scripts/out/venv/bin/python)"
+        ) from error
+    missing = [
+        name for name in ("model.onnx", "tokenizer.json")
+        if not (model_dir / name).is_file()
+    ]
+    if missing:
+        raise RuntimeError(
+            f"reranker files missing under {model_dir}: {missing}; download "
+            f"onnx/model.onnx and tokenizer.json from {RERANK_MODEL_ID} on "
+            "Hugging Face"
+        )
+    tokenizer = Tokenizer.from_file(str(model_dir / "tokenizer.json"))
+    session = onnxruntime.InferenceSession(
+        str(model_dir / "model.onnx"), providers=["CPUExecutionProvider"]
+    )
+    return tokenizer, session
+
+
+def rerank_pairs(session, tokenizer, pairs, batch=32, max_length=512):
+    names = {item.name for item in session.get_inputs()}
+    scores = []
+    for start in range(0, len(pairs), batch):
+        encodings = [
+            tokenizer.encode(query, document) for query, document
+            in pairs[start:start + batch]
+        ]
+        width = max(min(len(item.ids), max_length) for item in encodings)
+        inputs = {}
+        if "input_ids" in names:
+            inputs["input_ids"] = [
+                item.ids[:max_length] + [0] * (width - min(len(item.ids), max_length))
+                for item in encodings
+            ]
+        if "attention_mask" in names:
+            inputs["attention_mask"] = [
+                item.attention_mask[:max_length]
+                + [0] * (width - min(len(item.attention_mask), max_length))
+                for item in encodings
+            ]
+        if "token_type_ids" in names:
+            inputs["token_type_ids"] = [
+                item.type_ids[:max_length]
+                + [0] * (width - min(len(item.type_ids), max_length))
+                for item in encodings
+            ]
+        if not inputs:
+            raise ValueError("reranker session exposes no known inputs")
+        logits = session.run(None, inputs)[0]
+        scores.extend(sigmoid(float(row[0] if hasattr(row, "__len__") else row)) for row in logits)
+    return scores
+
+
+def summarize_rerank(cases, ranked):
+    positive_top1 = []
+    negative_top1 = []
+    gold_scores = []
+    for case in cases:
+        rows = ranked.get(case["id"], [])
+        if not rows:
+            continue
+        top1 = rows[0]["rerank_score"]
+        by_id = {row["term_id"]: row["rerank_score"] for row in rows}
+        if case["relevant_ids"]:
+            positive_top1.append(top1)
+            gold_scores.extend(
+                by_id[gold] for gold in case["relevant_ids"] if gold in by_id
+            )
+        else:
+            negative_top1.append(top1)
+    summary = {
+        "positive_top1": _score_stats(positive_top1),
+        "negative_top1": _score_stats(negative_top1),
+        "positive_gold": _score_stats(gold_scores),
+    }
+    if gold_scores and negative_top1:
+        summary["separation_margin"] = min(gold_scores) - max(negative_top1)
+    return summary
+
+
+def _score_stats(values):
+    if not values:
+        return None
+    return {
+        "min": round(min(values), 4),
+        "max": round(max(values), 4),
+        "mean": round(sum(values) / len(values), 4),
+        "count": len(values),
+    }
 
 
 def check_vectors(vectors, count):
@@ -287,8 +394,15 @@ def main():
     )
     parser.add_argument("--seed", type=Path, default=ROOT / "seed/seed.sql")
     parser.add_argument("--cases", type=Path, default=CASES_PATH)
+    parser.add_argument(
+        "--rerank", action="store_true",
+        help="rerank the semantic candidates with a local "
+        f"{RERANK_MODEL_ID} ONNX cross-encoder",
+    )
     args = parser.parse_args()
     semantic = args.semantic or args.provider == "ollama"
+    if args.rerank and not semantic:
+        parser.error("--rerank reranks semantic candidates; enable --semantic or --provider ollama")
     token = os.environ.get("CLOUDFLARE_API_TOKEN")
     account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
     if (semantic and args.provider == "cloudflare"
@@ -311,6 +425,7 @@ def main():
         "top_k": 5,
         "lexical": {},
         "semantic": None,
+        "rerank": None,
     }
     lexical = {}
     durations = []
@@ -337,16 +452,19 @@ def main():
         document_vectors = embed_batch(document_texts)
         build_ms = (time.perf_counter() - started) * 1000
         vectors = dict(zip((term["id"] for term in terms), document_vectors))
-        predictions = {}
+        wide = {}
         durations = []
         for case in cases:
             started = time.perf_counter()
             query_vector = embed_batch([case["query"]])[0]
             available = eligible_terms(terms, case["as_of"], case["card_id"])
-            predictions[case["id"]] = semantic_search(
-                query_vector, available, vectors
+            wide[case["id"]] = semantic_search(
+                query_vector, available, vectors, RERANK_WINDOW
             )
             durations.append((time.perf_counter() - started) * 1000)
+        predictions = {
+            case_id: hits[:5] for case_id, hits in wide.items()
+        }
         report["semantic"] = {
             "provider": args.provider,
             "model": OLLAMA_MODEL if args.provider == "ollama" else MODEL,
@@ -364,6 +482,38 @@ def main():
             **score_results(cases, predictions),
             "by_language": score_by_language(cases, predictions),
             "predictions": predictions,
+        }
+
+    if args.rerank:
+        term_by_id = {term["id"]: term for term in terms}
+        tokenizer, session = load_reranker()
+        ranked = {}
+        started = time.perf_counter()
+        for case in cases:
+            candidates = wide[case["id"]]
+            pairs = [
+                (case["query"], term_text(term_by_id[term_id]))
+                for term_id in candidates
+            ]
+            scores = rerank_pairs(session, tokenizer, pairs)
+            ranked[case["id"]] = [
+                {"term_id": term_id, "rerank_score": round(score, 4)}
+                for term_id, score in sorted(
+                    zip(candidates, scores), key=lambda row: -row[1]
+                )
+            ]
+        rerank_ms = (time.perf_counter() - started) * 1000
+        rerank_predictions = {
+            case_id: [row["term_id"] for row in rows[:5]]
+            for case_id, rows in ranked.items()
+        }
+        report["rerank"] = {
+            "model": f"{RERANK_MODEL_ID} (local ONNX; Workers AI serving may differ numerically)",
+            "rerank_window": RERANK_WINDOW,
+            "mean_case_ms": rerank_ms / len(cases),
+            **score_results(cases, rerank_predictions),
+            **summarize_rerank(cases, ranked),
+            "ranked": ranked,
         }
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
