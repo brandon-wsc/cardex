@@ -26,6 +26,7 @@ interface TableSpec {
 // table is patchable with zero code change.
 const FACT_TABLES = new Set([
   "cards",
+  "card_fees",
   "tags",
   "rates",
   "rate_tags",
@@ -216,6 +217,52 @@ function validateDelete(
   }
 }
 
+// ADR 0012's coverage invariant: NULL means unresearched, 0 is verified
+// no-fee and must pair with not_applicable; a nonzero fee cannot claim the
+// fee-is-0 policy. Keep it on the patch boundary too — apply-time DDL alone
+// would let a pending proposal carry a row the owner can approve but D1
+// cannot write.
+function cardFeePairingError(row: Record<string, Scalar>): string | null {
+  const fee = row.fee_hkd;
+  const policy = row.waiver_policy;
+  if (typeof fee === "number") {
+    if (fee < 0) return "card_fees row violates fee_hkd/waiver_policy pairing";
+    if (fee === 0 && policy !== "not_applicable")
+      return "card_fees row violates fee_hkd/waiver_policy pairing";
+    if (fee !== 0 && policy === "not_applicable")
+      return "card_fees row violates fee_hkd/waiver_policy pairing";
+  } else if (fee === undefined && policy === "not_applicable") {
+    return "card_fees row violates fee_hkd/waiver_policy pairing";
+  }
+  return null;
+}
+
+async function cardFeePatchErrors(
+  db: D1Database,
+  patch: Patch,
+  spec: TableSpec,
+): Promise<string[]> {
+  if (patch.table !== "card_fees" || patch.op === "delete") return [];
+  if (patch.op === "insert") {
+    if (!patch.set) return [];
+    const merged = { ...patch.set };
+    if (spec.pk.length === 1 && !(spec.pk[0] in merged)) {
+      merged[spec.pk[0]] = patch.id;
+    }
+    const error = cardFeePairingError(merged);
+    return error ? [error] : [];
+  }
+  const key = patchKey(patch, spec);
+  if (!key || !patch.set) return [];
+  const old = await fetchRowByKey(db, patch.table, spec, key);
+  if (!old) return [];
+  const error = cardFeePairingError({
+    ...(old as Record<string, Scalar>),
+    ...patch.set,
+  });
+  return error ? [error] : [];
+}
+
 export async function validatePatch(
   db: D1Database,
   raw: unknown,
@@ -230,6 +277,7 @@ export async function validatePatch(
   if (patch.op === "insert") validateInsert(patch, spec, errors);
   if (patch.op === "update") validateUpdate(patch, spec, errors);
   if (patch.op === "delete") validateDelete(patch, spec, errors);
+  errors.push(...(await cardFeePatchErrors(db, patch, spec)));
   return errors;
 }
 

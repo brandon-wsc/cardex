@@ -180,6 +180,33 @@ interface TermRow {
   exclusion_key: string | null;
 }
 
+// ADR 0012: a fee is a record on the card, not a rate condition — it lives
+// in card_fees beside terms. waiver_policy is a closed vocabulary; the
+// waiver claim keeps its own citation (community posts are acceptable) so
+// source_url stays the fee's issuer citation.
+export type WaiverPolicy =
+  | "not_applicable"
+  | "first_year"
+  | "spend_threshold"
+  | "conditional"
+  | "on_request"
+  | "none_known"
+  | "unknown";
+
+interface FeeRow {
+  id: string;
+  card_id: string;
+  kind: "annual";
+  fee_hkd: number | null;
+  waiver_policy: WaiverPolicy;
+  waiver_source_url: string | null;
+  text: string;
+  source_url: string | null;
+  last_verified_at: string | null;
+  effective_from: string | null;
+  effective_to: string | null;
+}
+
 interface TagRow {
   id: string;
   label: string;
@@ -465,13 +492,26 @@ export async function getCard(db: D1Database, id: string) {
     .bind(card.name, card.issuer, id)
     .all<RateRow & { card_name: string; issuer: string }>();
 
+  const { results: feeRows } = await db
+    .prepare("SELECT * FROM card_fees WHERE card_id = ? ORDER BY id")
+    .bind(id)
+    .all<FeeRow>();
+  // Like the rate rows, fees come back regardless of their effective
+  // window — get_card is an audit fetch, and no row at all is the explicit
+  // "not researched" answer (ADR 0012).
+  const fees = feeRows.map((fee) => ({
+    ...fee,
+    illustrative: isIllustrative(fee.source_url, fee.last_verified_at),
+  }));
+
   const rates = await rateRowsWithRefs(db, results);
   return {
     ok: true as const,
-    provenance: provenanceFor(rates),
+    provenance: provenanceFor([...rates, ...fees]),
     seed_as_of: seed,
     card,
     rates,
+    fees,
     term_ids: [...new Set(rates.flatMap((rate) => rate.term_ids))],
   };
 }

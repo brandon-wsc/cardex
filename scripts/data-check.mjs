@@ -4,8 +4,14 @@
 //
 // Each check is one SELECT that returns only violation rows (id + detail),
 // so a clean snapshot returns zero rows. The rules are derived from the
-// PRD and migrations 0001-0004, not restated in DDL — that is why they
-// live here as a gate instead of schema constraints:
+// PRD and migrations 0001-0005, not restated in DDL — that is why they
+// live here as a gate instead of schema constraints.
+//
+// Exception: the card_fees fee/waiver pairing rules ARE restated in DDL
+// (migration 0005 CHECKs). Their audit queries stay for snapshot
+// forensics, and they carry `ddlEnforced` — for those, the selftest
+// requires the schema itself to reject the planted write. A successful
+// insert means the guard regressed, not that the check works:
 //
 //   1. Orphan FKs on every facts relation the schema declares: rates and
 //      terms to cards, both sides of rate_tags / rate_terms /
@@ -24,7 +30,8 @@
 // Before querying the real DB the script self-tests: for every check it
 // rebuilds migrations + seed in an in-memory sqlite, plants the matching
 // violation, and requires the check to report the planted row — so a
-// silently broken check cannot go green. --selftest-only runs just that
+// silently broken check cannot go green. For `ddlEnforced` checks the
+// planted write must fail instead. --selftest-only runs just that
 // proof, needing no local D1.
 //
 // Exit 1 on any violation. Run from the repo root (pnpm data:check).
@@ -128,6 +135,54 @@ const CHECKS = [
     planted: "zz_no_card",
   },
   {
+    rule: "card_fees.card_id references cards.id",
+    sql: `SELECT f.id AS id, 'card_id ' || f.card_id || ' has no cards row' AS detail
+          FROM card_fees f LEFT JOIN cards c ON c.id = f.card_id WHERE c.id IS NULL`,
+    mutate: `INSERT INTO card_fees (id, card_id, kind, waiver_policy, text)
+             VALUES ('zz_orphan_fee', 'zz_no_card', 'annual', 'unknown', 'x')`,
+    planted: "zz_orphan_fee",
+  },
+  {
+    rule: "card_fees effective window is ordered",
+    sql: `SELECT id, 'effective_from ' || effective_from ||
+          ' after effective_to ' || effective_to AS detail
+          FROM card_fees WHERE effective_from IS NOT NULL AND effective_to IS NOT NULL
+            AND effective_from > effective_to`,
+    mutate: `INSERT INTO card_fees (id, card_id, kind, waiver_policy, text,
+             effective_from, effective_to)
+             VALUES ('zz_bad_window_fee', 'card_hsbc_red', 'annual', 'unknown', 'x',
+             '2027-01-01', '2026-01-01')`,
+    planted: "zz_bad_window_fee",
+  },
+  {
+    rule: "card_fees.fee_hkd is NULL or non-negative",
+    sql: `SELECT id, 'fee_hkd ' || fee_hkd AS detail
+          FROM card_fees WHERE fee_hkd < 0`,
+    mutate: `INSERT INTO card_fees (id, card_id, kind, fee_hkd, waiver_policy, text)
+             VALUES ('zz_neg_fee', 'card_hsbc_red', 'annual', -5, 'unknown', 'x')`,
+    planted: "zz_neg_fee",
+    ddlEnforced: true,
+  },
+  {
+    rule: "card_fees zero fee pairs with not_applicable",
+    sql: `SELECT id, 'fee_hkd 0 with waiver_policy ' || quote(waiver_policy) AS detail
+          FROM card_fees WHERE fee_hkd = 0 AND waiver_policy <> 'not_applicable'`,
+    mutate: `INSERT INTO card_fees (id, card_id, kind, fee_hkd, waiver_policy, text)
+             VALUES ('zz_zero_fee', 'card_hsbc_red', 'annual', 0, 'on_request', 'x')`,
+    planted: "zz_zero_fee",
+    ddlEnforced: true,
+  },
+  {
+    rule: "card_fees not_applicable pairs with fee_hkd 0",
+    sql: `SELECT id, 'not_applicable with fee_hkd ' || coalesce(fee_hkd, 'NULL') AS detail
+          FROM card_fees WHERE waiver_policy = 'not_applicable'
+            AND (fee_hkd IS NULL OR fee_hkd <> 0)`,
+    mutate: `INSERT INTO card_fees (id, card_id, kind, fee_hkd, waiver_policy, text)
+             VALUES ('zz_na_fee', 'card_hsbc_red', 'annual', 800, 'not_applicable', 'x')`,
+    planted: "zz_na_fee",
+    ddlEnforced: true,
+  },
+  {
     rule: "rebate_percent rates use unit 'percent'",
     sql: `SELECT id, 'kind rebate_percent with unit ' || quote(unit) AS detail
           FROM rates WHERE kind = 'rebate_percent' AND unit <> 'percent'`,
@@ -221,12 +276,18 @@ function selftest() {
     try {
       db.exec("PRAGMA foreign_keys = OFF");
       db.exec(check.mutate);
+      if (check.ddlEnforced) {
+        misses.push(`${check.rule}: schema accepted planted ${check.planted} — DDL guard missing`);
+        continue;
+      }
       const rows = db.prepare(check.sql).all();
       if (!rows.some((r) => String(r.id).includes(check.planted))) {
         misses.push(`${check.rule}: planted ${check.planted} not reported`);
       }
     } catch (err) {
-      misses.push(`${check.rule}: ${err.message}`);
+      if (!check.ddlEnforced || !/CHECK constraint/i.test(err.message)) {
+        misses.push(`${check.rule}: ${err.message}`);
+      }
     } finally {
       db.close();
     }
@@ -274,7 +335,7 @@ if (misses.length > 0) {
   for (const m of misses) console.error(`  ${m}`);
   process.exit(1);
 }
-console.log(`data-check selftest ok — ${CHECKS.length} checks each caught their planted violation`);
+console.log(`data-check selftest ok — ${CHECKS.length} checks each proved their guard`);
 
 if (process.argv.includes("--selftest-only")) process.exit(0);
 

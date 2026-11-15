@@ -9,9 +9,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-FACTS_TABLES=(meta cards tags rates rate_tags terms rate_terms term_merchants aliases alias_tags alias_cards)
+FACTS_TABLES=(meta cards card_fees tags rates rate_tags terms rate_terms term_merchants aliases alias_tags alias_cards)
 # All tables, children before parents, matching migration FK order.
-ALL_TABLES=(rate_terms rate_tags alias_tags alias_cards aliases term_merchants terms rates tags cards reports proposals meta)
+ALL_TABLES=(rate_terms rate_tags alias_tags alias_cards aliases term_merchants terms rates tags card_fees cards reports proposals meta)
 
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
