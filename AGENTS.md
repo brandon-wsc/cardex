@@ -62,7 +62,7 @@ pnpm test       # vitest — specs from the PRD tables, inside workerd + real D1
 pnpm typecheck  # Worker tsc + astro check
 pnpm dup        # jscpd clone scan → docs/dup-baseline/ (advisory, no gate)
 pnpm prd-rows   # PRD §4–§6 row ↔ spec-title gate + AGENTS.md pnpm-cmd check
-pnpm money-scan # cardex/money-math scan over all ts/tsx; --diff <ref> for changed files (ADR 0011)
+pnpm money-scan # cardex/money-math scan over all ts/tsx; --diff <ref> runs as advisory PR check (ADR 0013)
 pnpm test:money-rule # regression tests for the money-math ESLint rule
 ```
 

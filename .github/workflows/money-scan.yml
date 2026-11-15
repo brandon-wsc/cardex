@@ -1,0 +1,41 @@
+name: Money scan
+
+# Advisory money-math check (ADR 0013): the cardex/money-math ESLint rule
+# errs toward flagging outside type-checked money modules, so it reports
+# findings as its own check instead of gating inside "eslint complexity
+# gate". The check name is not a required context — findings turn it red
+# without blocking merge; the reviewer triages, same contract as ADR 0010.
+
+on:
+  pull_request:
+
+concurrency:
+  group: money-scan-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: money-math scan (advisory)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # money-scan's --diff compares against the PR base commit.
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.20.0
+      - uses: actions/setup-node@v4
+        with:
+          # Keep parity with ci.yml — Astro's floor is Node 22.23.4.
+          node-version: 22.23.4
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # ADR 0011: the same cardex/money-math rule, scoped to this PR's
+      # diff so new float money math is called out where it lands.
+      - name: Money-math scan on changed files
+        run: node scripts/money-scan.mjs --diff ${{ github.event.pull_request.base.sha }}
+      - run: pnpm test:money-rule

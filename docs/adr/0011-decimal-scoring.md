@@ -1,6 +1,6 @@
 # ADR 0011 — Exact decimal scoring
 
-- **Status:** Accepted
+- **Status:** Accepted — §5 enforcement posture amended by [ADR 0013](0013-advisory-money-scan.md)
 - **Date:** 2026-11-14
 - **Supersedes:** —
 

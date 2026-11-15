@@ -1,6 +1,6 @@
 ---
 name: money-math
-description: Exact decimal money arithmetic for Cardex. Use before writing or reviewing code that computes, compares, or rounds money-ish values (hkd, amount, spend, rebate, cap, threshold, fx, value, point…). Run pnpm money-scan to audit the tree; CI runs the same cardex/money-math rule on PR diffs.
+description: Exact decimal money arithmetic for Cardex. Use before writing or reviewing code that computes, compares, or rounds money-ish values (hkd, amount, spend, rebate, cap, threshold, fx, value, point…). Run pnpm money-scan to audit the tree; CI runs the same cardex/money-math rule on PR diffs as an advisory check (ADR 0013).
 ---
 
 # Money math — exact decimals only
@@ -22,7 +22,7 @@ pnpm money-scan --diff origin/dev   # only files changed vs a ref (committed cha
 pnpm money-scan --strict-all        # advisory: typed check on every src file — triage, not a gate
 ```
 
-The same `cardex/money-math` rule runs inside `pnpm lint`, so a full lint already covers it; `money-scan` is the focused read — for reviewing existing code, checking before commit, or after the rule tightens. `--diff` compares commits; uncommitted work needs the full scan.
+The same `cardex/money-math` rule warns inside `pnpm lint` (advisory since ADR 0013 — it gates nothing) and reports as the non-required `money-math scan (advisory)` check on PR diffs; `money-scan` is the focused read — for reviewing existing code, checking before commit, or after the rule tightens. `--diff` compares commits; uncommitted work needs the full scan.
 
 `--strict-all` is the wide net for periodic or review-triggered audits: it asks the checker about *every* computed `number` in `packages/*/src`, so unnamed money (a bare `n`, an untyped `any`) cannot hide. Most findings will be counters, timestamps, and comparators — expected. Read each one and decide:
 
