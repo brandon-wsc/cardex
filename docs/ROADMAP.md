@@ -25,6 +25,7 @@ Any personal agent can answer "which card" well. Cardex is the pair that makes t
 ```
 issuer ──< card ──< rate ──< term
                 └──< rate_tag >── tag ──< alias_tag ── alias
+card ──< card_fees
 card ──< alias_card ── alias
 rate ──< rate_term >── term
 

@@ -141,6 +141,63 @@ describe("get_card", () => {
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error).toBe("not_found");
   });
+
+  it("returns the card's fee records inline with per-record provenance", async () => {
+    const res = await getCard(tenv.DB, "card_hsbc_red");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.fees.map((f) => f.id)).toEqual(["fee_hsbc_red_annual"]);
+    const fee = res.fees[0];
+    expect(fee.kind).toBe("annual");
+    expect(fee.fee_hkd).toBe(2000);
+    expect(fee.waiver_policy).toBe("on_request");
+    expect(fee.waiver_source_url).toBeNull();
+    expect(fee.illustrative).toBe(true);
+  });
+
+  it("verifies a fee on its own source_url, not the waiver citation", async () => {
+    const res = await getCard(tenv.DB, "card_dbs");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    // A community waiver citation does not verify the fee itself.
+    expect(res.fees[0].waiver_source_url).toContain("flyformiles.hk");
+    expect(res.fees[0].source_url).toBeNull();
+    expect(res.fees[0].fee_hkd).toBeNull();
+    expect(res.fees[0].waiver_policy).toBe("unknown");
+    expect(res.fees[0].illustrative).toBe(true);
+  });
+
+  it("marks a cited fee verified and lifts the payload to mixed-seed", async () => {
+    const res = await getCard(tenv.DB, "card_scb_simply");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const fee = res.fees.find((f) => f.id === "fee_scb_simply_annual");
+    expect(fee?.fee_hkd).toBe(0);
+    expect(fee?.waiver_policy).toBe("not_applicable");
+    expect(fee?.illustrative).toBe(false);
+    expect(res.provenance.kind).toBe("mixed-seed");
+  });
+
+  it("returns an empty fees list for a card with no fee rows", async () => {
+    const res = await getCard(tenv.DB, "card_aeon");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.fees).toEqual([]);
+    expect(res.provenance.kind).toBe("synthetic-seed");
+  });
+
+  it("returns all fee rows ordered by id, including out-of-window rows", async () => {
+    const res = await getCard(tenv.DB, "card_boc_sogo");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    // The fixture inserts the 2026 row before the 2025 row — the payload sorts.
+    expect(res.fees.map((f) => f.id)).toEqual([
+      "fee_boc_annual_2025",
+      "fee_boc_annual_2026",
+    ]);
+    // The expired 2025 schedule still returns: get_card is an audit fetch.
+    expect(res.fees[0].effective_to).toBe("2025-12-31");
+  });
 });
 
 describe("get_term", () => {
@@ -392,6 +449,23 @@ describe("score_candidates", () => {
       "card_dbs",
       "card_hsbc_red",
     ]);
+  });
+
+  it("never reads card_fees — a fee is per-year, not per-spend", async () => {
+    // card_dbs carries a fee row in the fixture; scoring it must not
+    // surface fee fields on the payload or any candidate.
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 800,
+      tag_ids: ["dining"],
+      card_ids: ["card_dbs"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res).not.toHaveProperty("fees");
+    for (const c of res.candidates) {
+      expect(c).not.toHaveProperty("fee_hkd");
+      expect(c).not.toHaveProperty("waiver_policy");
+    }
   });
 
   it("echoes the assumptions it used", async () => {

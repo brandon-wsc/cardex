@@ -37,6 +37,7 @@
     "Unknown input key on any tool": "errors on a mistyped lookup_rates key instead of dumping the catalog",
     "`lookup_rates` with no `tag_id` / `card_ids` / `issuer`": "rejects a filter-less lookup_rates call with missing_filter",
     "Unknown card or term id": "returns not_found for an unknown id",
+    "Card with no fee rows": "returns an empty fees list for a card with no fee rows",
     "Unknown tag on lookup": "returns an empty page with unknown_tag_id for an unknown tag",
     "Unknown tag ids on score": "flags unknown tag_ids on score_candidates while scoring the rest",
     "Alias matches nothing": "returns an empty matches array when nothing hits",
