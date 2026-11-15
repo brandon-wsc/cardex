@@ -249,9 +249,43 @@ describe("search_terms", () => {
     ]);
     expect(res.records[0].kind).toBe("cap");
     expect(res.records[0].cap_hkd).toBe(200);
+    expect(res.records[0].similarity).toBe(0.9);
+    expect(res.records[1].similarity).toBe(0.8);
     expect(res.records[0].illustrative).toBe(true);
     expect(res.total).toBe(2);
     expect(res.dropped_ids).toEqual([]);
+  });
+
+  it("drops candidates below min_similarity before hydration", async () => {
+    const res = await searchTerms(
+      tenv.DB,
+      fakeDeps([
+        { id: "term_citi_super_cap", score: 0.9 },
+        { id: "term_hsbc_dining_cap", score: 0.4 },
+      ]),
+      {
+        query: "supermarket cap",
+        min_similarity: 0.5,
+        as_of: "2026-11-01",
+      },
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok || !("records" in res)) return;
+    expect(res.records.map((r) => r.id)).toEqual(["term_citi_super_cap"]);
+    // The floor runs before hydration — it is not a revalidation drop.
+    expect(res.dropped_ids).toEqual([]);
+    expect(res.total).toBe(1);
+  });
+
+  it("rejects an out-of-range min_similarity with invalid_query", async () => {
+    for (const min_similarity of [-0.1, 1.5]) {
+      const res = await searchTerms(tenv.DB, fakeDeps([]), {
+        query: "cap",
+        min_similarity,
+      });
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error).toBe("invalid_query");
+    }
   });
 
   it("drops candidates that fail D1 revalidation and echoes dropped_ids", async () => {

@@ -140,12 +140,13 @@ export function registerReadTools(
   server.registerTool(
     "search_terms",
     {
-      description: `EXPERIMENTAL — semantic discovery of relevant terms by free-text query (e.g. 粵語 descriptions of a condition). Returns candidates revalidated against D1: detail "terms" (default) returns the terms, "candidates" returns compact {term_id, card_id, kind, similarity} pointers for a get_term follow-up. A hit means "possibly relevant", never that the term applies to a spend; an empty answer means nothing survived revalidation. ${SEED_NOTE}`,
+      description: `EXPERIMENTAL — semantic discovery of relevant terms by free-text query (e.g. 粵語 descriptions of a condition). Returns candidates revalidated against D1: detail "terms" (default) returns the terms, "candidates" returns compact {term_id, card_id, kind, similarity} pointers for a get_term follow-up. Every hit carries similarity — a raw retrieval score, not a confidence measure; no calibrated cutoff exists, and low-scored hits may be plausible-sounding noise. min_similarity (0-1) is an optional caller-side floor, not a relevance guarantee. A hit means "possibly relevant", never that the term applies to a spend; an empty answer means nothing survived revalidation. ${SEED_NOTE}`,
       inputSchema: strictInput({
         query: z.string(),
         card_id: z.string().optional(),
         as_of: z.string().optional(),
         detail: z.enum(["terms", "candidates"]).optional(),
+        min_similarity: z.number().min(0).max(1).optional(),
         limit,
       }),
       annotations: { readOnlyHint: true },

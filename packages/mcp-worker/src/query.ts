@@ -535,9 +535,10 @@ export async function getTerm(db: D1Database, id: string) {
 // ever nominates candidate term ids — hydration applies the card_id filter
 // and the as_of window against D1, so the index can shrink the result set
 // (stale/expired pointers drop out as dropped_ids) but can never widen it
-// or supply a fact. Retrieval artifacts (similarity) appear only in the
-// candidates payload; "terms" rows are pure D1 records, same shape as
-// get_term.
+// or supply a fact. Every hit carries its raw retrieval `similarity` —
+// a rank signal for the caller, never a fact, confidence, or an
+// applicability claim; no calibrated cutoff exists, so the optional
+// min_similarity floor is a caller knob, not a Cardex policy.
 export interface TermSearchDeps {
   embed(texts: string[]): Promise<number[][]>;
   queryIndex(
@@ -637,6 +638,7 @@ export async function searchTerms(
     card_id?: string;
     limit?: number;
     detail?: "terms" | "candidates";
+    min_similarity?: number;
   },
 ) {
   const seed = await seedDate(db);
@@ -656,6 +658,17 @@ export async function searchTerms(
     return fail("invalid_query", "query must be non-empty text", seed);
   }
   const detail = input.detail ?? "terms";
+  const minSimilarity = input.min_similarity;
+  if (
+    minSimilarity !== undefined &&
+    (!Number.isFinite(minSimilarity) || minSimilarity < 0 || minSimilarity > 1)
+  ) {
+    return fail(
+      "invalid_query",
+      "min_similarity must be a number between 0 and 1",
+      seed,
+    );
+  }
 
   if (input.card_id !== undefined) {
     const card = await db
@@ -677,9 +690,18 @@ export async function searchTerms(
   } catch {
     return fail("search_unavailable", "embed or index query failed", seed);
   }
+  // Caller-set floor: sub-threshold ids are removed before hydration, so
+  // they never reach D1 and are not echoed in dropped_ids.
+  const order =
+    minSimilarity === undefined
+      ? ranked.order
+      : ranked.order.filter(
+          // eslint-disable-next-line cardex/money-math -- cosine similarity, not money
+          (id) => (ranked.scoreById.get(id) ?? 0) >= minSimilarity,
+        );
   const { surviving, droppedIds } = await hydrateTerms(
     db,
-    ranked.order,
+    order,
     input.card_id,
     asOf,
   );
@@ -713,6 +735,7 @@ export async function searchTerms(
   }
   const records = pageRows.map((row) => ({
     ...row,
+    similarity: ranked.scoreById.get(row.id) ?? null,
     illustrative: isIllustrative(row.source_url, row.last_verified_at),
   }));
   return {
