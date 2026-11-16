@@ -1193,6 +1193,61 @@ describe("decideProposal term-index dirty marks", () => {
     ]);
   });
 
+  it("marks a term whose patch deletes it — the reconcile reads that as deleteByIds", async () => {
+    // Every seeded term has a rate_terms or term_merchants row, so the
+    // delete target is a fresh orphan — an FK refusal would fail the apply.
+    await tenv.DB
+      .prepare(
+        "INSERT INTO terms (id, card_id, kind, text, source_url, last_verified_at) " +
+          "VALUES ('term_orphan_delete', 'card_hsbc_red', 'cap', 'doomed term', " +
+          "'https://example.invalid', '2026-11-01')",
+      )
+      .run();
+    const proposed = await proposeChange(tenv.DB, {
+      summary: "delete the orphaned term",
+      evidence_url: "https://example.invalid/evidence",
+      patches: [
+        { op: "delete" as const, table: "terms", id: "term_orphan_delete" },
+      ],
+    });
+    expect(proposed.ok).toBe(true);
+    if (!proposed.ok) return;
+
+    const res = await decideProposal(tenv.DB, proposed.proposal_id, {
+      decision: "approve",
+      decided_by: "owner@cardex.dev",
+    });
+    expect(res.ok).toBe(true);
+    expect(await dirtyIds()).toEqual(["term_orphan_delete"]);
+    const { results } = await tenv.DB
+      .prepare(
+        "SELECT COUNT(*) AS n FROM terms WHERE id = 'term_orphan_delete'",
+      )
+      .all<{ n: number }>();
+    expect(results[0].n).toBe(0);
+  });
+
+  it("refuses a proposal that tries to patch term_index_dirty itself", async () => {
+    const proposed = await proposeChange(tenv.DB, {
+      summary: "ops state is not a facts table",
+      evidence_url: "https://example.invalid/evidence",
+      patches: [
+        {
+          op: "update" as const,
+          table: "term_index_dirty",
+          id: "term_dbs_quota",
+          set: { queued_at: "backdated" },
+        },
+      ],
+    });
+    expect(proposed.ok).toBe(false);
+    if (proposed.ok) return;
+    expect(proposed.error).toBe("invalid_patch");
+    expect(proposed.detail).toContain(
+      "'term_index_dirty' is outside the patchable facts whitelist",
+    );
+  });
+
   it("leaves term_index_dirty empty when no patch touches terms or cards", async () => {
     const proposed = await proposeChange(tenv.DB, {
       summary: "relabel the dining tag",

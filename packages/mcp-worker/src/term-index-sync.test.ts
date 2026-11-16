@@ -279,17 +279,59 @@ describe("reconcileTermIndex", () => {
 });
 
 describe("scheduled handler", () => {
+  const controller = () =>
+    ({
+      scheduledTime: Date.now(),
+      cron: "*/15 * * * *",
+    }) as ScheduledController;
+
+  const envWithIndex = (
+    deps: TermIndexDeps,
+    aiRun: (model: string, input: { text: string[] }) => Promise<unknown>,
+  ) =>
+    ({
+      DB: tenv.DB,
+      AI: { run: aiRun },
+      TERMS_INDEX: {
+        getByIds: deps.getByIds,
+        upsert: deps.upsert,
+        deleteByIds: deps.deleteByIds,
+      },
+    }) as unknown as Env;
+
   it("skips the run silently when the index bindings are absent", async () => {
     const ctx = createExecutionContext();
     worker.scheduled(
-      {
-        scheduledTime: Date.now(),
-        cron: "*/15 * * * *",
-      } as ScheduledController,
+      controller(),
       { DB: tenv.DB } as unknown as Env,
       ctx,
     );
     await waitOnExecutionContext(ctx);
     expect(await dirtyIds()).toEqual([]);
+  });
+
+  it("drains dirty marks through the index bindings when they are present", async () => {
+    await markDirty("term_ghost");
+    const { deps, calls } = fakeIndexDeps();
+    const env = envWithIndex(deps, (_model, input) =>
+      Promise.resolve({ data: input.text.map(() => [0.1, 0.2]) }),
+    );
+    const ctx = createExecutionContext();
+    worker.scheduled(controller(), env, ctx);
+    await waitOnExecutionContext(ctx);
+    expect(calls.deleted).toContain("term_ghost");
+    expect(await dirtyIds()).toEqual([]);
+  });
+
+  it("keeps the dirty marks when the reconcile inside the handler throws", async () => {
+    await markDirty("term_hsbc_dining_cap");
+    const { deps } = fakeIndexDeps();
+    const env = envWithIndex(deps, () =>
+      Promise.reject(new Error("ai down")),
+    );
+    const ctx = createExecutionContext();
+    worker.scheduled(controller(), env, ctx);
+    await waitOnExecutionContext(ctx);
+    expect(await dirtyIds()).toEqual(["term_hsbc_dining_cap"]);
   });
 });
