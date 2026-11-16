@@ -196,6 +196,26 @@ describe("reconcileTermIndex", () => {
     expect(await dirtyIds()).toEqual(["term_hsbc_dining_cap"]);
   });
 
+  it("fails the run and keeps the marks when embed returns fewer vectors than texts", async () => {
+    await markDirty("term_hsbc_dining_cap");
+    const { deps } = fakeIndexDeps();
+    deps.embed = (texts) =>
+      Promise.resolve(texts.slice(1).map(() => [0.1, 0.2]));
+    await expect(reconcileTermIndex(tenv.DB, deps)).rejects.toThrow(
+      /returned \d+ vectors for \d+ texts/,
+    );
+    expect(await dirtyIds()).toEqual(["term_hsbc_dining_cap"]);
+  });
+
+  it("fails the run when embeddings come back with inconsistent dimensions", async () => {
+    const { deps } = fakeIndexDeps();
+    deps.embed = (texts) =>
+      Promise.resolve(texts.map((_, i) => (i === 0 ? [0.1] : [0.1, 0.2])));
+    await expect(reconcileTermIndex(tenv.DB, deps)).rejects.toThrow(
+      "inconsistent embedding dimensions",
+    );
+  });
+
   it("reports what it changed", async () => {
     await markDirty("term_ghost", "term_hsbc_dining_cap");
     const { deps } = fakeIndexDeps();

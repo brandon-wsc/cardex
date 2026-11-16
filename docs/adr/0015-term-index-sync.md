@@ -12,7 +12,7 @@ Two constraints shape the design. The `VectorizeIndex` binding exposes `getByIds
 
 ## Decision
 
-1. **`term_index_dirty` is the delete record.** A new ops table (`term_id TEXT PRIMARY KEY, queued_at`). During `decideProposal`'s approve path, every patch touching `terms` marks its own id; every `cards` patch marks all of that card's terms (a rename changes the `card_name` inside each embedded document). The marks ride inside the same `db.batch` as the fact patches — they exist iff the facts landed. PK dedupe makes N approvals coalesce for free. Not in `FACT_TABLES`: proposals cannot patch it, and it is never exported to the seed.
+1. **`term_index_dirty` is the delete record.** A new ops table (`term_id TEXT PRIMARY KEY, queued_at`). During `decideProposal`'s approve path, every patch touching `terms` marks its own id; every `cards` patch marks all of that card's terms (a rename changes the `card_name` inside each embedded document). The marks ride inside the same `db.batch` as the fact patches — they exist iff the facts landed. PK dedupe makes N approvals coalesce for free; each mark's `queued_at` carries an `iso#uuid` token so the reconcile's exact-value drain can never wipe a re-mark that merely shares the same millisecond. Not in `FACT_TABLES`: proposals cannot patch it, and it is never exported to the seed.
 
 2. **The hook only marks — it never embeds.** Embedding or index failure can never roll back an approval, and nothing waits on propagation.
 

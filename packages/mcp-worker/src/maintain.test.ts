@@ -1145,6 +1145,16 @@ describe("decideProposal term-index dirty marks", () => {
     return results.map((r) => r.term_id);
   };
 
+  const dirtyRow = async (id: string) => {
+    const { results } = await tenv.DB
+      .prepare(
+        "SELECT term_id, queued_at FROM term_index_dirty WHERE term_id = ?",
+      )
+      .bind(id)
+      .all<{ term_id: string; queued_at: string }>();
+    return results[0];
+  };
+
   it("queues the touched term ids into term_index_dirty in the same atomic batch", async () => {
     const res = await decideProposal(tenv.DB, "prop_seed_001", {
       decision: "approve",
@@ -1235,6 +1245,42 @@ describe("decideProposal term-index dirty marks", () => {
     });
     expect(res.ok).toBe(true);
     expect(await dirtyIds()).toEqual(["term_dbs_quota"]);
+  });
+
+  it("restamps a re-marked term with a fresh token so an in-flight drain cannot wipe it", async () => {
+    const first = await decideProposal(tenv.DB, "prop_seed_001", {
+      decision: "approve",
+      decided_by: "owner@cardex.dev",
+    });
+    expect(first.ok).toBe(true);
+    const before = await dirtyRow("term_dbs_quota");
+    expect(before?.queued_at).toMatch(/#/);
+
+    const proposed = await proposeChange(tenv.DB, {
+      summary: "second edit to the same term",
+      evidence_url: "https://example.invalid/evidence",
+      patches: [
+        {
+          op: "update" as const,
+          table: "terms",
+          id: "term_dbs_quota",
+          set: { quota_n: 20000 },
+        },
+      ],
+    });
+    expect(proposed.ok).toBe(true);
+    if (!proposed.ok) return;
+    const second = await decideProposal(tenv.DB, proposed.proposal_id, {
+      decision: "approve",
+      decided_by: "owner@cardex.dev",
+    });
+    expect(second.ok).toBe(true);
+    const after = await dirtyRow("term_dbs_quota");
+    // Millisecond timestamps can collide across two approvals; the
+    // token suffix keeps the re-mark distinct from the snapshot the
+    // reconcile is draining.
+    expect(after?.queued_at).toMatch(/#/);
+    expect(after?.queued_at).not.toBe(before?.queued_at);
   });
 
   it("rolls back the dirty marks when a patch fails at apply", async () => {

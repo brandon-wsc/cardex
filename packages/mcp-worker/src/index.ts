@@ -309,6 +309,9 @@ export default {
         .then((r) =>
           console.log("term-index reconcile:", JSON.stringify(r)),
         )
+        // audit-allow(ERR-03): a scheduled handler has no caller — a throw
+        // leaves the dirty marks for the next tick, and logs+traces are the
+        // alert channel.
         .catch((e) => console.error("term-index reconcile failed:", e)),
     );
   },

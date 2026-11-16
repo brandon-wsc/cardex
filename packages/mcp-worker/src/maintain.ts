@@ -645,7 +645,10 @@ export async function decideProposal(
           "INSERT OR REPLACE INTO term_index_dirty (term_id, queued_at) " +
             "VALUES (?, ?)",
         )
-        .bind(termId, now),
+        // queued_at carries `iso#uuid`: two approvals of the same term can
+        // share a millisecond timestamp, and the reconcile drains marks by
+        // exact value — a unique token keeps an in-flight re-mark safe.
+        .bind(termId, `${now}#${crypto.randomUUID()}`),
     );
   }
   prepared.push(

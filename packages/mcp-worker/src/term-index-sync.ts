@@ -85,13 +85,26 @@ function vectorRecord(term: DocTerm, values: number[], hash: string) {
   return { id: term.id, values, metadata };
 }
 
+// Same guards as term_search_index.py: a short embed response or mixed
+// dimensions must fail the run — the dirty marks stay for the next tick —
+// never zip a missing slot into an upsert as `values: undefined`.
 async function embedBatched(
   deps: TermIndexDeps,
   texts: string[],
 ): Promise<number[][]> {
   const vectors: number[][] = [];
   for (let start = 0; start < texts.length; start += EMBED_BATCH) {
-    vectors.push(...(await deps.embed(texts.slice(start, start + EMBED_BATCH))));
+    const batch = texts.slice(start, start + EMBED_BATCH);
+    const out = await deps.embed(batch);
+    if (out.length !== batch.length) {
+      throw new Error(
+        `embed returned ${out.length} vectors for ${batch.length} texts`,
+      );
+    }
+    vectors.push(...out);
+  }
+  if (new Set(vectors.map((v) => v.length)).size > 1) {
+    throw new Error("inconsistent embedding dimensions");
   }
   return vectors;
 }
@@ -157,8 +170,9 @@ export async function reconcileTermIndex(
   }
 
   // Drain only the exact (term_id, queued_at) marks we snapshotted, chunked
-  // under D1's 100-parameter limit so an in-flight update/delete mark with a
-  // newer queued_at is never wiped.
+  // under D1's 100-parameter limit. Every mark is stamped unique (iso#uuid),
+  // so an in-flight update/delete mark is never wiped — not even a re-mark
+  // sharing the same millisecond timestamp.
   for (const batch of chunk(dirtyRows, D1_DELETE_BATCH)) {
     await db.batch(
       batch.map((r) =>
