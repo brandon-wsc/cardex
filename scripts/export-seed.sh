@@ -11,7 +11,9 @@ cd "$(dirname "$0")/.."
 
 FACTS_TABLES=(meta cards card_fees tags rates rate_tags terms rate_terms term_merchants aliases alias_tags alias_cards)
 # All tables, children before parents, matching migration FK order.
-ALL_TABLES=(rate_terms rate_tags alias_tags alias_cards aliases term_merchants terms rates tags card_fees cards reports proposals meta)
+# term_index_dirty is ops state (ADR 0015): never dumped, but cleared so a
+# reloaded seed does not carry stale marks into local dev.
+ALL_TABLES=(rate_terms rate_tags alias_tags alias_cards aliases term_merchants terms rates tags card_fees cards reports proposals meta term_index_dirty)
 
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT

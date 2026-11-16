@@ -586,6 +586,11 @@ export async function decideProposal(
   const statements: { sql: string; params: Scalar[] }[] = [];
   const inserted = new Set<string>();
   const deleted = new Set<string>();
+  // ADR 0015: patches that can change an embedded term document queue the
+  // affected term ids — a terms patch marks its own id; a cards patch can
+  // rename the card_name every one of its terms embeds, so it marks them
+  // all. Marks land in the same batch, so they exist iff the facts do.
+  const dirtyTermIds = new Set<string>();
   for (const [i, raw] of rawPatches.entries()) {
     const errors = await validatePatch(db, raw);
     const patch = parsePatch(raw);
@@ -617,6 +622,15 @@ export async function decideProposal(
       deleted.add(token);
       inserted.delete(token);
     }
+    if (patch.table === "terms") {
+      dirtyTermIds.add(patch.id);
+    } else if (patch.table === "cards") {
+      const { results } = await db
+        .prepare("SELECT id FROM terms WHERE card_id = ?")
+        .bind(patch.id)
+        .all<{ id: string }>();
+      for (const row of results) dirtyTermIds.add(row.id);
+    }
     statements.push(...patchStatements(patch, spec));
   }
 
@@ -624,6 +638,19 @@ export async function decideProposal(
     const stmt = db.prepare(sql);
     return params.length ? stmt.bind(...params) : stmt;
   });
+  for (const termId of dirtyTermIds) {
+    prepared.push(
+      db
+        .prepare(
+          "INSERT OR REPLACE INTO term_index_dirty (term_id, queued_at) " +
+            "VALUES (?, ?)",
+        )
+        // queued_at carries `iso#uuid`: two approvals of the same term can
+        // share a millisecond timestamp, and the reconcile drains marks by
+        // exact value — a unique token keeps an in-flight re-mark safe.
+        .bind(termId, `${now}#${crypto.randomUUID()}`),
+    );
+  }
   prepared.push(
     db
       .prepare(

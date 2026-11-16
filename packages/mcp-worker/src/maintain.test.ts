@@ -1131,3 +1131,247 @@ describe("decideProposal", () => {
     if (prop.ok) expect(prop.proposal).toMatchObject({ status: "pending" });
   });
 });
+
+// ADR 0015: an approved patch that can change an embedded term document
+// ("card_name kind text") — or delete the term — lands a term_index_dirty
+// row in the same atomic batch as the facts write; the scheduled reconcile
+// drains them. Marks form a set (primary-key dedupe), and a failed apply
+// leaves none behind.
+describe("decideProposal term-index dirty marks", () => {
+  const dirtyIds = async () => {
+    const { results } = await tenv.DB
+      .prepare("SELECT term_id FROM term_index_dirty ORDER BY term_id")
+      .all<{ term_id: string }>();
+    return results.map((r) => r.term_id);
+  };
+
+  const dirtyRow = async (id: string) => {
+    const { results } = await tenv.DB
+      .prepare(
+        "SELECT term_id, queued_at FROM term_index_dirty WHERE term_id = ?",
+      )
+      .bind(id)
+      .all<{ term_id: string; queued_at: string }>();
+    return results[0];
+  };
+
+  it("queues the touched term ids into term_index_dirty in the same atomic batch", async () => {
+    const res = await decideProposal(tenv.DB, "prop_seed_001", {
+      decision: "approve",
+      decided_by: "owner@cardex.dev",
+    });
+    expect(res.ok).toBe(true);
+    expect(await dirtyIds()).toEqual(["term_dbs_quota"]);
+  });
+
+  it("queues every term of a card whose row was patched", async () => {
+    const proposed = await proposeChange(tenv.DB, {
+      summary: "rename HSBC Red",
+      evidence_url: "https://example.invalid/evidence",
+      patches: [
+        {
+          op: "update" as const,
+          table: "cards",
+          id: "card_hsbc_red",
+          set: { name: "HSBC Red Card (renamed)" },
+        },
+      ],
+    });
+    expect(proposed.ok).toBe(true);
+    if (!proposed.ok) return;
+
+    const res = await decideProposal(tenv.DB, proposed.proposal_id, {
+      decision: "approve",
+      decided_by: "owner@cardex.dev",
+    });
+    expect(res.ok).toBe(true);
+    expect(await dirtyIds()).toEqual([
+      "term_hsbc_dining_cap",
+      "term_hsbc_merchant_list",
+      "term_hsbc_octopus",
+      "term_hsbc_register",
+    ]);
+  });
+
+  it("marks a term whose patch deletes it — the reconcile reads that as deleteByIds", async () => {
+    // Every seeded term has a rate_terms or term_merchants row, so the
+    // delete target is a fresh orphan — an FK refusal would fail the apply.
+    await tenv.DB
+      .prepare(
+        "INSERT INTO terms (id, card_id, kind, text, source_url, last_verified_at) " +
+          "VALUES ('term_orphan_delete', 'card_hsbc_red', 'cap', 'doomed term', " +
+          "'https://example.invalid', '2026-11-01')",
+      )
+      .run();
+    const proposed = await proposeChange(tenv.DB, {
+      summary: "delete the orphaned term",
+      evidence_url: "https://example.invalid/evidence",
+      patches: [
+        { op: "delete" as const, table: "terms", id: "term_orphan_delete" },
+      ],
+    });
+    expect(proposed.ok).toBe(true);
+    if (!proposed.ok) return;
+
+    const res = await decideProposal(tenv.DB, proposed.proposal_id, {
+      decision: "approve",
+      decided_by: "owner@cardex.dev",
+    });
+    expect(res.ok).toBe(true);
+    expect(await dirtyIds()).toEqual(["term_orphan_delete"]);
+    const { results } = await tenv.DB
+      .prepare(
+        "SELECT COUNT(*) AS n FROM terms WHERE id = 'term_orphan_delete'",
+      )
+      .all<{ n: number }>();
+    expect(results[0].n).toBe(0);
+  });
+
+  it("refuses a proposal that tries to patch term_index_dirty itself", async () => {
+    const proposed = await proposeChange(tenv.DB, {
+      summary: "ops state is not a facts table",
+      evidence_url: "https://example.invalid/evidence",
+      patches: [
+        {
+          op: "update" as const,
+          table: "term_index_dirty",
+          id: "term_dbs_quota",
+          set: { queued_at: "backdated" },
+        },
+      ],
+    });
+    expect(proposed.ok).toBe(false);
+    if (proposed.ok) return;
+    expect(proposed.error).toBe("invalid_patch");
+    expect(proposed.detail).toContain(
+      "'term_index_dirty' is outside the patchable facts whitelist",
+    );
+  });
+
+  it("leaves term_index_dirty empty when no patch touches terms or cards", async () => {
+    const proposed = await proposeChange(tenv.DB, {
+      summary: "relabel the dining tag",
+      evidence_url: "https://example.invalid/evidence",
+      patches: [
+        {
+          op: "update" as const,
+          table: "tags",
+          id: "dining",
+          set: { label: "Dining & restaurants" },
+        },
+      ],
+    });
+    expect(proposed.ok).toBe(true);
+    if (!proposed.ok) return;
+
+    const res = await decideProposal(tenv.DB, proposed.proposal_id, {
+      decision: "approve",
+      decided_by: "owner@cardex.dev",
+    });
+    expect(res.ok).toBe(true);
+    expect(await dirtyIds()).toEqual([]);
+  });
+
+  it("dedupes repeated marks for the same term id in one proposal", async () => {
+    const proposed = await proposeChange(tenv.DB, {
+      summary: "two edits to the same term",
+      evidence_url: "https://example.invalid/evidence",
+      patches: [
+        {
+          op: "update" as const,
+          table: "terms",
+          id: "term_dbs_quota",
+          set: { quota_n: 16000 },
+        },
+        {
+          op: "update" as const,
+          table: "terms",
+          id: "term_dbs_quota",
+          set: { text: "re-edited quota term text" },
+        },
+      ],
+    });
+    expect(proposed.ok).toBe(true);
+    if (!proposed.ok) return;
+
+    const res = await decideProposal(tenv.DB, proposed.proposal_id, {
+      decision: "approve",
+      decided_by: "owner@cardex.dev",
+    });
+    expect(res.ok).toBe(true);
+    expect(await dirtyIds()).toEqual(["term_dbs_quota"]);
+  });
+
+  it("restamps a re-marked term with a fresh token so an in-flight drain cannot wipe it", async () => {
+    const first = await decideProposal(tenv.DB, "prop_seed_001", {
+      decision: "approve",
+      decided_by: "owner@cardex.dev",
+    });
+    expect(first.ok).toBe(true);
+    const before = await dirtyRow("term_dbs_quota");
+    expect(before?.queued_at).toMatch(/#/);
+
+    const proposed = await proposeChange(tenv.DB, {
+      summary: "second edit to the same term",
+      evidence_url: "https://example.invalid/evidence",
+      patches: [
+        {
+          op: "update" as const,
+          table: "terms",
+          id: "term_dbs_quota",
+          set: { quota_n: 20000 },
+        },
+      ],
+    });
+    expect(proposed.ok).toBe(true);
+    if (!proposed.ok) return;
+    const second = await decideProposal(tenv.DB, proposed.proposal_id, {
+      decision: "approve",
+      decided_by: "owner@cardex.dev",
+    });
+    expect(second.ok).toBe(true);
+    const after = await dirtyRow("term_dbs_quota");
+    // Millisecond timestamps can collide across two approvals; the
+    // token suffix keeps the re-mark distinct from the snapshot the
+    // reconcile is draining.
+    expect(after?.queued_at).toMatch(/#/);
+    expect(after?.queued_at).not.toBe(before?.queued_at);
+  });
+
+  it("rolls back the dirty marks when a patch fails at apply", async () => {
+    const proposed = await proposeChange(tenv.DB, {
+      summary: "valid term edit plus an FK-violating insert",
+      evidence_url: "https://example.invalid/evidence",
+      patches: [
+        {
+          op: "update" as const,
+          table: "terms",
+          id: "term_dbs_quota",
+          set: { quota_n: 16000 },
+        },
+        {
+          op: "insert" as const,
+          table: "terms",
+          id: "term_bad_fk",
+          set: {
+            card_id: "card_ghost",
+            kind: "quota",
+            text: "violates the cards FK",
+          },
+        },
+      ],
+    });
+    expect(proposed.ok).toBe(true);
+    if (!proposed.ok) return;
+
+    const res = await decideProposal(tenv.DB, proposed.proposal_id, {
+      decision: "approve",
+      decided_by: "owner@cardex.dev",
+    });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error).toBe("apply_failed");
+    // A rolled-back facts write leaves no dirty marks to reconcile.
+    expect(await dirtyIds()).toEqual([]);
+  });
+});

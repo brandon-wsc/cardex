@@ -18,6 +18,7 @@ DELETE FROM cards;
 DELETE FROM reports;
 DELETE FROM proposals;
 DELETE FROM meta;
+DELETE FROM term_index_dirty;
 
 INSERT INTO meta (key, value) VALUES ('seed_as_of', '2026-11-01');
 
