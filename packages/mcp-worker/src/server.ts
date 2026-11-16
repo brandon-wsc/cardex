@@ -12,6 +12,7 @@ import {
   searchTerms,
 } from "./query.js";
 import type { TermSearchDeps } from "./query.js";
+import type { TermIndexDeps } from "./term-index-sync.js";
 
 const SEED_NOTE =
   "Synthetic seed. Illustrative numbers, not issuer terms. Does not name a best card. Confirm with the issuer.";
@@ -69,6 +70,26 @@ export function termSearchDeps(env: Env): TermSearchDeps | null {
       });
       return res.matches.map((match) => ({ id: match.id, score: match.score }));
     },
+  };
+}
+
+// ADR 0015: the scheduled reconcile needs the same embed plus the index's
+// mutation surface. Same fail-closed rule — absent bindings mean no run.
+export function termIndexDeps(env: Env): TermIndexDeps | null {
+  if (!env.AI || !env.TERMS_INDEX) return null;
+  const ai = env.AI;
+  const index = env.TERMS_INDEX;
+  return {
+    embed: async (texts) => {
+      const out = await ai.run(TERM_SEARCH_MODEL, { text: texts });
+      if (!("data" in out) || !out.data) {
+        throw new Error("bge-m3 returned no embedding data");
+      }
+      return out.data;
+    },
+    getByIds: (ids) => index.getByIds(ids),
+    upsert: (vectors) => index.upsert(vectors),
+    deleteByIds: (ids) => index.deleteByIds(ids),
   };
 }
 

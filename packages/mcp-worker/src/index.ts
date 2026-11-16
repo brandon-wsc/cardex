@@ -9,7 +9,12 @@ import {
   listReports,
 } from "./maintain.js";
 import { buildMaintainerServer } from "./maintainer-server.js";
-import { buildServer, termSearchDeps } from "./server.js";
+import {
+  buildServer,
+  termIndexDeps,
+  termSearchDeps,
+} from "./server.js";
+import { reconcileTermIndex } from "./term-index-sync.js";
 
 // These four live in .dev.vars locally and are `wrangler secret put` in
 // prod, so generated Env types only see them when .dev.vars exists (CI has
@@ -284,5 +289,27 @@ export default {
     // Only paths no static asset matched reach here; the assets layer
     // answers with the site's 404 page.
     return env.ASSETS.fetch(request);
+  },
+
+  // ADR 0015: drain term_index_dirty (deletes) and sweep stored embed_hash
+  // (inserts/updates). Missing bindings skip the run — search_terms fails
+  // closed the same way, and a cron crash-loop helps nobody.
+  scheduled(
+    _controller: ScheduledController,
+    env: Env,
+    ctx: ExecutionContext,
+  ): void {
+    const deps = termIndexDeps(env);
+    if (!deps) {
+      console.log("term-index reconcile: bindings absent — skipping");
+      return;
+    }
+    ctx.waitUntil(
+      reconcileTermIndex(env.DB, deps)
+        .then((r) =>
+          console.log("term-index reconcile:", JSON.stringify(r)),
+        )
+        .catch((e) => console.error("term-index reconcile failed:", e)),
+    );
   },
 } satisfies ExportedHandler<Env>;

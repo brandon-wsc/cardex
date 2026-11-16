@@ -22,6 +22,12 @@
     "enabled": true,
     "traces": { "enabled": true }
   },
+  // ADR 0015: the index-sync cadence. Worst case a freshly approved term is
+  // discoverable within 15 min plus Vectorize's own propagation lag; an
+  // unchanged run costs one list + one query and zero embedding calls.
+  "triggers": {
+    "crons": ["*/15 * * * *"]
+  },
   // packages/site builds the public pages and the /admin island (ADR 0004).
   // Worker-first paths keep the MCP surfaces and the /admin identity check
   // ahead of static hosting; everything else is asset-first.
