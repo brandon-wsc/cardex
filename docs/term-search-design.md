@@ -43,8 +43,8 @@ flowchart LR
 
 Two write paths exist; they never meet in a request:
 
-- **Facts** — maintainer proposes → owner approves in `/admin` → `decideProposal` applies patches to D1. The only path that changes truth.
-- **Index** — owner runs `term_search_index.py` → `wrangler vectorize upsert`. Derived, rebuildable, pointers only.
+- **Facts** — maintainer proposes → owner approves in `/admin` → `decideProposal` applies patches to D1 (and marks `term_index_dirty` in the same batch). The only path that changes truth.
+- **Index** — `scheduled()` reconciles every 15 min from D1; owner can also run `term_search_index.py` → `wrangler vectorize upsert` / `delete-vectors`. Derived, rebuildable, pointers only.
 
 ## 2. Read path — `search_terms` request
 

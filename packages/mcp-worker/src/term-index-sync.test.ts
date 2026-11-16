@@ -41,6 +41,7 @@ function fakeIndexDeps(stored: StoredVector[] = []) {
   const vectors = new Map(stored.map((v) => [v.id, v]));
   const calls = {
     embedded: [] as string[][],
+    getByIdsBatches: [] as string[][],
     upserted: [] as { id: string; metadata: Record<string, string> }[],
     deleted: [] as string[],
   };
@@ -49,13 +50,20 @@ function fakeIndexDeps(stored: StoredVector[] = []) {
       calls.embedded.push([...texts]);
       return Promise.resolve(texts.map(() => [0.1, 0.2]));
     },
-    getByIds: (ids) =>
-      Promise.resolve(
+    getByIds: (ids) => {
+      calls.getByIdsBatches.push([...ids]);
+      if (ids.length > 20) {
+        return Promise.reject(
+          new Error(`Vectorize getByIds limit exceeded: ${ids.length} > 20`),
+        );
+      }
+      return Promise.resolve(
         ids.flatMap((id) => {
           const v = vectors.get(id);
           return v ? [{ id: v.id, metadata: v.metadata }] : [];
         }),
-      ),
+      );
+    },
     upsert: (vs) => {
       calls.upserted.push(...vs);
       for (const v of vs) vectors.set(v.id, { id: v.id, metadata: v.metadata });
@@ -196,6 +204,57 @@ describe("reconcileTermIndex", () => {
     expect(res.deleted).toEqual(["term_ghost"]);
     expect(res.upserted.length).toBeGreaterThan(0);
     expect(res).toHaveProperty("unchanged");
+  });
+
+  it("chunks getByIds to at most 20 ids per call", async () => {
+    const extraStmts = Array.from({ length: 25 }, (_, i) =>
+      tenv.DB
+        .prepare(
+          "INSERT INTO terms (id, card_id, kind, text, source_url, last_verified_at) " +
+            "VALUES (?, 'card_hsbc_red', 'cap', ?, 'https://example.invalid', '2026-11-01')",
+        )
+        .bind(`term_extra_${i}`, `Extra term ${i}`),
+    );
+    await tenv.DB.batch(extraStmts);
+    const { deps, calls } = fakeIndexDeps();
+    await reconcileTermIndex(tenv.DB, deps);
+    expect(calls.getByIdsBatches.length).toBeGreaterThan(1);
+    expect(
+      Math.max(...calls.getByIdsBatches.map((b) => b.length)),
+    ).toBeLessThanOrEqual(20);
+  });
+
+  it("drains more than 100 dirty rows without hitting D1 bind-parameter limits", async () => {
+    const ghostIds = Array.from({ length: 120 }, (_, i) => `term_ghost_${i}`);
+    await markDirty(...ghostIds);
+    const { deps, calls } = fakeIndexDeps();
+    const res = await reconcileTermIndex(tenv.DB, deps);
+    expect(res.drained).toBe(120);
+    expect(calls.deleted).toHaveLength(120);
+    expect(await dirtyIds()).toEqual([]);
+  });
+
+  it("preserves a dirty mark updated with a newer queued_at while reconcile is in flight", async () => {
+    await markDirty("term_hsbc_dining_cap");
+    const { deps } = fakeIndexDeps();
+    const baseEmbed = deps.embed;
+    let bumped = false;
+    deps.embed = async (texts) => {
+      if (!bumped) {
+        bumped = true;
+        // Simulate an in-flight proposal deleting the term after reconcile
+        // snapshotted term_index_dirty and terms.
+        await tenv.DB
+          .prepare(
+            "INSERT OR REPLACE INTO term_index_dirty (term_id, queued_at) VALUES (?, ?)",
+          )
+          .bind("term_hsbc_dining_cap", "2026-11-16T00:05:00.000Z")
+          .run();
+      }
+      return baseEmbed(texts);
+    };
+    await reconcileTermIndex(tenv.DB, deps);
+    expect(await dirtyIds()).toEqual(["term_hsbc_dining_cap"]);
   });
 });
 

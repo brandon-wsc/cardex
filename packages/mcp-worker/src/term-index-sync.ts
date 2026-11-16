@@ -17,6 +17,11 @@ const TERMS_DOC_SQL =
 
 // Matches EMBED_BATCH in term_search_eval.py — one AI call per 16 texts.
 const EMBED_BATCH = 16;
+// Cloudflare Vectorize getByIds caps at 20 IDs per call; upsert/deleteByIds
+// cap at 1000 per call. D1 caps bound parameters at 100 per statement.
+const VECTORIZE_GET_BATCH = 20;
+const VECTORIZE_MUTATE_BATCH = 1000;
+const D1_DELETE_BATCH = 45;
 
 export interface DocTerm {
   id: string;
@@ -61,8 +66,12 @@ export async function embedHash(document: string): Promise<string> {
     .join("");
 }
 
-function placeholders(count: number): string {
-  return Array.from({ length: count }, () => "?").join(",");
+function chunk<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    out.push(items.slice(i, i + size));
+  }
+  return out;
 }
 
 function vectorRecord(term: DocTerm, values: number[], hash: string) {
@@ -100,8 +109,8 @@ export async function reconcileTermIndex(
   unchanged: number;
 }> {
   const { results: dirtyRows } = await db
-    .prepare("SELECT term_id FROM term_index_dirty")
-    .all<{ term_id: string }>();
+    .prepare("SELECT term_id, queued_at FROM term_index_dirty")
+    .all<{ term_id: string; queued_at: string }>();
   const dirtyIds = dirtyRows.map((r) => r.term_id);
 
   const { results: terms } = await db.prepare(TERMS_DOC_SQL).all<DocTerm>();
@@ -109,7 +118,9 @@ export async function reconcileTermIndex(
   // The binding cannot list index ids, so deletes are only ever known via
   // the apply-time mark: a dirty id absent from D1 is a deleted term.
   const gone = dirtyIds.filter((id) => !terms.some((t) => t.id === id));
-  if (gone.length) await deps.deleteByIds(gone);
+  for (const batch of chunk(gone, VECTORIZE_MUTATE_BATCH)) {
+    await deps.deleteByIds(batch);
+  }
 
   const docs = new Map(terms.map((t) => [t.id, termDocument(t)]));
   const hashes = new Map(
@@ -120,9 +131,13 @@ export async function reconcileTermIndex(
     ),
   );
 
-  const stored = terms.length
-    ? await deps.getByIds(terms.map((t) => t.id))
-    : [];
+  const stored: { id: string; metadata?: { embed_hash?: string } | null }[] = [];
+  for (const batch of chunk(
+    terms.map((t) => t.id),
+    VECTORIZE_GET_BATCH,
+  )) {
+    stored.push(...(await deps.getByIds(batch)));
+  }
   const storedHash = new Map(
     stored.map((v) => [v.id, v.metadata?.embed_hash ?? null]),
   );
@@ -133,20 +148,27 @@ export async function reconcileTermIndex(
       deps,
       stale.map((t) => docs.get(t.id) ?? ""),
     );
-    await deps.upsert(
-      stale.map((t, i) =>
-        vectorRecord(t, vectors[i], hashes.get(t.id) ?? ""),
-      ),
+    const records = stale.map((t, i) =>
+      vectorRecord(t, vectors[i], hashes.get(t.id) ?? ""),
     );
+    for (const batch of chunk(records, VECTORIZE_MUTATE_BATCH)) {
+      await deps.upsert(batch);
+    }
   }
 
-  if (dirtyIds.length) {
-    await db
-      .prepare(
-        `DELETE FROM term_index_dirty WHERE term_id IN (${placeholders(dirtyIds.length)})`,
-      )
-      .bind(...dirtyIds)
-      .run();
+  // Drain only the exact (term_id, queued_at) marks we snapshotted, chunked
+  // under D1's 100-parameter limit so an in-flight update/delete mark with a
+  // newer queued_at is never wiped.
+  for (const batch of chunk(dirtyRows, D1_DELETE_BATCH)) {
+    await db.batch(
+      batch.map((r) =>
+        db
+          .prepare(
+            "DELETE FROM term_index_dirty WHERE term_id = ? AND queued_at = ?",
+          )
+          .bind(r.term_id, r.queued_at),
+      ),
+    );
   }
 
   return {
