@@ -15,6 +15,13 @@ import {
   termSearchDeps,
 } from "./server.js";
 import { reconcileTermIndex } from "./term-index-sync.js";
+import {
+  beginUsage,
+  parseMcpBody,
+  type McpBody,
+  type Surface,
+  type ToolUsage,
+} from "./usage.js";
 
 // These four live in .dev.vars locally and are `wrangler secret put` in
 // prod, so generated Env types only see them when .dev.vars exists (CI has
@@ -212,6 +219,106 @@ async function handleAdminApi(
   return json({ ok: false, error: "not_found" }, 404);
 }
 
+function handleMcp(
+  request: Request,
+  env: Env,
+  usage: ToolUsage,
+  body: McpBody,
+): Promise<Response> {
+  if (
+    rateLimited(`mcp:${clientIp(request)}`, RATE.mcp.limit, RATE.mcp.windowMs)
+  ) {
+    return Promise.resolve(
+      new Response("Too many requests", { status: 429 }),
+    );
+  }
+  const mcp = createMcpHandler(
+    () => buildServer(env.DB, termSearchDeps(env), usage),
+    {
+      route: "/mcp",
+    },
+  );
+  return mcp.fetch(
+    request,
+    body.parsed ? { parsedBody: body.value } : undefined,
+  );
+}
+
+async function handleMaintainer(
+  request: Request,
+  env: Env,
+  usage: ToolUsage,
+  body: McpBody,
+): Promise<Response> {
+  if (!env.MAINTAINER_TOKEN) {
+    return new Response("Not found", { status: 404 });
+  }
+  const authKey = `maint-auth:${clientIp(request)}`;
+  if (overLimit(authKey, RATE.maintainerAuth.limit)) {
+    return new Response("Too many requests", { status: 429 });
+  }
+  if (
+    !secretEqual(
+      request.headers.get("Authorization"),
+      `Bearer ${env.MAINTAINER_TOKEN}`,
+    )
+  ) {
+    rateLimited(
+      authKey,
+      RATE.maintainerAuth.limit,
+      RATE.maintainerAuth.windowMs,
+    );
+    return json({ error: "unauthorized" }, 401);
+  }
+  const mcp = createMcpHandler(
+    () => buildMaintainerServer(env.DB, termSearchDeps(env), usage),
+    {
+      route: "/maintainer",
+    },
+  );
+  return mcp.fetch(
+    request,
+    body.parsed ? { parsedBody: body.value } : undefined,
+  );
+}
+
+async function route(
+  request: Request,
+  env: Env,
+  url: URL,
+  usage: ToolUsage,
+  body: McpBody,
+): Promise<Response> {
+  if (url.pathname === "/mcp") {
+    return handleMcp(request, env, usage, body);
+  }
+
+  if (url.pathname === "/maintainer") {
+    return handleMaintainer(request, env, usage, body);
+  }
+
+  if (["/admin", "/admin/", "/admin.html"].includes(url.pathname)) {
+    if (!(await adminIdentity(request, env))) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+    return env.ASSETS.fetch(new URL("/admin", url));
+  }
+
+  if (url.pathname.startsWith("/admin/api/")) {
+    const email = await adminIdentity(request, env);
+    if (!email) {
+      return json({ error: "unauthorized" }, 401);
+    }
+    const guard = adminApiRequestGuard(request, url, clientIp(request));
+    if (guard) return guard;
+    return handleAdminApi(request, env, url, email);
+  }
+
+  // Only paths no static asset matched reach here; the assets layer
+  // answers with the site's 404 page.
+  return env.ASSETS.fetch(request);
+}
+
 export default {
   async fetch(
     request: Request,
@@ -219,76 +326,39 @@ export default {
     ctx: ExecutionContext,
   ): Promise<Response> {
     const url = new URL(request.url);
-
-    if (url.pathname === "/mcp") {
-      if (
-        rateLimited(`mcp:${clientIp(request)}`, RATE.mcp.limit, RATE.mcp.windowMs)
-      ) {
-        return new Response("Too many requests", { status: 429 });
+    const surface: Surface =
+      url.pathname === "/mcp"
+        ? "mcp"
+        : url.pathname === "/maintainer"
+          ? "maintainer"
+          : ["/admin", "/admin/", "/admin.html"].includes(url.pathname) ||
+              url.pathname.startsWith("/admin/api/")
+            ? "admin"
+            : "asset_miss";
+    const usage = beginUsage(request, env.USAGE, surface);
+    const t0 = Date.now();
+    const body =
+      surface === "mcp" || surface === "maintainer"
+        ? await parseMcpBody(request)
+        : { parsed: false, value: undefined };
+    usage.observe(body.value);
+    try {
+      const res = await route(request, env, url, usage.tool, body);
+      const finished = usage.finish(res, Date.now() - t0, body.value);
+      if (res.headers.get("content-type")?.includes("text/event-stream")) {
+        ctx.waitUntil(finished);
+      } else {
+        await finished;
       }
-      const mcp = createMcpHandler(
-        () => buildServer(env.DB, termSearchDeps(env)),
-        {
-          route: "/mcp",
-        },
+      return res;
+    } catch (err) {
+      await usage.finish(
+        new Response(null, { status: 500 }),
+        Date.now() - t0,
+        body.value,
       );
-      return mcp(request, env, ctx);
+      throw err;
     }
-
-    if (url.pathname === "/maintainer") {
-      if (!env.MAINTAINER_TOKEN) {
-        return new Response("Not found", { status: 404 });
-      }
-      const authKey = `maint-auth:${clientIp(request)}`;
-      if (overLimit(authKey, RATE.maintainerAuth.limit)) {
-        return new Response("Too many requests", { status: 429 });
-      }
-      if (
-        !secretEqual(
-          request.headers.get("Authorization"),
-          `Bearer ${env.MAINTAINER_TOKEN}`,
-        )
-      ) {
-        rateLimited(
-          authKey,
-          RATE.maintainerAuth.limit,
-          RATE.maintainerAuth.windowMs,
-        );
-        return json({ error: "unauthorized" }, 401);
-      }
-      const mcp = createMcpHandler(
-        () => buildMaintainerServer(env.DB, termSearchDeps(env)),
-        {
-          route: "/maintainer",
-        },
-      );
-      return mcp(request, env, ctx);
-    }
-
-    if (["/admin", "/admin/", "/admin.html"].includes(url.pathname)) {
-      if (!(await adminIdentity(request, env))) {
-        return new Response("Unauthorized", { status: 401 });
-      }
-      return env.ASSETS.fetch(new URL("/admin", url));
-    }
-
-    if (url.pathname.startsWith("/admin/api/")) {
-      const email = await adminIdentity(request, env);
-      if (!email) {
-        return json({ error: "unauthorized" }, 401);
-      }
-      const guard = adminApiRequestGuard(
-        request,
-        url,
-        clientIp(request),
-      );
-      if (guard) return guard;
-      return handleAdminApi(request, env, url, email);
-    }
-
-    // Only paths no static asset matched reach here; the assets layer
-    // answers with the site's 404 page.
-    return env.ASSETS.fetch(request);
   },
 
   // ADR 0015: drain term_index_dirty (deletes) and sweep stored embed_hash
