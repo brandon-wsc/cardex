@@ -14,6 +14,7 @@ import {
   argKeys,
   clientBucket,
   rpcMethod,
+  trackTool,
   uaBucket,
   type DataPoint,
   type ToolUsage,
@@ -171,7 +172,7 @@ describe("arg_keys", () => {
     );
     expect(argKeys({})).toBe("-");
     expect(argKeys(undefined)).toBe("-");
-    expect(argKeys({ a: undefined, limit: 1 })).toBe("limit");
+    expect(argKeys({ limit: undefined })).toBe("-");
     expect(
       argKeys({ query: "ok", "canary-personal-data-xyz": "secret" }),
     ).toBe("query");
@@ -230,6 +231,7 @@ describe("usage data points", () => {
       }),
       { USAGE: sink },
     );
+    expect(res.status).toBe(200);
     await drain(res);
     const request = points.find((p) => p.blobs[0] === "request");
     expect(request?.blobs[2]).toBe("initialize");
@@ -404,6 +406,30 @@ describe("usage data points", () => {
     }
   });
 
+  it("never writes a raw clientInfo name — the client canary", async () => {
+    const { points, sink } = fakeSink();
+    const canary = "canary-personal-data-xyz";
+    const res = await call(
+      "/mcp",
+      rpc("initialize", {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: canary, version: "1.0" },
+      }),
+      { USAGE: sink },
+    );
+    expect(res.status).toBe(200);
+    await drain(res);
+
+    const request = points.find((p) => p.blobs[0] === "request");
+    expect(request?.blobs[6]).toBe("other");
+    for (const p of points) {
+      for (const b of p.blobs) {
+        expect(b).not.toContain(canary);
+      }
+    }
+  });
+
   it("serves the surface untouched when the binding is absent", async () => {
     const res = await call(
       "/mcp",
@@ -486,6 +512,7 @@ describe("tool-level tracking", () => {
       tag_ids: ["dining"],
     });
     const content = result.structuredContent as { candidates: unknown[] };
+    expect(content.candidates.length).toBeGreaterThan(0);
     const tool = points.find((p) => p.blobs[0] === "tool_call");
     expect(tool?.doubles[1]).toBe(content.candidates.length);
   });
@@ -513,6 +540,31 @@ describe("tool-level tracking", () => {
     expect(content.dropped_ids).toHaveLength(1);
     const tool = points.find((p) => p.blobs[0] === "tool_call");
     expect(tool?.doubles[1]).toBe(content.records.length);
+  });
+
+  it("writes outcome=thrown and rethrows when the handler throws", async () => {
+    const { points, sink } = fakeSink();
+    await expect(
+      trackTool(usageFor(sink), "list_tags", { limit: 1 }, () => {
+        throw new Error("boom");
+      }),
+    ).rejects.toThrow("boom");
+
+    const tool = points.find((p) => p.blobs[0] === "tool_call");
+    expect(tool?.blobs.slice(1)).toEqual([
+      "mcp",
+      "list_tags",
+      "thrown",
+      "other",
+      "-",
+      "limit",
+      "external",
+      "-",
+      "thrown",
+      "-",
+    ]);
+    expect(tool?.doubles[1]).toBe(0);
+    expect(tool?.indexes).toEqual(["req-test"]);
   });
 
   it("counts a successful singleton read as one result", async () => {
