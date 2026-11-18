@@ -92,7 +92,7 @@ const checks = candidates.flatMap((c) =>
             )
           }
           <p class="slip-foot">{ui.demo.foot.replace("{date}", String(demoScore.seed_as_of))}</p>
-          <div class="stamp" aria-hidden="true">{ui.demo.stamp[0]}<br />{ui.demo.stamp[1]}</div>
+          <div class="stamp" aria-hidden="true">{ui.demo.stamp[0].replace("{date}", String(demoScore.seed_as_of))}<br />{ui.demo.stamp[1].replace("{date}", String(demoScore.seed_as_of))}</div>
         </figure>
       </div>
     </section>
