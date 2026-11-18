@@ -15,6 +15,11 @@ Product and architecture decisions. STATUS may point here; **ADRs are the record
 | [0009](./0009-candidate-conditions.md) | Per-condition status on score rows | Accepted |
 | [0010](./0010-advisory-audit-gate.md) | Advisory LLM audit gate on pull requests | Accepted |
 | [0011](./0011-decimal-scoring.md) | Exact decimal scoring | Accepted |
+| [0012](./0012-card-fees.md) | Card fees: annual fee + waiver policy | Accepted |
+| [0013](./0013-advisory-money-scan.md) | Advisory money-math scan | Accepted |
+| [0014](./0014-semantic-term-search.md) | Semantic term search over a derived Vectorize index | Accepted — parts superseded by 0015 |
+| [0015](./0015-term-index-sync.md) | Term-index sync via apply-time dirty marks + scheduled reconcile | Accepted — supersedes 0014 decision 7 |
+| [0016](./0016-usage-counters.md) | Server-side usage counters via Workers Analytics Engine | Accepted |
 
 ## Format
 
