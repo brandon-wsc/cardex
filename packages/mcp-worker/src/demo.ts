@@ -84,7 +84,10 @@ async function waitForServer(timeoutMs = 60_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      await fetch(MCP_URL, { method: "GET" });
+      await fetch(MCP_URL, {
+        method: "GET",
+        headers: { "x-cardex-probe": "1" },
+      });
       return;
     } catch {
       await sleep(500);
@@ -96,7 +99,11 @@ async function waitForServer(timeoutMs = 60_000): Promise<void> {
 try {
   await waitForServer();
   const client = new Client({ name: "cardex-demo", version: "0.0.1" });
-  await client.connect(new StreamableHTTPClientTransport(new URL(MCP_URL)));
+  await client.connect(
+    new StreamableHTTPClientTransport(new URL(MCP_URL), {
+      requestInit: { headers: { "x-cardex-probe": "1" } },
+    }),
+  );
 
   for (const call of calls) {
     const result = await client.callTool({ name: call.tool, arguments: call.args });

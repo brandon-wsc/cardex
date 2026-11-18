@@ -12,6 +12,8 @@ import {
   searchTerms,
 } from "./query.js";
 import type { TermSearchDeps } from "./query.js";
+import type { TermIndexDeps } from "./term-index-sync.js";
+import { trackTool, type ToolUsage } from "./usage.js";
 
 const SEED_NOTE =
   "Synthetic seed. Illustrative numbers, not issuer terms. Does not name a best card. Confirm with the issuer.";
@@ -69,6 +71,26 @@ export function termSearchDeps(env: Env): TermSearchDeps | null {
       });
       return res.matches.map((match) => ({ id: match.id, score: match.score }));
     },
+  };
+}
+
+// ADR 0015: the scheduled reconcile needs the same embed plus the index's
+// mutation surface. Same fail-closed rule — absent bindings mean no run.
+export function termIndexDeps(env: Env): TermIndexDeps | null {
+  if (!env.AI || !env.TERMS_INDEX) return null;
+  const ai = env.AI;
+  const index = env.TERMS_INDEX;
+  return {
+    embed: async (texts) => {
+      const out = await ai.run(TERM_SEARCH_MODEL, { text: texts });
+      if (!("data" in out) || !out.data) {
+        throw new Error("bge-m3 returned no embedding data");
+      }
+      return out.data;
+    },
+    getByIds: (ids) => index.getByIds(ids),
+    upsert: (vectors) => index.upsert(vectors),
+    deleteByIds: (ids) => index.deleteByIds(ids),
   };
 }
 
@@ -183,11 +205,36 @@ export function registerReadTools(
   );
 }
 
+// ADR 0016: intercept registerTool so every call site keeps its inferred
+// args while each tool call emits one usage datapoint — arg key names only,
+// never values. Patched once per server, before any registration.
+export function trackServerTools(
+  server: McpServer,
+  usage: ToolUsage | undefined,
+): void {
+  if (!usage?.sink) return;
+  const register = server.registerTool.bind(server) as (
+    name: string,
+    config: unknown,
+    cb: (args: unknown, ctx: unknown) => unknown,
+  ) => unknown;
+  server.registerTool = ((
+    name: string,
+    config: unknown,
+    cb: (args: unknown, ctx: unknown) => unknown,
+  ) =>
+    register(name, config, (args, ctx) =>
+      trackTool(usage, name, args, () => cb(args, ctx)),
+    )) as unknown as McpServer["registerTool"];
+}
+
 export function buildServer(
   db: D1Database,
   searchDeps: TermSearchDeps | null = null,
+  usage?: ToolUsage,
 ): McpServer {
   const server = new McpServer({ name: "cardex", version: "0.0.1" });
+  trackServerTools(server, usage);
   registerReadTools(server, db, searchDeps);
 
   server.registerTool(

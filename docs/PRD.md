@@ -1,8 +1,8 @@
 # Cardex — PRD
 
-Status: Draft v0.5 · Owner: Brandon · Last updated: 2026-11-15
+Status: Draft v0.6 · Owner: Brandon · Last updated: 2026-11-18
 
-Cardex is a pair: a **playbook** that teaches a personal agent how to reason about Hong Kong credit cards, and a **facts backend** — a Cloudflare Worker in `packages/mcp-worker`, a public remote MCP endpoint backed by D1. The playbook ships in `skills/cardex` ([ADR 0001](adr/0001-product-shape.md)); this document specifies the backend and its contract. Query data is the synthetic seed in `seed/seed.sql` — invented numbers, not issuer terms.
+Cardex is a pair: a **playbook** that teaches a personal agent how to reason about Hong Kong credit cards, and a **facts backend** — a Cloudflare Worker in `packages/mcp-worker`, a public remote MCP endpoint backed by D1. The playbook ships in `skills/cardex` ([ADR 0001](adr/0001-product-shape.md)); this document specifies the backend and its contract. Query data is a generated export of the prod D1 facts in `seed/seed.sql` — verified rows carry a real `source_url` and `last_verified_at`; rows still being researched are flagged `illustrative` and must not be cited as issuer terms.
 
 ---
 
@@ -195,9 +195,9 @@ A cleared exclusion is the caller saying "this does not apply", not Cardex decid
 
 ## 7. Seed Strategy
 
-Current seed is **synthetic**: a handful of cards and rates, every number invented for the shape, every record `illustrative: true`, `source_url` placeholder. Do not cite these figures.
+Current seed is **cited**: `seed/seed.sql` is a generated export of prod D1 covering the cards most people actually hold — roughly the 15–20 most-held HK cards (the power-law head), not the whole market. Every verified value carries a real `source_url` and `last_verified_at`. The owner signs off each figure by approving the proposal that carries it ([ADR 0002](adr/0002-maintenance-surface.md)).
 
-The **cited seed** is the next milestone and follows a different rule: cover the cards most people actually hold — roughly the 15–20 most-held HK cards (the power-law head), not the whole market. Every value carries a real `source_url` and `last_verified_at`. The owner signs off each figure by approving the proposal that carries it ([ADR 0002](adr/0002-maintenance-surface.md)).
+Rows still being researched stay `illustrative: true` with the `example.invalid` placeholder `source_url`. Do not cite these figures.
 
 `pnpm demo` migrates and seeds local D1, boots `wrangler dev`, and prints payloads from a real MCP client.
 

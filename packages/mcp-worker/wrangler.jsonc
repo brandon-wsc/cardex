@@ -22,6 +22,12 @@
     "enabled": true,
     "traces": { "enabled": true }
   },
+  // ADR 0015: the index-sync cadence. Worst case a freshly approved term is
+  // discoverable within 15 min plus Vectorize's own propagation lag; an
+  // unchanged run costs one list + one query and zero embedding calls.
+  "triggers": {
+    "crons": ["*/15 * * * *"]
+  },
   // packages/site builds the public pages and the /admin island (ADR 0004).
   // Worker-first paths keep the MCP surfaces and the /admin identity check
   // ahead of static hosting; everything else is asset-first.
@@ -54,6 +60,16 @@
   // has no local mode at all, so `wrangler dev` answers search_unavailable —
   // the fail-closed path. Setting "remote": true on both opts a local run
   // into the real resources; tests inject fakes and never touch these.
+  // ADR 0016: coarse usage counters — one row per public MCP request and
+  // validated tool call, whitelisted buckets only (arg key names, UA and
+  // clientInfo buckets, hk/other geo; never values, IPs, or free text).
+  // Positional columns; the ADR is the legend.
+  "analytics_engine_datasets": [
+    {
+      "binding": "USAGE",
+      "dataset": "cardex_usage"
+    }
+  ],
   "ai": { "binding": "AI" },
   "vectorize": [
     {

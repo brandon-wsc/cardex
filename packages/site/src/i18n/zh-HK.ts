@@ -44,7 +44,7 @@ export const zhHK = {
     colCard: "卡",
     colRate: "食肆",
     colBack: "$280 回贈",
-    note: "Red 嘅 8% 只限指定商戶——譚仔喺示範名單上，先計到呢個率。",
+    note: "Red 嘅 8% 只限指定商戶——譚仔喺名單上面，先計到呢個率。",
     catchHeading: "碌之前確認吓",
     unknowns: {
       cap_remaining: "{card} 回贈每月有上限，你今個月賺咗幾多？",
@@ -52,8 +52,8 @@ export const zhHK = {
       octopus_topup: "{card} 唔計八達通增值，食飯唔關事。",
     },
     cardNames: { card_hsbc_red: "Red Card", card_aeon: "WAKUWAKU" },
-    foot: "數字同待確認項目係 Cardex 對示範數據（{date}）嘅真實回應，唔係發卡行條款；真數據會附條款連結同最後核實日期。",
-    stamp: ["示範數據", "非真實條款"],
+    foot: "數字同待確認項目係 Cardex 對已核實數據（{date}）嘅真實回應——每條都附發卡行條款連結同最後核實日期。簽大額前，都係同發卡行確認穩陣。",
+    stamp: ["數據截至", "{date}"],
   },
   pain: {
     heading: "碌卡前最煩唔係計數，係唔知啲細則。",
@@ -96,7 +96,7 @@ export const zhHK = {
       },
       {
         q: "啲數字準唔準？",
-        a: "Cardex 仲係 pre-alpha，而家所有數字都係示範數據，唔係真實條款。真數據會逐張卡核實先上，每條都附發卡行條款連結同最後核實日期。大額簽賬前，記得同發卡行確認。",
+        a: "Cardex 仲係 pre-alpha，但大部分數字已經核實——每條都附發卡行條款連結同最後核實日期；未核實嘅會標明係示範數據。大額簽賬前，記得同發卡行確認。",
       },
       {
         q: "邊啲 AI 助手用得？",
