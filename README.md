@@ -4,7 +4,7 @@
 
 Under the hood Cardex is a pair: an **Agent Skill** ([`skills/cardex`](skills/cardex/SKILL.md)) that teaches the assistant what to check, and a public **remote MCP** endpoint that returns structured, sourced facts. The assistant does the comparing; Cardex never names a best card and never sees your cards.
 
-> **Status:** pre-alpha, live at [cardex.brandonhk.com](https://cardex.brandonhk.com). Every figure is synthetic and marked illustrative — no real issuer terms yet.
+> **Status:** pre-alpha, live at [cardex.brandonhk.com](https://cardex.brandonhk.com). Facts are cited — ~15 of the most-held HK cards carry a real `source_url` and `last_verified_at`; anything still unverified is flagged `illustrative`.
 
 ## Review it in 10 minutes
 
@@ -84,7 +84,7 @@ Two more surfaces share the Worker ([ADR 0002](docs/adr/0002-maintenance-surface
 - Not a "which card should I use" app with its own rankings. There is no Cardex app and no Cardex verdict — your assistant does the comparing. It does not compete with SwipeWhich, 小斯, or similar products.
 - Not a wallet or card-management product. It stores no user cards, transactions, or personal data.
 - Not a live scraper. Data is curated facts in D1 — nothing is scraped at request time.
-- Not a RAG system. Lookups are structured queries, not embedding search over documents.
+- Not a RAG system. Lookups are structured queries, not embedding search over documents — the one exception is `search_terms`, which uses a derived vector index for candidate *discovery* only and revalidates every hit against D1 before returning it.
 
 ## Tools
 
@@ -95,6 +95,7 @@ Two more surfaces share the Worker ([ADR 0002](docs/adr/0002-maintenance-surface
 | `get_term`         | Fetch a specific term/condition (cap, exclusion, validity) by `id`       |
 | `list_tags`        | List known spend tags                                                    |
 | `resolve_alias`    | Map a free-text name to canonical tag(s) or card(s)                      |
+| `search_terms`     | Experimental semantic Term discovery — vector candidates, each revalidated against D1 ([ADR 0014](docs/adr/0014-semantic-term-search.md)) |
 | `score_candidates` | Score cards for a spend under explicit `assumptions`, and report `unknown_exclusions` |
 | `report_issue`     | File a wrong-or-stale fact into the quarantine queue for the maintenance loop |
 
@@ -135,12 +136,12 @@ Local development:
 ```bash
 pnpm install
 pnpm migrate   # apply D1 schema to the local database
-pnpm seed      # load seed/seed.sql (synthetic data)
+pnpm seed      # load seed/seed.sql (generated export of prod D1 facts)
 pnpm dev       # build the site, then wrangler dev — site at http://localhost:8787, MCP at /mcp
 pnpm dev:site  # Astro dev server for page work only (no /mcp or /admin/api)
 ```
 
-The site needs Node ≥ 22.23.4 (Astro's floor). `pnpm demo` builds the site, runs the setup steps, boots `wrangler dev`, and prints eight scripted tool payloads (a real MCP client over HTTP). Rates in that output are invented fixtures, not issuer terms. The spec is [`docs/PRD.md`](docs/PRD.md).
+The site needs Node ≥ 22.23.4 (Astro's floor). `pnpm demo` builds the site, runs the setup steps, boots `wrangler dev`, and prints eight scripted tool payloads (a real MCP client over HTTP) against the seeded snapshot. The spec is [`docs/PRD.md`](docs/PRD.md).
 
 ## Docs
 
@@ -170,7 +171,7 @@ This repo was built by coding agents under the conventions in [AGENTS.md](AGENTS
 │   ├── cardex/           # Agent Skill: the caller playbook (the product surface)
 │   └── cardex-maintainer/# Agent Skill: verify sources + file proposals via /maintainer
 ├── seed/
-│   └── seed.sql          # Synthetic sample data (invented numbers, not issuer terms)
+│   └── seed.sql          # Generated export of prod D1 facts (regenerate via pnpm export-seed)
 ├── docs/
 │   ├── ROADMAP.md
 │   ├── STATUS.md
@@ -184,7 +185,7 @@ This repo was built by coding agents under the conventions in [AGENTS.md](AGENTS
 ## Data policy
 
 - No card numbers (PANs), personal data, or secrets are stored in this repo.
-- No scraped dumps are committed. Seed data is curated; the v1 seed is synthetic (placeholder `source_url`s) until the cited seed lands.
+- No scraped dumps are committed. Seed data is curated — `seed/seed.sql` is a generated export of the cited prod facts, each row carrying `source_url` + `last_verified_at` or an `illustrative` flag.
 - Card terms change often, so always confirm against the issuer before relying on a value.
 
 ## License

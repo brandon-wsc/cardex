@@ -46,7 +46,7 @@ export const en: UI = {
     colCard: "Card",
     colRate: "Dining",
     colBack: "Back on $280",
-    note: "Red's 8% is a designated-merchant rate — it applies because TamJai is on the illustrative list.",
+    note: "Red's 8% is a designated-merchant rate — it applies because TamJai is on the list.",
     catchHeading: "Before you tap, check",
     unknowns: {
       cap_remaining: "{card} caps this rebate each month. How much have you earned so far?",
@@ -54,8 +54,8 @@ export const en: UI = {
       octopus_topup: "{card} excludes Octopus top-ups. Not relevant to dinner.",
     },
     cardNames: { card_hsbc_red: "Red Card", card_aeon: "WAKUWAKU" },
-    foot: "Figures and open checks are Cardex's real response on the illustrative seed (as of {date}), not issuer terms. Verified records carry the terms link and last-checked date.",
-    stamp: ["Illustrative", "not real terms"],
+    foot: "Figures and open checks are Cardex's real response on the cited seed (as of {date}) — verified records, each with the terms link and last-checked date. Confirm with your issuer before relying on one.",
+    stamp: ["Data as of", "{date}"],
   },
   pain: {
     heading: "The hard part isn't the maths. It's the fine print.",
@@ -98,7 +98,7 @@ export const en: UI = {
       },
       {
         q: "Are the numbers accurate?",
-        a: "Cardex is pre-alpha and every figure today is illustrative, not real issuer terms. Real data goes live card by card after verification, each with a link to the issuer's terms and a last-checked date. Confirm with your issuer before a big spend.",
+        a: "Cardex is pre-alpha, but most figures are now cited — each verified record links to the issuer's terms with a last-checked date, and anything still unverified is flagged illustrative. Confirm with your issuer before a big spend.",
       },
       {
         q: "Which AI assistants work with it?",
