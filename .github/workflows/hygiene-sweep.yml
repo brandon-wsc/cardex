@@ -1,0 +1,37 @@
+name: Hygiene sweep
+
+# Weekly full-tree AI sweep: a cheap model runs a fixed rule checklist per
+# src file, findings are deduped by fingerprint and filed as `auto-sweep`
+# issues. Advisory only — findings are unverified candidates for human +
+# strong-model review, never a gate. Escape loop: recurring classes get
+# promoted to ESLint rules or spec rows.
+
+on:
+  schedule:
+    - cron: '23 3 * * 0' # Sun 03:23 UTC — off the top-of-hour rush
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: hygiene-sweep
+
+jobs:
+  sweep:
+    name: sweep + dedup issues
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.4
+      - name: Sweep
+        env:
+          # Same secret convention as audit-gate: OpenRouter key under
+          # OPENAI_API_KEY. Model is pinned in scripts/sweep.mjs (SWEEP_MODEL).
+          OPENROUTER_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: node scripts/sweep.mjs
