@@ -7,7 +7,7 @@ Specs live next to `query.ts` and are sourced from the PRD tables — one row, o
 
 Assert the envelope, not the machinery: error codes and structured fields, not `detail` phrasing; tool re-reads (`get_term`, `getProposal`, `listReports`), not raw `SELECT`; invariants like `records.length === total`, not fixture counts. If a behavior-preserving change turns a spec red, the spec was written too low — fix the spec, not the code.
 
-Add commands to the root [`AGENTS.md`](../AGENTS.md) when they actually run.
+The root [`AGENTS.md`](../AGENTS.md) lists the core loop; add a script there only if every task needs it — the rest stay discoverable in `package.json`.
 
 ## Tiers
 

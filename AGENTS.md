@@ -71,3 +71,7 @@ Package manager is pnpm (`packageManager` in the root `package.json`). `.npmrc` 
 ## When reviewing changes
 
 The hard boundaries are the checklist — flag any change that weakens one.
+
+## Adding to this file
+
+Pick the target before adding here. A **package rule** goes in that package's `AGENTS.md`; a **branch-specific procedure** goes in `.agents/skills/<name>/SKILL.md` (its description is the trigger); a **doc agents consult on demand** goes in `docs/` behind a table pointer. This file keeps only what every task needs — boundaries, the pointer table, core commands.
