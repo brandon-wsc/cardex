@@ -30,7 +30,7 @@ Code lives in `packages/mcp-worker` (remote MCP endpoint + D1) and `packages/sit
 ## Hard boundaries
 
 1. **Facts only** — Tools return cards, rates, terms, tags, and aliases. Cardex does not name a best card. `score_candidates`, if built, calculates under the caller's `assumptions` and lists `unknown_exclusions` ([ADR 0001](docs/adr/0001-product-shape.md)).
-2. **Curated facts** — Query data lives in D1 and changes only through the propose→approve→apply loop; `seed.sql` is a generated dev snapshot, not the truth. Lookups are structured, with one experimental exception: `search_terms` does semantic *candidate discovery* over a derived vector index and revalidates every hit against D1 before returning ([ADR 0014](docs/adr/0014-semantic-term-search.md)). Request-time scraping stays out; the index never serves facts.
+2. **Curated facts** — Query data lives in D1 and changes only through the propose→approve→apply loop (procedure: `.agents/skills/fact-proposal`); `seed.sql` is a generated dev snapshot, not the truth. Lookups are structured, with one experimental exception: `search_terms` does semantic *candidate discovery* over a derived vector index and revalidates every hit against D1 before returning ([ADR 0014](docs/adr/0014-semantic-term-search.md)). Request-time scraping stays out; the index never serves facts.
 3. **No personal data** — No PANs, saved user cards, transactions, or other personal data ([ADR 0001](docs/adr/0001-product-shape.md)).
 4. **Compact results** — Every list tool takes filters and `limit`. Callers follow up with `get_card` / `get_term` by `id`. A tool does not return the whole catalog.
 
@@ -54,6 +54,7 @@ pnpm migrate    # apply D1 migrations to the local database
 pnpm seed       # load seed/seed.sql into local D1
 pnpm export-seed # rebuild seed/seed.sql from prod D1 (facts tables only)
 pnpm data:check # migrate+seed, then facts-integrity rules vs loaded local D1
+# snapshot internals + adding data-check rules: .agents/skills/cardex-data
 pnpm dev        # build site, then wrangler dev — site at http://localhost:8787, MCP at /mcp
 pnpm dev:site   # Astro dev server for page work (no /mcp, no /admin/api)
 pnpm build:site # astro check + build → packages/site/dist (needed before test/dev/deploy)
@@ -64,10 +65,7 @@ pnpm dup        # jscpd clone scan → docs/dup-baseline/ (advisory, no gate)
 pnpm prd-rows   # PRD §4–§6 row ↔ spec-title gate + AGENTS.md pnpm-cmd check
 pnpm money-scan # cardex/money-math scan over all ts/tsx; --diff <ref> runs as advisory PR check (ADR 0013)
 pnpm test:money-rule # regression tests for the money-math ESLint rule
-python3 scripts/term_search_eval.py # manual Term-search lexical eval against a pinned D1 seed
-python3 scripts/term_search_eval.py --provider ollama # add local BGE-M3 embeddings (requires ollama serve + pulled model)
-python3 -m unittest discover -s scripts -p 'test_term_search*.py' # offline eval + index-builder tests
-python3 scripts/term_search_index.py # emit cardex-terms Vectorize NDJSON from local D1 (ADR 0014; embeds via local Ollama)
+# term-search eval + Vectorize index rebuild: .agents/skills/term-search
 ```
 
 Package manager is pnpm (`packageManager` in the root `package.json`). `.npmrc` sets `minimum-release-age=10080` (minutes). Install with a pinned version published at least 7 days ago. Never use `latest` or an unbounded range, and never weaken `.npmrc` to get an install through.
