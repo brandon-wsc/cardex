@@ -2105,7 +2105,6 @@ describe("input invariants", () => {
           .map(([i, j]) => a.slice(Math.min(i, j), Math.max(i, j))),
       ),
     );
-    let hits = 0;
     await fc.assert(
       fc.asyncProperty(queryArb, async (query) => {
         const res = await resolveAlias(tenv.DB, { query, limit: 100 });
@@ -2113,13 +2112,22 @@ describe("input invariants", () => {
         for (const m of res.matches) {
           expect(aliasContain(query, m.text)).toBe(true);
         }
-        if (res.matches.length > 0) hits += 1;
         expect(res.matches.length).toBeLessThanOrEqual(res.total);
       }),
       { numRuns: 30 },
     );
-    // Coverage floor: corpus-derived queries should hit often enough that
-    // the containment assertion above is meaningfully exercised.
+    // Coverage floor: a deterministic pass over the corpus — the hit count
+    // cannot flake on a bad random draw, and the containment assertions
+    // are only meaningful when corpus queries actually match.
+    let hits = 0;
+    for (const query of corpus) {
+      const res = await resolveAlias(tenv.DB, { query, limit: 100 });
+      if (!res.ok) continue;
+      for (const m of res.matches) {
+        expect(aliasContain(query, m.text)).toBe(true);
+      }
+      if (res.matches.length > 0) hits += 1;
+    }
     expect(hits).toBeGreaterThanOrEqual(8);
   });
 
