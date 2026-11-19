@@ -9,11 +9,6 @@
 #   Devin  PostToolUse  stdin has .hook_event_name + .tool_input.profile
 #   Cursor shell       stdin has .command (top level)
 #   Cursor subagent    matcher in hooks.json already limits to comment-sicko
-#
-# A successful sweep stamps .git/comment-sicko-stamp with HEAD. The gate lets
-# `gh pr create` through when the stamped commit is HEAD or an ancestor of it
-# (fix commits after the review stay allowed). Guardrail for honest agents,
-# not a security boundary — the stamp file is just a file.
 
 set -u
 
@@ -29,7 +24,6 @@ stamp_head() {
   git rev-parse HEAD > "$STAMP" 2>/dev/null
 }
 
-# Prints a block reason on stdout, or nothing when the gate is satisfied.
 gate_reason() {
   if [ ! -f "$STAMP" ]; then
     echo "comment-sicko has not run on this branch. Sweep the diff first via .agents/skills/no-comments (spawn the comment-sicko subagent), then retry."
@@ -41,7 +35,6 @@ gate_reason() {
 event=$(printf '%s' "$input" | jq -r '.hook_event_name // empty' 2>/dev/null)
 
 if [ -n "$event" ]; then
-  # ---- Devin payload ----
   case "$event" in
     PostToolUse)
       profile=$(printf '%s' "$input" | jq -r '.tool_input.profile // empty')
@@ -56,7 +49,6 @@ if [ -n "$event" ]; then
       ;;
   esac
 else
-  # ---- Cursor payload ----
   cmd=$(printf '%s' "$input" | jq -r '.command // empty' 2>/dev/null)
   if [ -n "$cmd" ]; then
     printf '%s' "$cmd" | grep -qE "$GATED_RE" || exit 0
@@ -67,7 +59,6 @@ else
       echo '{"permission": "allow"}'
     fi
   else
-    # subagentStop — hooks.json matcher already limits this to comment-sicko.
     stamp_head
   fi
 fi
