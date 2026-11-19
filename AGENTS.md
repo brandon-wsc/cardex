@@ -25,6 +25,7 @@ Code lives in `packages/mcp-worker` (remote MCP endpoint + D1) and `packages/sit
 | Site copy | [`packages/site/src/i18n/`](packages/site/src/i18n/) | Shape rules in the site AGENTS.md; README prompts mirror `prompt.text` ([ADR 0004](docs/adr/0004-public-site.md)) |
 | Worker package | [`packages/mcp-worker/AGENTS.md`](packages/mcp-worker/AGENTS.md) | Runtime, D1 seed, TypeScript — read before working in the package |
 | Site package | [`packages/site/AGENTS.md`](packages/site/AGENTS.md) | Copy rules, Astro/TS versions — read before working in the package |
+| Work items | GitHub Issues | What gets worked — findings and planned changes |
 
 ## Hard boundaries
 
