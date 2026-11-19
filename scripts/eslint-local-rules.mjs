@@ -223,4 +223,54 @@ const moneyMathRule = {
   },
 };
 
-export default { rules: { "money-math": moneyMathRule } };
+// ADR 0016: usage rows may only carry allowlisted buckets — never
+// caller-supplied values. The load-bearing invariant is confinement:
+// every writeDataPoint call lives in usage.ts (where the allowlist lives)
+// and the env.USAGE binding is referenced only by usage.ts and index.ts,
+// which hands it to beginUsage. A write anywhere else bypasses the
+// allowlist entirely, so the rule errors rather than warns. Identifier
+// matching errs toward flagging — destructuring or aliasing cannot dodge
+// it; eslint-disable with a reason is the escape hatch.
+const SINK_MODULE = /(?:^|\/)usage\.ts$/;
+const SINK_OR_ENTRY = /(?:^|\/)(?:usage|index)\.ts$/;
+const SINK_EXEMPT = /\.test\.tsx?$|\/demo\.ts$/;
+
+const telemetrySinkRule = {
+  meta: {
+    type: "problem",
+    docs: {
+      description:
+        "Analytics Engine writes are confined to usage.ts — ADR 0016's no-personal-data boundary",
+    },
+    messages: {
+      sinkWrite:
+        "writeDataPoint outside usage.ts — telemetry writes must go through the allowlists in src/usage.ts (ADR 0016)",
+      sinkAccess:
+        "env.USAGE outside usage.ts/index.ts — the binding stays confined to the sink module and the fetch entry",
+    },
+    schema: [],
+  },
+  create(context) {
+    const filename = context.filename ?? context.getFilename();
+    if (SINK_EXEMPT.test(filename)) return {};
+    const inSink = SINK_MODULE.test(filename);
+    const inSinkOrEntry = SINK_OR_ENTRY.test(filename);
+    if (inSink) return {};
+    return {
+      Identifier(node) {
+        if (node.name === "writeDataPoint") {
+          context.report({ node, messageId: "sinkWrite" });
+        } else if (node.name === "USAGE" && !inSinkOrEntry) {
+          context.report({ node, messageId: "sinkAccess" });
+        }
+      },
+    };
+  },
+};
+
+export default {
+  rules: {
+    "money-math": moneyMathRule,
+    "telemetry-sink": telemetrySinkRule,
+  },
+};
