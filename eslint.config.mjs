@@ -38,4 +38,14 @@ export default tseslint.config(
       "cardex/money-math": "warn",
     },
   },
+  {
+    // ADR 0016: telemetry writes are confined to usage.ts — the
+    // no-personal-data boundary is a hard gate here, not an advisory.
+    files: ["packages/mcp-worker/src/**/*.ts"],
+    languageOptions: { parser: tseslint.parser },
+    plugins: { cardex },
+    rules: {
+      "cardex/telemetry-sink": "error",
+    },
+  },
 );

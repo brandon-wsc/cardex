@@ -141,6 +141,10 @@ unchanged, and no superseding is needed.
   Modern discovery/client metadata, invalid params, privileged surfaces,
   self-traffic, homogeneous batches, and per-tool result counts are
   behavior gates too.
+- Sink confinement is a hard gate: `cardex/telemetry-sink` (eslint) errors
+  on `writeDataPoint` outside `usage.ts` and on `env.USAGE` outside
+  `usage.ts`/`index.ts`, so no code path can write rows while bypassing
+  the allowlists.
 - Local `wrangler dev` uses a local Analytics Engine simulation by default;
   a remote binding or deployed script writes to the real dataset. All owner
   scripts and health checks should send `x-cardex-probe: 1` regardless.
