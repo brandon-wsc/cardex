@@ -20,6 +20,10 @@
   ],
   "observability": {
     "enabled": true,
+    // Issues (beta) groups uncaught exceptions, failed invocations, and
+    // console.error calls into dashboard issues — the runtime-error alert
+    // channel; automations/destinations are dashboard config, not in tree.
+    "issues": { "enabled": true },
     "traces": { "enabled": true }
   },
   // ADR 0015: the index-sync cadence. Worst case a freshly approved term is
