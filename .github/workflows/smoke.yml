@@ -1,0 +1,26 @@
+name: Smoke
+
+on:
+  schedule:
+    - cron: "0 2 * * *" # ~10:00 HKT
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.20.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Smoke check prod
+        working-directory: packages/mcp-worker
+        run: pnpm smoke https://cardex.brandonhk.com

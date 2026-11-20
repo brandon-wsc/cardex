@@ -50,3 +50,6 @@ jobs:
       - name: Deploy worker
         working-directory: packages/mcp-worker
         run: pnpm wrangler deploy
+      - name: Smoke check prod
+        working-directory: packages/mcp-worker
+        run: pnpm smoke https://cardex.brandonhk.com

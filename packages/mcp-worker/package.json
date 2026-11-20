@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "demo": "tsx src/demo.ts",
+    "smoke": "tsx src/smoke.ts",
     "migrate": "wrangler d1 migrations apply cardex-db --local",
     "seed": "wrangler d1 execute cardex-db --local --file ../../seed/seed.sql",
     "types": "wrangler types",
