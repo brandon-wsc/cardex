@@ -242,6 +242,31 @@ INSERT INTO rate_terms (rate_id, term_id) VALUES
   ('rate_boc_eyewear',   'term_boc_eyewear_merchants'),
   ('rate_citi_instore',  'term_citi_instore_cap');
 
+INSERT INTO terms (id, card_id, kind, text, source_url, last_verified_at,
+                   effective_from, effective_to, cap_hkd, threshold_hkd,
+                   quota_n, register_by, post_within_days, anchor, anchor_days,
+                   period, exclusion_key, ccy_scope) VALUES
+  ('term_citi_fcy_settlement', 'card_citi_cash', 'settlement',
+   'Illustrative overseas rebate requires billing in a foreign currency.',
+   'https://example.invalid/cardex-seed/citi-cash-back-terms', '2026-10-01',
+   '2026-01-01', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+   NULL, NULL, 'non_hkd'),
+  ('term_citi_dcc_fee', 'card_citi_cash', 'fx_fee',
+   'Illustrative 1% fee on HKD-billed spend at merchants outside Hong Kong.',
+   'https://example.invalid/cardex-seed/citi-cash-back-terms', '2026-10-01',
+   '2026-01-01', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+   NULL, NULL, 'hkd_outside_hk'),
+  ('term_citi_local_settlement', 'card_citi_cash', 'settlement',
+   'Illustrative in-store rebate requires locally settled HKD spend.',
+   'https://example.invalid/cardex-seed/citi-cash-back-terms', '2026-10-01',
+   '2026-01-01', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+   NULL, NULL, 'local_hkd');
+
+INSERT INTO rate_terms (rate_id, term_id) VALUES
+  ('rate_citi_overseas', 'term_citi_fcy_settlement'),
+  ('rate_citi_overseas', 'term_citi_dcc_fee'),
+  ('rate_citi_instore', 'term_citi_local_settlement');
+
 INSERT INTO aliases (text) VALUES
   ('茶餐廳'),
   ('cha chaan teng'),

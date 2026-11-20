@@ -20,6 +20,7 @@ Product and architecture decisions. STATUS may point here; **ADRs are the record
 | [0014](./0014-semantic-term-search.md) | Semantic term search over a derived Vectorize index | Accepted — parts superseded by 0015 |
 | [0015](./0015-term-index-sync.md) | Term-index sync via apply-time dirty marks + scheduled reconcile | Accepted — supersedes 0014 decision 7 |
 | [0016](./0016-usage-counters.md) | Server-side usage counters via Workers Analytics Engine | Accepted |
+| [0017](./0017-settlement-scope.md) | Settlement scope: billing-currency gates and the cross-border HKD fee | Proposed |
 
 ## Format
 
