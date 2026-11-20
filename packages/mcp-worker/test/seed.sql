@@ -255,11 +255,17 @@ INSERT INTO terms (id, card_id, kind, text, source_url, last_verified_at,
    'Illustrative 1% fee on HKD-billed spend at merchants outside Hong Kong.',
    'https://example.invalid/cardex-seed/citi-cash-back-terms', '2026-10-01',
    '2026-01-01', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-   NULL, NULL, 'hkd_outside_hk');
+   NULL, NULL, 'hkd_outside_hk'),
+  ('term_citi_local_settlement', 'card_citi_cash', 'settlement',
+   'Illustrative in-store rebate requires locally settled HKD spend.',
+   'https://example.invalid/cardex-seed/citi-cash-back-terms', '2026-10-01',
+   '2026-01-01', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+   NULL, NULL, 'local_hkd');
 
 INSERT INTO rate_terms (rate_id, term_id) VALUES
   ('rate_citi_overseas', 'term_citi_fcy_settlement'),
-  ('rate_citi_overseas', 'term_citi_dcc_fee');
+  ('rate_citi_overseas', 'term_citi_dcc_fee'),
+  ('rate_citi_instore', 'term_citi_local_settlement');
 
 INSERT INTO aliases (text) VALUES
   ('茶餐廳'),

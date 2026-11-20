@@ -1592,6 +1592,74 @@ describe("settlement scope — PRD §5", () => {
     );
     expect(cond?.status).toBe("passed");
   });
+
+  it("clears a local-scope settlement term for an in-Hong-Kong merchant", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "HKD",
+      merchant_outside_hk: false,
+      tag_ids: ["in_store"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const citi = res.candidates.find((c) => c.rate_id === "rate_citi_instore");
+    expect(citi?.calculated_rebate_hkd).toBe(20);
+    expect(citi?.failed_terms).not.toContain(
+      "settlement_unmet:term_citi_local_settlement",
+    );
+    const cond = citi?.conditions?.find(
+      (c) => c.term_id === "term_citi_local_settlement",
+    );
+    expect(cond?.status).toBe("passed");
+  });
+
+  it("fails a local-scope settlement term on an outside-Hong-Kong or non-HKD bill", async () => {
+    const hkdOutside = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "HKD",
+      merchant_outside_hk: true,
+      tag_ids: ["in_store"],
+    });
+    expect(hkdOutside.ok).toBe(true);
+    if (!hkdOutside.ok) return;
+    const citiOut = hkdOutside.candidates.find(
+      (c) => c.rate_id === "rate_citi_instore",
+    );
+    expect(citiOut?.calculated_rebate_hkd).toBeNull();
+    expect(citiOut?.failed_terms).toContain(
+      "settlement_unmet:term_citi_local_settlement",
+    );
+
+    const usd = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "USD",
+      tag_ids: ["in_store"],
+    });
+    expect(usd.ok).toBe(true);
+    if (!usd.ok) return;
+    const citiUsd = usd.candidates.find(
+      (c) => c.rate_id === "rate_citi_instore",
+    );
+    expect(citiUsd?.calculated_rebate_hkd).toBeNull();
+    expect(citiUsd?.failed_terms).toContain(
+      "settlement_unmet:term_citi_local_settlement",
+    );
+  });
+
+  it("keeps a local-scope settlement term unknown when merchant location is unasserted", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "HKD",
+      tag_ids: ["in_store"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const citi = res.candidates.find((c) => c.rate_id === "rate_citi_instore");
+    expect(citi?.unknown_exclusions).toContain(
+      "settlement:term_citi_local_settlement",
+    );
+    expect(citi?.calculated_rebate_hkd).toBe(20);
+  });
 });
 
 // PRD §3.3: effective windows filter the list and score tools; an explicit

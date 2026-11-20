@@ -86,7 +86,7 @@ Each `score_candidates` row has three lists-worth of signals. Read all of them b
 | `registration_required` | Opt-in / promo code needed | Ask the user if they registered; settle via `checked_exclusions` |
 | `channel` / `mcc` | Booking channel / merchant category | You judge from the spend context and the term `text` |
 | `quota` | First-N registrants (FCFS) | Cannot be verified — quota usage is not public. Warn the user it may be full |
-| `settlement` | Rate requires non-HKD billing (e.g. a foreign-currency rebate) | Pass `currency`. Non-HKD clears it; explicit `HKD` is a hard fail — `settlement_unmet` lands in `failed_terms`, so the gross figure must not be quoted. Absent `currency` leaves it unknown |
+| `settlement` | Rate requires a specific settlement class — `ccy_scope` names it (`non_hkd` for a foreign-currency rebate, `local_hkd` for local-only spend, `hkd_outside_hk` for cross-border HKD) | Pass `currency`, and `merchant_outside_hk` when an HKD bill's class matters. A transaction that cannot be the required class is a hard fail — `settlement_unmet` lands in `failed_terms`, so the gross figure must not be quoted. Undetermined class (no `currency`, or `HKD` with the flag unset) leaves it unknown |
 | `geo` | Issuer's geographic eligibility definition (e.g. card-present UK/EEA excluded) | Definitions differ per issuer — read the term `text`/`source_url`, don't assume. Distinct from `settlement`: geography is where the merchant is, settlement is what currency the bill lands in |
 | `targeted` | Selected-cardholders-only promo | Ask the user whether they received the invite |
 | `eligibility` | Who may hold/get the rate (principal-only, new-customer, account gate) | Check against what you know about the user |

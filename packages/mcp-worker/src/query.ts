@@ -163,6 +163,8 @@ type TermKind =
   | "eligibility"
   | "settlement";
 
+type SettlementClass = "non_hkd" | "hkd_outside_hk" | "local_hkd";
+
 interface TermRow {
   id: string;
   card_id: string;
@@ -181,7 +183,7 @@ interface TermRow {
   anchor_days: number | null;
   period: string | null;
   exclusion_key: string | null;
-  ccy_scope: "non_hkd" | "hkd_outside_hk" | null;
+  ccy_scope: SettlementClass | null;
 }
 
 // ADR 0012: a fee is a record on the card, not a rate condition — it lives
@@ -889,6 +891,16 @@ export async function scoreCandidates(
   if (!/^[A-Z]{3}$/.test(currency)) {
     return fail("invalid_currency", "currency must be a three-letter code", seed);
   }
+  const txnClasses: ReadonlySet<SettlementClass> =
+    input.currency === undefined
+      ? new Set<SettlementClass>(["non_hkd", "hkd_outside_hk", "local_hkd"])
+      : currency !== "HKD"
+        ? new Set<SettlementClass>(["non_hkd"])
+        : input.merchant_outside_hk === true
+          ? new Set<SettlementClass>(["hkd_outside_hk"])
+          : input.merchant_outside_hk === false
+            ? new Set<SettlementClass>(["local_hkd"])
+            : new Set<SettlementClass>(["local_hkd", "hkd_outside_hk"]);
   const assumptions = input.assumptions ?? {};
   // ADR 0011: money moves through Dec (BigInt rational), never raw float.
   // A non-finite assumption is rejected up front rather than poisoning
@@ -1191,12 +1203,7 @@ export async function scoreCandidates(
       }
       if (term.kind === "fx_fee") {
         const scope = term.ccy_scope ?? "non_hkd";
-        const cleared =
-          input.currency !== undefined &&
-          ((scope === "non_hkd" && currency === "HKD") ||
-            (scope === "hkd_outside_hk" &&
-              (currency !== "HKD" || input.merchant_outside_hk === false)));
-        if (cleared) {
+        if (!txnClasses.has(scope)) {
           consume(`fx_fee:${term.id}`);
           condition("passed");
           continue;
@@ -1214,18 +1221,19 @@ export async function scoreCandidates(
           condition("caller_settled");
           continue;
         }
-        if (input.currency === undefined) {
-          unknown.push(`settlement:${term.id}`);
-          condition("unchecked");
-          continue;
-        }
-        if (currency === "HKD") {
+        const scope = term.ccy_scope ?? "non_hkd";
+        if (!txnClasses.has(scope)) {
           failed.push(`settlement_unmet:${term.id}`);
           calculated = null;
           condition("failed");
-        } else {
-          condition("passed");
+          continue;
         }
+        if (txnClasses.size === 1) {
+          condition("passed");
+          continue;
+        }
+        unknown.push(`settlement:${term.id}`);
+        condition("unchecked");
         continue;
       }
       // Any other kind (registration_required, channel, mcc, quota,

@@ -57,5 +57,5 @@ A way a fee is not charged — issuer-stated (first year, spend threshold) or co
 _Avoid_: Discount, exemption
 
 **Settlement scope**:
-How a transaction is billed — HKD at a Hong Kong merchant, HKD at a merchant outside Hong Kong, or a foreign currency. Issuers price the three differently: a foreign-currency rebate needs a foreign-currency bill, and an HKD bill at an outside-Hong-Kong merchant attracts its own cross-border fee.
+How a transaction is billed — `local_hkd` (HKD at a Hong Kong merchant), `hkd_outside_hk` (HKD at a merchant outside Hong Kong), or `non_hkd` (a foreign currency). Issuers price the three differently: a foreign-currency rebate needs a foreign-currency bill, and an HKD bill at an outside-Hong-Kong merchant attracts its own cross-border fee.
 _Avoid_: DCC, currency conversion (those describe mechanics, not the spend's class)

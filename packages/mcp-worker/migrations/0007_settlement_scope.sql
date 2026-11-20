@@ -31,7 +31,8 @@ CREATE TABLE terms_new (
   anchor_days      INTEGER,
   period           TEXT,
   exclusion_key    TEXT,
-  ccy_scope        TEXT CHECK (ccy_scope IN ('non_hkd', 'hkd_outside_hk'))
+  ccy_scope        TEXT CHECK (ccy_scope IN ('non_hkd', 'hkd_outside_hk',
+                    'local_hkd'))
 );
 
 INSERT INTO terms_new (id, card_id, kind, text, source_url, last_verified_at,
