@@ -1,10 +1,5 @@
 name: Smoke
 
-# Daily probe of the deployed worker — same check as the deploy.yml step,
-# catching breakage that lands between deploys (Access drift, index rot,
-# D1 issues). Red run = owner notification; no auto-rollback. See the Smoke
-# tier in docs/TESTING.md.
-
 on:
   schedule:
     - cron: "0 2 * * *" # ~10:00 HKT

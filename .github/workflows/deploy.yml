@@ -50,9 +50,6 @@ jobs:
       - name: Deploy worker
         working-directory: packages/mcp-worker
         run: pnpm wrangler deploy
-      # Smoke tier (docs/TESTING.md): probe the deployed worker. A red step
-      # fails the run — investigate and `wrangler rollback` by hand; the
-      # migration above is additive-only so rollback stays safe.
       - name: Smoke check prod
         working-directory: packages/mcp-worker
         run: pnpm smoke https://cardex.brandonhk.com

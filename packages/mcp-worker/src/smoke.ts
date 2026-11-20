@@ -48,9 +48,7 @@ const warn = (name: string, note = "") =>
   console.warn(`WARN ${name}${note ? ` — ${note}` : ""}`);
 const adminCheck = LOOPBACK ? warn : fail;
 
-// An unreachable host reports FAIL per check rather than crashing on the
-// first refused connection.
-async function probe(
+async function tryFetch(
   path: string,
   init?: RequestInit,
 ): Promise<Response | null> {
@@ -63,16 +61,15 @@ async function probe(
 const describe = (res: Response | null) =>
   res ? `status ${res.status}` : "unreachable";
 
-// L0 — site assets served.
-const home = await probe("/", { redirect: "manual" });
+const home = await tryFetch("/", { redirect: "manual" });
 if (home?.status === 200) pass("GET /");
 else fail("GET /", describe(home));
 
-// L3 — auth surfaces fail closed. /maintainer rejects with 401 when
+// Auth surfaces fail closed. /maintainer rejects with 401 when
 // MAINTAINER_TOKEN is configured and 404 when it is not; either way the
 // MCP handler must not answer. /admin must not serve the portal: Access
 // redirects (3xx) or the Worker 401s (ADR 0008) — 200 means a hole.
-const maintainer = await probe("/maintainer");
+const maintainer = await tryFetch("/maintainer");
 if (maintainer?.status === 401 || maintainer?.status === 404) {
   pass("GET /maintainer unauthenticated", describe(maintainer));
 } else {
@@ -80,7 +77,7 @@ if (maintainer?.status === 401 || maintainer?.status === 404) {
 }
 
 for (const path of ["/admin", "/admin/api/me"]) {
-  const res = await probe(path, { redirect: "manual" });
+  const res = await tryFetch(path, { redirect: "manual" });
   if (res?.status === 200) {
     adminCheck(
       `GET ${path} unauthenticated`,
@@ -93,7 +90,6 @@ for (const path of ["/admin", "/admin/api/me"]) {
   }
 }
 
-// L1+L2 — MCP surface: connect, exact tool set, one D1 read.
 const client = new Client({ name: "cardex-smoke", version: "0.0.1" });
 try {
   await client.connect(
@@ -121,8 +117,8 @@ try {
     fail("list_tags", JSON.stringify(tagPayload));
   }
 
-  // L4 — soft: index absent/empty degrades to search_unavailable, which is
-  // legal; only an unexpected failure or a thrown call warns.
+  // Index absent/empty degrades to search_unavailable, which is legal;
+  // only an unexpected failure or a thrown call warns.
   try {
     const res = await client.callTool({
       name: "search_terms",
