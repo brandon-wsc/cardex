@@ -62,6 +62,7 @@ describe("golden scenario — G2 eyewear spend", () => {
     expect(citi.calculated_rebate_hkd).toBe(94);
     expect(citi.unknown_exclusions).toEqual([
       "cap_remaining:term_citi_instore_cap",
+      "settlement:term_citi_local_settlement",
     ]);
   });
 

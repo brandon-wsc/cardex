@@ -15,7 +15,10 @@ const eslint = new ESLint({
       languageOptions: { parser: tseslint.parser },
       plugins: { cardex },
       linterOptions: { reportUnusedDisableDirectives: "off" },
-      rules: { "cardex/money-math": "error" },
+      rules: {
+        "cardex/money-math": "error",
+        "cardex/telemetry-sink": "error",
+      },
     },
     {
       files: STRICT_GLOBS,
@@ -75,5 +78,68 @@ export const ok = Math.min(count, len);
   assert.deepEqual(
     messages.map((m) => m.messageId),
     ["floatMathNamed", "floatMathNamed"],
+  );
+});
+
+const SINK_FILE = "packages/mcp-worker/src/usage.ts";
+const ENTRY_FILE = "packages/mcp-worker/src/index.ts";
+const OUTSIDE_FILE = "packages/mcp-worker/src/query.ts";
+const TEST_FILE = "packages/mcp-worker/src/usage.test.ts";
+
+test("telemetry-sink flags writeDataPoint outside usage.ts", async () => {
+  const messages = await lint(
+    `declare const sink: { writeDataPoint(p: unknown): void };
+export const go = () => sink.writeDataPoint({});
+export const alias = sink.writeDataPoint;
+`,
+    OUTSIDE_FILE,
+  );
+  // Three identifiers: the type signature, the call, and the alias.
+  assert.deepEqual(
+    messages.map((m) => m.messageId),
+    ["sinkWrite", "sinkWrite", "sinkWrite"],
+  );
+});
+
+test("telemetry-sink allows writes inside usage.ts", async () => {
+  const messages = await lint(
+    `declare const sink: { writeDataPoint(p: unknown): void };
+export const go = () => sink.writeDataPoint({});
+`,
+    SINK_FILE,
+  );
+  assert.deepEqual(messages, []);
+});
+
+test("telemetry-sink flags the USAGE binding outside entry + sink", async () => {
+  const messages = await lint(
+    `export const go = (env: { USAGE: unknown }) => env.USAGE;
+`,
+    OUTSIDE_FILE,
+  );
+  // Both the type literal key and the member access flag.
+  assert.deepEqual(messages.map((m) => m.messageId), [
+    "sinkAccess",
+    "sinkAccess",
+  ]);
+});
+
+test("telemetry-sink allows USAGE in index.ts and ignores test files", async () => {
+  assert.deepEqual(
+    await lint(
+      `export const go = (env: { USAGE: unknown }) => env.USAGE;
+`,
+      ENTRY_FILE,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    await lint(
+      `const sink = { writeDataPoint: (p: unknown) => p };
+export const env = { USAGE: sink };
+`,
+      TEST_FILE,
+    ),
+    [],
   );
 });

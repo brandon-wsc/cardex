@@ -1476,6 +1476,192 @@ describe("score currency — ADR 0006", () => {
   });
 });
 
+describe("settlement scope — PRD §5", () => {
+  it("surfaces settlement when currency is absent", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      tag_ids: ["overseas"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const citi = res.candidates.find((c) => c.rate_id === "rate_citi_overseas");
+    expect(citi?.unknown_exclusions).toContain(
+      "settlement:term_citi_fcy_settlement",
+    );
+    expect(citi?.calculated_rebate_hkd).toBe(30);
+  });
+
+  it("fails a settlement-gated rate on an explicit HKD currency", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "HKD",
+      tag_ids: ["overseas"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const citi = res.candidates.find((c) => c.rate_id === "rate_citi_overseas");
+    expect(citi?.calculated_rebate_hkd).toBeNull();
+    expect(citi?.failed_terms).toContain(
+      "settlement_unmet:term_citi_fcy_settlement",
+    );
+    expect(citi?.unknown_exclusions).not.toContain(
+      "settlement:term_citi_fcy_settlement",
+    );
+  });
+
+  it("clears settlement on a non-HKD currency", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "USD",
+      tag_ids: ["overseas"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const citi = res.candidates.find((c) => c.rate_id === "rate_citi_overseas");
+    expect(citi?.calculated_rebate_hkd).toBe(30);
+    expect(citi?.failed_terms).not.toContain(
+      "settlement_unmet:term_citi_fcy_settlement",
+    );
+    expect(citi?.unknown_exclusions).not.toContain(
+      "settlement:term_citi_fcy_settlement",
+    );
+  });
+
+  it("keeps a cross-border fx_fee unknown when currency is absent", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      tag_ids: ["overseas"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const citi = res.candidates.find((c) => c.rate_id === "rate_citi_overseas");
+    expect(citi?.unknown_exclusions).toContain("fx_fee:term_citi_dcc_fee");
+  });
+
+  it("clears a cross-border fx_fee on a non-HKD currency", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "USD",
+      tag_ids: ["overseas"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const citi = res.candidates.find((c) => c.rate_id === "rate_citi_overseas");
+    expect(citi?.unknown_exclusions).not.toContain("fx_fee:term_citi_dcc_fee");
+  });
+
+  it("keeps a cross-border fx_fee unknown for an outside-Hong-Kong merchant", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "HKD",
+      merchant_outside_hk: true,
+      tag_ids: ["overseas"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.merchant_outside_hk).toBe(true);
+    const citi = res.candidates.find((c) => c.rate_id === "rate_citi_overseas");
+    expect(citi?.unknown_exclusions).toContain("fx_fee:term_citi_dcc_fee");
+
+    const unset = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "HKD",
+      tag_ids: ["overseas"],
+    });
+    expect(unset.ok).toBe(true);
+    if (!unset.ok) return;
+    const citiUnset = unset.candidates.find(
+      (c) => c.rate_id === "rate_citi_overseas",
+    );
+    expect(citiUnset?.unknown_exclusions).toContain("fx_fee:term_citi_dcc_fee");
+  });
+
+  it("clears a cross-border fx_fee for an in-Hong-Kong merchant", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "HKD",
+      merchant_outside_hk: false,
+      tag_ids: ["overseas"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const citi = res.candidates.find((c) => c.rate_id === "rate_citi_overseas");
+    expect(citi?.unknown_exclusions).not.toContain("fx_fee:term_citi_dcc_fee");
+    const cond = citi?.conditions?.find(
+      (c) => c.term_id === "term_citi_dcc_fee",
+    );
+    expect(cond?.status).toBe("passed");
+  });
+
+  it("clears a local-scope settlement term for an in-Hong-Kong merchant", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "HKD",
+      merchant_outside_hk: false,
+      tag_ids: ["in_store"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const citi = res.candidates.find((c) => c.rate_id === "rate_citi_instore");
+    expect(citi?.calculated_rebate_hkd).toBe(20);
+    expect(citi?.failed_terms).not.toContain(
+      "settlement_unmet:term_citi_local_settlement",
+    );
+    const cond = citi?.conditions?.find(
+      (c) => c.term_id === "term_citi_local_settlement",
+    );
+    expect(cond?.status).toBe("passed");
+  });
+
+  it("fails a local-scope settlement term on an outside-Hong-Kong or non-HKD bill", async () => {
+    const hkdOutside = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "HKD",
+      merchant_outside_hk: true,
+      tag_ids: ["in_store"],
+    });
+    expect(hkdOutside.ok).toBe(true);
+    if (!hkdOutside.ok) return;
+    const citiOut = hkdOutside.candidates.find(
+      (c) => c.rate_id === "rate_citi_instore",
+    );
+    expect(citiOut?.calculated_rebate_hkd).toBeNull();
+    expect(citiOut?.failed_terms).toContain(
+      "settlement_unmet:term_citi_local_settlement",
+    );
+
+    const usd = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "USD",
+      tag_ids: ["in_store"],
+    });
+    expect(usd.ok).toBe(true);
+    if (!usd.ok) return;
+    const citiUsd = usd.candidates.find(
+      (c) => c.rate_id === "rate_citi_instore",
+    );
+    expect(citiUsd?.calculated_rebate_hkd).toBeNull();
+    expect(citiUsd?.failed_terms).toContain(
+      "settlement_unmet:term_citi_local_settlement",
+    );
+  });
+
+  it("keeps a local-scope settlement term unknown when merchant location is unasserted", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "HKD",
+      tag_ids: ["in_store"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const citi = res.candidates.find((c) => c.rate_id === "rate_citi_instore");
+    expect(citi?.unknown_exclusions).toContain(
+      "settlement:term_citi_local_settlement",
+    );
+    expect(citi?.calculated_rebate_hkd).toBe(20);
+  });
+});
+
 // PRD §3.3: effective windows filter the list and score tools; an explicit
 // get_card / get_term by id is an audit fetch and returns the record
 // regardless of its window.
@@ -2105,7 +2291,6 @@ describe("input invariants", () => {
           .map(([i, j]) => a.slice(Math.min(i, j), Math.max(i, j))),
       ),
     );
-    let hits = 0;
     await fc.assert(
       fc.asyncProperty(queryArb, async (query) => {
         const res = await resolveAlias(tenv.DB, { query, limit: 100 });
@@ -2113,13 +2298,22 @@ describe("input invariants", () => {
         for (const m of res.matches) {
           expect(aliasContain(query, m.text)).toBe(true);
         }
-        if (res.matches.length > 0) hits += 1;
         expect(res.matches.length).toBeLessThanOrEqual(res.total);
       }),
       { numRuns: 30 },
     );
-    // Coverage floor: corpus-derived queries should hit often enough that
-    // the containment assertion above is meaningfully exercised.
+    // Coverage floor: a deterministic pass over the corpus — the hit count
+    // cannot flake on a bad random draw, and the containment assertions
+    // are only meaningful when corpus queries actually match.
+    let hits = 0;
+    for (const query of corpus) {
+      const res = await resolveAlias(tenv.DB, { query, limit: 100 });
+      if (!res.ok) continue;
+      for (const m of res.matches) {
+        expect(aliasContain(query, m.text)).toBe(true);
+      }
+      if (res.matches.length > 0) hits += 1;
+    }
     expect(hits).toBeGreaterThanOrEqual(8);
   });
 
