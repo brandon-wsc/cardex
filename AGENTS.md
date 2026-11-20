@@ -22,6 +22,7 @@ Code lives in `packages/mcp-worker` (remote MCP endpoint + D1) and `packages/sit
 | Public pitch | [`README.md`](README.md) | Human intro. PRD and ADR win if they disagree |
 | Tool I/O | [`packages/mcp-worker/src/query.ts`](packages/mcp-worker/src/query.ts) | D1-backed shapes. PRD describes them; do not add a second shape doc |
 | Test policy | [`docs/TESTING.md`](docs/TESTING.md) | `pnpm test` — vitest in workerd on real D1; `pnpm demo` is the e2e check |
+| UAT cases | [`docs/uat-cases.md`](docs/uat-cases.md) | Caller-journey scenarios for personal-agent acceptance — outcomes + red lines, not call order |
 | Site copy | [`packages/site/src/i18n/`](packages/site/src/i18n/) | Shape rules in the site AGENTS.md; README prompts mirror `prompt.text` ([ADR 0004](docs/adr/0004-public-site.md)) |
 | Worker package | [`packages/mcp-worker/AGENTS.md`](packages/mcp-worker/AGENTS.md) | Runtime, D1 seed, TypeScript — read before working in the package |
 | Site package | [`packages/site/AGENTS.md`](packages/site/AGENTS.md) | Copy rules, Astro/TS versions — read before working in the package |
