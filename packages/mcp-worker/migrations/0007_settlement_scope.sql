@@ -1,9 +1,4 @@
--- Settlement scope on terms (UAT 2026-11-20): rebuilds terms because SQLite
--- cannot ALTER a CHECK constraint. Adds the 'settlement' kind — a rate gate
--- on billing currency — and ccy_scope, which tells a currency-scoped term
--- which billing pattern it covers: 'non_hkd' (a foreign-currency bill) or
--- 'hkd_outside_hk' (an HKD bill at a merchant outside Hong Kong — the
--- cross-border charge issuers pass through on behalf of the card schemes).
+-- Rebuilds terms because SQLite cannot ALTER a CHECK constraint.
 -- rate_terms and term_merchants FK-reference terms(id), and D1 runs with
 -- foreign_keys ON: DROP TABLE's implicit DELETE would violate them on a
 -- seeded database (0002/0003 got away with it only because terms was empty

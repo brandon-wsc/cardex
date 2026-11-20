@@ -1476,11 +1476,6 @@ describe("score currency — ADR 0006", () => {
   });
 });
 
-// Settlement scope — UAT 2026-11-20 / PRD §5. A `settlement` term gates a
-// rate on billing currency: an FCY rebate fails an explicit HKD bill instead
-// of returning a plausible gross figure. `ccy_scope` splits fx_fee variants —
-// `hkd_outside_hk` prices the cross-border charge on HKD bills at merchants
-// outside Hong Kong, which `merchant_outside_hk` settles.
 describe("settlement scope — PRD §5", () => {
   it("surfaces settlement when currency is absent", async () => {
     const res = await scoreCandidates(tenv.DB, {

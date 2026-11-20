@@ -1189,12 +1189,6 @@ export async function scoreCandidates(
         condition("passed");
         continue;
       }
-      // fx_fee settles on the caller's currency assertion (ADR 0006), split
-      // by ccy_scope (PRD §5): 'non_hkd'/unset prices a foreign-currency bill
-      // so explicit HKD clears it; 'hkd_outside_hk' prices an HKD bill at a
-      // merchant outside Hong Kong, so a non-HKD bill — or an in-HK merchant
-      // the caller vouches for — clears it. What cannot be ruled out stays
-      // unknown: terms carry no numeric fee field, so the caller costs it.
       if (term.kind === "fx_fee") {
         const scope = term.ccy_scope ?? "non_hkd";
         const cleared =
@@ -1215,10 +1209,6 @@ export async function scoreCandidates(
         condition("unchecked");
         continue;
       }
-      // settlement gates the rate on billing currency itself (PRD §5): an
-      // FCY rebate deterministically fails an explicit HKD bill instead of
-      // quoting a gross figure, a non-HKD bill satisfies it, and no currency
-      // assertion leaves it for the caller.
       if (term.kind === "settlement") {
         if (consume(`settlement:${term.id}`)) {
           condition("caller_settled");

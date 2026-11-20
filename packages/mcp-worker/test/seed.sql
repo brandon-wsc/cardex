@@ -242,9 +242,6 @@ INSERT INTO rate_terms (rate_id, term_id) VALUES
   ('rate_boc_eyewear',   'term_boc_eyewear_merchants'),
   ('rate_citi_instore',  'term_citi_instore_cap');
 
--- Settlement-scope fixtures (UAT 2026-11-20): the overseas rate gates on
--- non-HKD billing, and the card carries the ~1% cross-border fee issuers
--- pass through on HKD bills at merchants outside Hong Kong.
 INSERT INTO terms (id, card_id, kind, text, source_url, last_verified_at,
                    effective_from, effective_to, cap_hkd, threshold_hkd,
                    quota_n, register_by, post_within_days, anchor, anchor_days,
