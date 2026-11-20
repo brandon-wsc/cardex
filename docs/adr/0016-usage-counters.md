@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-18
-- **Updated:** 2026-11-19
+- **Updated:** 2026-11-21
 
 ## Context
 
@@ -152,3 +152,11 @@ unchanged, and no superseding is needed.
 - ~1.5 rows per MCP POST at current volume — trivially under limits. AE may
   still sample at high volume, so queries use `_sample_interval`; the random
   per-request index prevents a single hot caller from dominating one key.
+- Alerting rides on this dataset rather than adding new telemetry. The
+  intended alert path: Cloudflare Monitors (Alerts → Monitors) run threshold
+  queries on `cardex_usage` — `tool_call` rows with `blob4 = 'thrown'` and
+  request rows with `blob4 = 'error'`, both scoped to `blob8 = 'external'` —
+  plus Workers Issues (`observability.issues`, beta) for uncaught exceptions,
+  failed invocations, and `console.error` failures like the scheduled
+  reconcile. Monitor definitions, automations, and destinations are
+  dashboard config, deliberately not in the tree.
