@@ -179,7 +179,7 @@ export function registerReadTools(
   server.registerTool(
     "score_candidates",
     {
-      description: `Calculate rebate for a spend under explicit assumptions. Lists exclusions it could not check. Tag ids that do not resolve are echoed as unknown_tag_ids. A merchant that maps to no tag fails unmapped_merchant with the valid tag list — it is never guessed. Spend is amount_hkd, or amount + currency + assumptions.hkd_per_foreign_unit for non-HKD billing. Does not pick a winner. ${SEED_NOTE}`,
+      description: `Calculate rebate for a spend under explicit assumptions. Lists exclusions it could not check. Tag ids that do not resolve are echoed as unknown_tag_ids. A merchant that maps to no tag fails unmapped_merchant with the valid tag list — it is never guessed. Spend is amount_hkd, or amount + currency + assumptions.hkd_per_foreign_unit for non-HKD billing; merchant_outside_hk marks an HKD bill at a merchant outside Hong Kong (the cross-border fee class). Does not pick a winner. ${SEED_NOTE}`,
       inputSchema: strictInput({
         amount_hkd: z.number().optional(),
         amount: z.number().optional(),
@@ -188,6 +188,7 @@ export function registerReadTools(
         card_ids: z.array(z.string()).optional(),
         alias: z.string().optional(),
         merchant: z.string().optional(),
+        merchant_outside_hk: z.boolean().optional(),
         as_of: z.string().optional(),
         assumptions: strictInput({
             month_to_date_rebate_hkd: z.number().nonnegative().optional(),

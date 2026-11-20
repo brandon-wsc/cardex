@@ -1476,6 +1476,129 @@ describe("score currency — ADR 0006", () => {
   });
 });
 
+// Settlement scope — UAT 2026-11-20 / PRD §5. A `settlement` term gates a
+// rate on billing currency: an FCY rebate fails an explicit HKD bill instead
+// of returning a plausible gross figure. `ccy_scope` splits fx_fee variants —
+// `hkd_outside_hk` prices the cross-border charge on HKD bills at merchants
+// outside Hong Kong, which `merchant_outside_hk` settles.
+describe("settlement scope — PRD §5", () => {
+  it("surfaces settlement when currency is absent", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      tag_ids: ["overseas"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const citi = res.candidates.find((c) => c.rate_id === "rate_citi_overseas");
+    expect(citi?.unknown_exclusions).toContain(
+      "settlement:term_citi_fcy_settlement",
+    );
+    expect(citi?.calculated_rebate_hkd).toBe(30);
+  });
+
+  it("fails a settlement-gated rate on an explicit HKD currency", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "HKD",
+      tag_ids: ["overseas"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const citi = res.candidates.find((c) => c.rate_id === "rate_citi_overseas");
+    expect(citi?.calculated_rebate_hkd).toBeNull();
+    expect(citi?.failed_terms).toContain(
+      "settlement_unmet:term_citi_fcy_settlement",
+    );
+    expect(citi?.unknown_exclusions).not.toContain(
+      "settlement:term_citi_fcy_settlement",
+    );
+  });
+
+  it("clears settlement on a non-HKD currency", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "USD",
+      tag_ids: ["overseas"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const citi = res.candidates.find((c) => c.rate_id === "rate_citi_overseas");
+    expect(citi?.calculated_rebate_hkd).toBe(30);
+    expect(citi?.failed_terms).not.toContain(
+      "settlement_unmet:term_citi_fcy_settlement",
+    );
+    expect(citi?.unknown_exclusions).not.toContain(
+      "settlement:term_citi_fcy_settlement",
+    );
+  });
+
+  it("keeps a cross-border fx_fee unknown when currency is absent", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      tag_ids: ["overseas"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const citi = res.candidates.find((c) => c.rate_id === "rate_citi_overseas");
+    expect(citi?.unknown_exclusions).toContain("fx_fee:term_citi_dcc_fee");
+  });
+
+  it("clears a cross-border fx_fee on a non-HKD currency", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "USD",
+      tag_ids: ["overseas"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const citi = res.candidates.find((c) => c.rate_id === "rate_citi_overseas");
+    expect(citi?.unknown_exclusions).not.toContain("fx_fee:term_citi_dcc_fee");
+  });
+
+  it("keeps a cross-border fx_fee unknown for an outside-Hong-Kong merchant", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "HKD",
+      merchant_outside_hk: true,
+      tag_ids: ["overseas"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.merchant_outside_hk).toBe(true);
+    const citi = res.candidates.find((c) => c.rate_id === "rate_citi_overseas");
+    expect(citi?.unknown_exclusions).toContain("fx_fee:term_citi_dcc_fee");
+
+    const unset = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "HKD",
+      tag_ids: ["overseas"],
+    });
+    expect(unset.ok).toBe(true);
+    if (!unset.ok) return;
+    const citiUnset = unset.candidates.find(
+      (c) => c.rate_id === "rate_citi_overseas",
+    );
+    expect(citiUnset?.unknown_exclusions).toContain("fx_fee:term_citi_dcc_fee");
+  });
+
+  it("clears a cross-border fx_fee for an in-Hong-Kong merchant", async () => {
+    const res = await scoreCandidates(tenv.DB, {
+      amount_hkd: 1000,
+      currency: "HKD",
+      merchant_outside_hk: false,
+      tag_ids: ["overseas"],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const citi = res.candidates.find((c) => c.rate_id === "rate_citi_overseas");
+    expect(citi?.unknown_exclusions).not.toContain("fx_fee:term_citi_dcc_fee");
+    const cond = citi?.conditions?.find(
+      (c) => c.term_id === "term_citi_dcc_fee",
+    );
+    expect(cond?.status).toBe("passed");
+  });
+});
+
 // PRD §3.3: effective windows filter the list and score tools; an explicit
 // get_card / get_term by id is an audit fetch and returns the record
 // regardless of its window.

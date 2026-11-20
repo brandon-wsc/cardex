@@ -160,7 +160,8 @@ type TermKind =
   | "merchant_list"
   | "geo"
   | "targeted"
-  | "eligibility";
+  | "eligibility"
+  | "settlement";
 
 interface TermRow {
   id: string;
@@ -180,6 +181,7 @@ interface TermRow {
   anchor_days: number | null;
   period: string | null;
   exclusion_key: string | null;
+  ccy_scope: "non_hkd" | "hkd_outside_hk" | null;
 }
 
 // ADR 0012: a fee is a record on the card, not a rate condition — it lives
@@ -856,6 +858,7 @@ export async function scoreCandidates(
     card_ids?: string[];
     alias?: string;
     merchant?: string;
+    merchant_outside_hk?: boolean;
     assumptions?: Assumptions;
     as_of?: string;
     limit?: number;
@@ -1186,16 +1189,56 @@ export async function scoreCandidates(
         condition("passed");
         continue;
       }
-      // fx_fee settles on the caller's currency assertion (ADR 0006): an
-      // explicit HKD bill cannot trigger the fee, so the term passes.
-      // Absent or non-HKD keeps it unknown — terms carry no numeric fee
-      // field, so the caller costs it.
-      if (term.kind === "fx_fee" && input.currency !== undefined && currency === "HKD") {
-        consume(`fx_fee:${term.id}`);
-        condition("passed");
+      // fx_fee settles on the caller's currency assertion (ADR 0006), split
+      // by ccy_scope (PRD §5): 'non_hkd'/unset prices a foreign-currency bill
+      // so explicit HKD clears it; 'hkd_outside_hk' prices an HKD bill at a
+      // merchant outside Hong Kong, so a non-HKD bill — or an in-HK merchant
+      // the caller vouches for — clears it. What cannot be ruled out stays
+      // unknown: terms carry no numeric fee field, so the caller costs it.
+      if (term.kind === "fx_fee") {
+        const scope = term.ccy_scope ?? "non_hkd";
+        const cleared =
+          input.currency !== undefined &&
+          ((scope === "non_hkd" && currency === "HKD") ||
+            (scope === "hkd_outside_hk" &&
+              (currency !== "HKD" || input.merchant_outside_hk === false)));
+        if (cleared) {
+          consume(`fx_fee:${term.id}`);
+          condition("passed");
+          continue;
+        }
+        if (consume(`fx_fee:${term.id}`)) {
+          condition("caller_settled");
+          continue;
+        }
+        unknown.push(`fx_fee:${term.id}`);
+        condition("unchecked");
         continue;
       }
-      // Any other kind (fx_fee, registration_required, channel, mcc, quota,
+      // settlement gates the rate on billing currency itself (PRD §5): an
+      // FCY rebate deterministically fails an explicit HKD bill instead of
+      // quoting a gross figure, a non-HKD bill satisfies it, and no currency
+      // assertion leaves it for the caller.
+      if (term.kind === "settlement") {
+        if (consume(`settlement:${term.id}`)) {
+          condition("caller_settled");
+          continue;
+        }
+        if (input.currency === undefined) {
+          unknown.push(`settlement:${term.id}`);
+          condition("unchecked");
+          continue;
+        }
+        if (currency === "HKD") {
+          failed.push(`settlement_unmet:${term.id}`);
+          calculated = null;
+          condition("failed");
+        } else {
+          condition("passed");
+        }
+        continue;
+      }
+      // Any other kind (registration_required, channel, mcc, quota,
       // geo, targeted, eligibility, and kinds added later) is a term the
       // caller must settle: it is cleared by listing `<kind>:<term id>` in
       // checked_exclusions.
@@ -1250,6 +1293,7 @@ export async function scoreCandidates(
       : {}),
     as_of: asOf,
     merchant_checked: input.merchant ?? null,
+    merchant_outside_hk: input.merchant_outside_hk ?? null,
     ...page,
     total: totalRow?.n ?? 0,
     candidates,

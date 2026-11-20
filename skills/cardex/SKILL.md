@@ -47,7 +47,7 @@ Inputs are strict: an unrecognized argument key is a protocol `InvalidParams` er
 | `get_term` | A rate cites `term_ids` you cannot evaluate | `id` |
 | `search_terms` | EXPERIMENTAL — you have a free-text description of a condition (`要唔要登記`, "octopus top-up") and need candidate term ids; every hit is revalidated against D1 | `query`, `card_id`, `as_of`, `detail` (`terms` default / `candidates`), `min_similarity`, `limit` |
 | `list_tags` | You need the canonical spend tags | `limit` |
-| `score_candidates` | You want the rebate math for a spend under your own assumptions | `amount_hkd` **or** `amount` + `currency`, `tag_ids`, `card_ids`, `alias`, `merchant`, `assumptions`, `as_of`, `limit` |
+| `score_candidates` | You want the rebate math for a spend under your own assumptions | `amount_hkd` **or** `amount` + `currency`, `tag_ids`, `card_ids`, `alias`, `merchant`, `merchant_outside_hk`, `assumptions`, `as_of`, `limit` |
 | `report_issue` | The user (or you) believes a fact is wrong or stale | one of `card_id`/`rate_id`/`term_id`, `field`, `claimed_value`, `evidence_url`, `note` |
 
 Typical flow: `resolve_alias` the spend → `lookup_rates` (scoped to the user's confirmed `card_ids` if comparing held cards) → `get_term` any `term_ids` you can't check → `score_candidates` with explicit `assumptions`.
@@ -82,11 +82,12 @@ Each `score_candidates` row has three lists-worth of signals. Read all of them b
 | `min_spend` | Spend floor before the rate applies | Per-transaction floors auto-check against the spend's HKD amount (fail → `min_spend_unmet`). Cumulative floors need `month_to_date_spend_hkd`; without it the term stays unknown |
 | `merchant_list` | Named-merchant whitelist | Pass `merchant`. A hit clears it; **a miss keeps it unknown** — fuzzy matching can prove membership, never non-membership. Check `merchant_checked` and consider asking the user for the receipt name |
 | `exclusion` | A condition that kills the rate | `checked_exclusions` with the `exclusion_key` — only when the user confirms it does not apply |
-| `fx_fee` | Foreign-currency fee | Pass `currency`. Explicit `HKD` clears it; non-HKD leaves it in `unknown_exclusions` — the terms carry no fee figure, so net it from the rebate yourself or settle via `checked_exclusions` |
+| `fx_fee` | Foreign-currency fee — two scopes. Default prices a non-HKD bill; a `hkd_outside_hk`-scoped term prices the ~1% cross-border charge on an **HKD bill at a merchant outside Hong Kong** (incl. HKD-settled overseas websites) | Default scope: pass `currency`; explicit `HKD` clears it, non-HKD leaves it unknown. `hkd_outside_hk` scope: also pass `merchant_outside_hk` — `false` clears it, `true` or unset keeps it unknown. Terms carry no fee figure either way, so net it from the rebate yourself |
 | `registration_required` | Opt-in / promo code needed | Ask the user if they registered; settle via `checked_exclusions` |
 | `channel` / `mcc` | Booking channel / merchant category | You judge from the spend context and the term `text` |
 | `quota` | First-N registrants (FCFS) | Cannot be verified — quota usage is not public. Warn the user it may be full |
-| `geo` | Issuer's "overseas" definition | Definitions differ per issuer — read the term `text`/`source_url`, don't assume |
+| `settlement` | Rate requires non-HKD billing (e.g. a foreign-currency rebate) | Pass `currency`. Non-HKD clears it; explicit `HKD` is a hard fail — `settlement_unmet` lands in `failed_terms`, so the gross figure must not be quoted. Absent `currency` leaves it unknown |
+| `geo` | Issuer's geographic eligibility definition (e.g. card-present UK/EEA excluded) | Definitions differ per issuer — read the term `text`/`source_url`, don't assume. Distinct from `settlement`: geography is where the merchant is, settlement is what currency the bill lands in |
 | `targeted` | Selected-cardholders-only promo | Ask the user whether they received the invite |
 | `eligibility` | Who may hold/get the rate (principal-only, new-customer, account gate) | Check against what you know about the user |
 

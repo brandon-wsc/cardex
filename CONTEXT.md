@@ -55,3 +55,7 @@ _Avoid_: Charge, cost
 **Waiver**:
 A way a fee is not charged — issuer-stated (first year, spend threshold) or community-reported (waived on request). The record states which kind of claim it is and who said it.
 _Avoid_: Discount, exemption
+
+**Settlement scope**:
+How a transaction is billed — HKD at a Hong Kong merchant, HKD at a merchant outside Hong Kong, or a foreign currency. Issuers price the three differently: a foreign-currency rebate needs a foreign-currency bill, and an HKD bill at an outside-Hong-Kong merchant attracts its own cross-border fee.
+_Avoid_: DCC, currency conversion (those describe mechanics, not the spend's class)
