@@ -15,6 +15,7 @@ The root [`AGENTS.md`](../AGENTS.md) lists the core loop; add a script there onl
 |------|------|------|
 | **1 — Pure** | Filter, `limit`, and alias resolution over a checked-in fixture | **Fail** |
 | **2 — Tools** | Each MCP tool returns a compact page and honors `limit`. `get_card` / `get_term` fetch by `id` | **Fail** |
+| **Smoke** | `pnpm smoke [url]` — scripted calls against a *deployed* Worker (`pnpm demo` is the same idea against local `wrangler dev`). `GET /` serves; `/mcp` initializes with the exact `tools/list` set; `list_tags` returns non-empty; `/maintainer` and `/admin` fail closed. Facts are asserted shape-only — never a pinned id. `search_terms` warns instead of failing: `search_unavailable` is a legal degraded state (ADR 0014). All requests send `x-cardex-probe` so usage counters bucket them as self (ADR 0016) | `deploy.yml` step after `wrangler deploy` + daily `smoke.yml`; a red step fails the run — no auto-rollback |
 | **Omit** | Wrangler deploy glue. Anything that fetches an issuer site | Not a PR check |
 
 `score_candidates` tests, if the tool exists, assert that the result echoes `assumptions` and lists `unknown_exclusions`. They do not assert a winner.
