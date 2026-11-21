@@ -132,6 +132,19 @@ describe("admin identity", () => {
     expect(body.reports).toHaveLength(0);
   });
 
+  it("400s a half keyset cursor on the reports list", async () => {
+    for (const qs of [
+      "?before=2026-10-31T16%3A44%3A00Z",
+      "?before_id=rpt_seed_001",
+    ]) {
+      const res = await call(`/admin/api/reports${qs}`, undefined, undefined, "localhost");
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { ok: boolean; error: string };
+      expect(body.ok).toBe(false);
+      expect(body.error).toBe("invalid_cursor");
+    }
+  });
+
   it("rejects a spoofed identity header off-localhost without the dev gate", async () => {
     const res = await call(
       "/admin/api/reports",

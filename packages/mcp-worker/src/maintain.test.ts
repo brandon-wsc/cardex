@@ -528,10 +528,14 @@ describe("listReports / listProposals / getProposal", () => {
     );
 
     const first = await listReports(tenv.DB, { limit: 50 });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
     expect(first.total).toBe(61);
     expect(first.reports).toHaveLength(50);
 
     const rest = await listReports(tenv.DB, { limit: 50, offset: 50 });
+    expect(rest.ok).toBe(true);
+    if (!rest.ok) return;
     expect(rest.total).toBe(61);
     expect(rest.reports).toHaveLength(11);
   });
@@ -564,9 +568,10 @@ describe("listReports / listProposals / getProposal", () => {
     const last = first.reports[first.reports.length - 1];
     const rest = await listReports(tenv.DB, {
       limit: 50,
-      before: last.reported_at as string,
-      beforeId: last.id as string,
+      cursor: { before: last.reported_at as string, beforeId: last.id as string },
     });
+    expect(rest.ok).toBe(true);
+    if (!rest.ok) return;
     expect(rest.total).toBe(62);
     expect(rest.reports.map((r) => r.id)).not.toContain(last.id);
 
@@ -684,8 +689,7 @@ describe("listReports keyset invariants", () => {
         fc.integer({ min: 1, max: 60 }),
         async (cursor, limit) => {
           const res = await listReports(tenv.DB, {
-            before: cursor.before,
-            beforeId: cursor.beforeId,
+            cursor: { before: cursor.before, beforeId: cursor.beforeId },
             limit,
           });
           if (!res.ok) throw new Error("unreachable");
@@ -708,25 +712,6 @@ describe("listReports keyset invariants", () => {
     expect(nonEmpty).toBeGreaterThanOrEqual(10);
   });
 
-  it("without beforeId the cursor falls back to the timestamp alone", async () => {
-    await fc.assert(
-      fc.asyncProperty(
-        fc.constantFrom(
-          "2026-10-01T00:00:00Z",
-          "2026-10-02T00:00:00Z",
-          "2026-10-10T00:00:00Z",
-        ),
-        async (before) => {
-          const res = await listReports(tenv.DB, { before, limit: 100 });
-          if (!res.ok) throw new Error("unreachable");
-          expect(
-            res.reports.every((r) => (r.reported_at as string) < before),
-          ).toBe(true);
-        },
-      ),
-      { numRuns: 10 },
-    );
-  });
 });
 
 describe("listProposals invariants", () => {

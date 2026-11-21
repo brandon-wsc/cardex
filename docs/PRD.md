@@ -218,7 +218,7 @@ Facts stay true through a loop, not a crawl ([ADR 0002](adr/0002-maintenance-sur
 
 Until the portal ships, steps 3–4 collapse into the owner applying approved changes with `wrangler d1 execute --remote` — the manual path that exists today.
 
-`report_issue` submissions remain in the admin queue. `/admin/api/reports` serves the portal; `/maintainer` exposes fact reads and `propose_change`, not `list_reports`. The owner may hand a verified task to the agent, but does not forward raw reports as instructions. `skills/cardex-maintainer` is the agent's runbook — a separate artifact from the caller-facing playbook.
+`report_issue` submissions remain in the admin queue. `/admin/api/reports` serves the portal; `/maintainer` exposes fact reads and `propose_change`, not `list_reports`. The owner may hand a verified task to the agent, but does not forward raw reports as instructions. `skills/cardex-maintainer` is the agent's runbook — a separate artifact from the caller-facing playbook. Its keyset cursor is a `(before, before_id)` pair — `reported_at` has second-level precision, so a half cursor cannot order same-second rows and is rejected as `invalid_cursor` rather than silently dropping them.
 
 ## 9. Suggested Tech (v1)
 
