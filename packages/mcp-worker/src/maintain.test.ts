@@ -1128,7 +1128,134 @@ describe("decideProposal", () => {
 
     const prop = await getProposal(tenv.DB, proposed.proposal_id);
     expect(prop.ok).toBe(true);
-    if (prop.ok) expect(prop.proposal).toMatchObject({ status: "pending" });
+    if (prop.ok)
+      expect(prop.proposal).toMatchObject({
+        status: "pending",
+        decided_by: null,
+      });
+  });
+
+  // Both SELECTs are issued before either decide write exists, so both
+  // callers observe 'pending' and the race the lifecycle model warns
+  // about is exercised deterministically (issue #130).
+  it("decides a proposal exactly once when two approves overlap", async () => {
+    const proposed = await proposeChange(tenv.DB, {
+      summary: "raise the dbs quota",
+      evidence_url: "https://example.invalid/evidence",
+      patches: [
+        {
+          op: "update" as const,
+          table: "terms",
+          id: "term_dbs_quota",
+          set: { quota_n: 16000 },
+        },
+      ],
+    });
+    expect(proposed.ok).toBe(true);
+    if (!proposed.ok) return;
+
+    const [first, second] = await Promise.all([
+      decideProposal(tenv.DB, proposed.proposal_id, {
+        decision: "approve",
+        decided_by: "owner@cardex.dev",
+      }),
+      decideProposal(tenv.DB, proposed.proposal_id, {
+        decision: "approve",
+        decided_by: "second@cardex.dev",
+      }),
+    ]);
+
+    expect([first, second].filter((r) => r.ok)).toHaveLength(1);
+    const loser = [first, second].find((r) => !r.ok);
+    expect(loser?.ok).toBe(false);
+    if (loser && !loser.ok) expect(loser.error).toBe("already_decided");
+
+    const prop = await getProposal(tenv.DB, proposed.proposal_id);
+    expect(prop.ok).toBe(true);
+    if (prop.ok) expect(prop.proposal).toMatchObject({ status: "applied" });
+  });
+
+  it("keeps the winning decision when approve and reject overlap", async () => {
+    const proposed = await proposeChange(tenv.DB, {
+      summary: "raise the dbs quota",
+      evidence_url: "https://example.invalid/evidence",
+      patches: [
+        {
+          op: "update" as const,
+          table: "terms",
+          id: "term_dbs_quota",
+          set: { quota_n: 16000 },
+        },
+      ],
+    });
+    expect(proposed.ok).toBe(true);
+    if (!proposed.ok) return;
+
+    const [approve, reject] = await Promise.all([
+      decideProposal(tenv.DB, proposed.proposal_id, {
+        decision: "approve",
+        decided_by: "owner@cardex.dev",
+      }),
+      decideProposal(tenv.DB, proposed.proposal_id, {
+        decision: "reject",
+        decided_by: "second@cardex.dev",
+        note: "source is stale",
+      }),
+    ]);
+
+    expect([approve, reject].filter((r) => r.ok)).toHaveLength(1);
+
+    const prop = await getProposal(tenv.DB, proposed.proposal_id);
+    expect(prop.ok).toBe(true);
+    if (!prop.ok) return;
+    const term = await getTerm(tenv.DB, "term_dbs_quota");
+    expect(term.ok).toBe(true);
+    if (!term.ok) return;
+    if (approve.ok) {
+      expect(prop.proposal).toMatchObject({ status: "applied" });
+      expect(term.term.quota_n).toBe(16000);
+    } else {
+      // A rejected proposal must not have landed its patches — the audit
+      // trail and the facts cannot tell two different stories.
+      expect(prop.proposal).toMatchObject({ status: "rejected" });
+      expect(term.term.quota_n).not.toBe(16000);
+    }
+  });
+
+  it("refuses to decide a proposal whose approve claim is held", async () => {
+    const proposed = await proposeChange(tenv.DB, {
+      summary: "raise the dbs quota",
+      evidence_url: "https://example.invalid/evidence",
+      patches: [
+        {
+          op: "update" as const,
+          table: "terms",
+          id: "term_dbs_quota",
+          set: { quota_n: 16000 },
+        },
+      ],
+    });
+    expect(proposed.ok).toBe(true);
+    if (!proposed.ok) return;
+
+    await tenv.DB.prepare(
+      "UPDATE proposals SET status = 'approved' WHERE id = ?",
+    )
+      .bind(proposed.proposal_id)
+      .run();
+
+    for (const input of [
+      { decision: "approve" as const, decided_by: "owner@cardex.dev" },
+      {
+        decision: "reject" as const,
+        decided_by: "owner@cardex.dev",
+        note: "no",
+      },
+    ]) {
+      const res = await decideProposal(tenv.DB, proposed.proposal_id, input);
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error).toBe("already_decided");
+    }
   });
 });
 

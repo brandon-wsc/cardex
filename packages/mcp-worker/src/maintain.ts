@@ -557,6 +557,9 @@ export async function decideProposal(
     .bind(id)
     .first<{ status: string; patches: string }>();
   if (!row) return fail("not_found", `proposal:${id}`);
+  // Fast path only — the decide writes below are the real guard: each is
+  // conditional on status = 'pending', so a stale read here cannot decide
+  // or apply a proposal twice (model: verify-proposal-lifecycle, #130).
   if (row.status !== "pending") {
     return fail("already_decided", `proposal:${id} is ${row.status}`);
   }
@@ -567,22 +570,69 @@ export async function decideProposal(
     if (!input.note) {
       return fail("note_required", "rejecting requires a decision note");
     }
-    await db
+    const res = await db
       .prepare(
         `UPDATE proposals SET status = 'rejected', decided_at = ?, ` +
-          `decided_by = ?, decision_note = ? WHERE id = ?`,
+          `decided_by = ?, decision_note = ? ` +
+          `WHERE id = ? AND status = 'pending'`,
       )
       .bind(now, input.decided_by, input.note, id)
       .run();
+    if (res.meta.changes === 0) {
+      return fail("already_decided", `proposal:${id} is no longer pending`);
+    }
     return { ok: true as const, status: "rejected" };
   }
 
-  // approve — re-validate, then apply every patch in one batch so a failed
-  // statement rolls the whole proposal back. Inserts are pre-flighted in
+  // approve — claim before applying: 'pending' -> 'approved' is one
+  // conditional UPDATE, an atomic compare-and-set. A second approver or a
+  // reject matches zero rows and exits already_decided instead of
+  // re-applying patches or overwriting a decision already made.
+  const rawPatches = JSON.parse(row.patches) as unknown[];
+  const claim = await db
+    .prepare(
+      `UPDATE proposals SET status = 'approved', decided_at = ?, ` +
+        `decided_by = ?, decision_note = ? ` +
+        `WHERE id = ? AND status = 'pending'`,
+    )
+    .bind(now, input.decided_by, input.note ?? null, id)
+    .run();
+  if (claim.meta.changes === 0) {
+    return fail("already_decided", `proposal:${id} is no longer pending`);
+  }
+
+  // Releasing a claim is best-effort: if the database cannot take the
+  // write the row stays 'approved' — the decision stands, the batch did
+  // not land, and the held claim is visible to the owner instead of a
+  // facts/audit split.
+  const releaseClaim = () =>
+    db
+      .prepare(
+        `UPDATE proposals SET status = 'pending', decided_at = NULL, ` +
+          `decided_by = NULL, decision_note = NULL ` +
+          `WHERE id = ? AND status = 'approved'`,
+      )
+      .bind(id)
+      .run()
+      .then(() => undefined)
+      // audit-allow(ERR-01): the caller reports the real failure —
+      // invalid_patch, apply_failed, or a rethrow — release is cleanup,
+      // not the operation being reported on.
+      // audit-allow(ERR-03): best-effort cleanup; a failed release is the
+      // wedged-claim case above, and the log line is the alert channel.
+      .catch((e) => {
+        console.error(`proposal ${id}: claim release failed`, e);
+      });
+
+  // Re-validate after the claim, against the newest facts: another
+  // proposal may have applied while this one waited to be decided.
+  // Then apply every patch in one batch so a failed statement rolls the
+  // whole proposal back. Inserts are pre-flighted in
   // patch order so a collision names the row instead of surfacing a raw
   // SQLITE_CONSTRAINT dump; a delete earlier in the same proposal clears the
-  // way (delete-then-insert stays legal).
-  const rawPatches = JSON.parse(row.patches) as unknown[];
+  // way (delete-then-insert stays legal). A throw that is neither an
+  // invalid patch nor a failed batch still owes the queue its proposal
+  // back — release and let it propagate.
   const statements: { sql: string; params: Scalar[] }[] = [];
   const inserted = new Set<string>();
   const deleted = new Set<string>();
@@ -591,78 +641,87 @@ export async function decideProposal(
   // rename the card_name every one of its terms embeds, so it marks them
   // all. Marks land in the same batch, so they exist iff the facts do.
   const dirtyTermIds = new Set<string>();
-  for (const [i, raw] of rawPatches.entries()) {
-    const errors = await validatePatch(db, raw);
-    const patch = parsePatch(raw);
-    const spec = patch ? await specForTable(db, patch.table) : null;
-    if (errors.length > 0 || !patch || !spec) {
-      return fail("invalid_patch", `patch[${i}]: ${errors.join("; ")}`);
-    }
-    const key = rowKey(patch, spec);
-    const token = key
-      ? `${patch.table}|${spec.pk.map((c) => String(key[c])).join("|")}`
-      : null;
-    if (patch.op === "insert" && key && token) {
-      if (inserted.has(token)) {
-        return fail(
-          "invalid_patch",
-          `patch[${i}]: ${patch.table} '${patch.id}' is inserted twice in this proposal`,
-        );
+  const prepared: D1PreparedStatement[] = [];
+  try {
+    for (const [i, raw] of rawPatches.entries()) {
+      const errors = await validatePatch(db, raw);
+      const patch = parsePatch(raw);
+      const spec = patch ? await specForTable(db, patch.table) : null;
+      if (errors.length > 0 || !patch || !spec) {
+        await releaseClaim();
+        return fail("invalid_patch", `patch[${i}]: ${errors.join("; ")}`);
       }
-      if (!deleted.has(token) && (await fetchRowByKey(db, patch.table, spec, key))) {
-        return fail(
-          "invalid_patch",
-          `patch[${i}]: insert into ${patch.table} '${patch.id}' conflicts with an existing row`,
-        );
+      const key = rowKey(patch, spec);
+      const token = key
+        ? `${patch.table}|${spec.pk.map((c) => String(key[c])).join("|")}`
+        : null;
+      if (patch.op === "insert" && key && token) {
+        if (inserted.has(token)) {
+          await releaseClaim();
+          return fail(
+            "invalid_patch",
+            `patch[${i}]: ${patch.table} '${patch.id}' is inserted twice in this proposal`,
+          );
+        }
+        if (!deleted.has(token) && (await fetchRowByKey(db, patch.table, spec, key))) {
+          await releaseClaim();
+          return fail(
+            "invalid_patch",
+            `patch[${i}]: insert into ${patch.table} '${patch.id}' conflicts with an existing row`,
+          );
+        }
+        inserted.add(token);
+        deleted.delete(token);
       }
-      inserted.add(token);
-      deleted.delete(token);
+      if (patch.op === "delete" && token) {
+        deleted.add(token);
+        inserted.delete(token);
+      }
+      if (patch.table === "terms") {
+        dirtyTermIds.add(patch.id);
+      } else if (patch.table === "cards") {
+        const { results } = await db
+          .prepare("SELECT id FROM terms WHERE card_id = ?")
+          .bind(patch.id)
+          .all<{ id: string }>();
+        for (const row of results) dirtyTermIds.add(row.id);
+      }
+      statements.push(...patchStatements(patch, spec));
     }
-    if (patch.op === "delete" && token) {
-      deleted.add(token);
-      inserted.delete(token);
-    }
-    if (patch.table === "terms") {
-      dirtyTermIds.add(patch.id);
-    } else if (patch.table === "cards") {
-      const { results } = await db
-        .prepare("SELECT id FROM terms WHERE card_id = ?")
-        .bind(patch.id)
-        .all<{ id: string }>();
-      for (const row of results) dirtyTermIds.add(row.id);
-    }
-    statements.push(...patchStatements(patch, spec));
-  }
 
-  const prepared = statements.map(({ sql, params }) => {
-    const stmt = db.prepare(sql);
-    return params.length ? stmt.bind(...params) : stmt;
-  });
-  for (const termId of dirtyTermIds) {
+    prepared.push(
+      ...statements.map(({ sql, params }) => {
+        const stmt = db.prepare(sql);
+        return params.length ? stmt.bind(...params) : stmt;
+      }),
+    );
+    for (const termId of dirtyTermIds) {
+      prepared.push(
+        db
+          .prepare(
+            "INSERT OR REPLACE INTO term_index_dirty (term_id, queued_at) " +
+              "VALUES (?, ?)",
+          )
+          // queued_at carries `iso#uuid`: two approvals of the same term can
+          // share a millisecond timestamp, and the reconcile drains marks by
+          // exact value — a unique token keeps an in-flight re-mark safe.
+          .bind(termId, `${now}#${crypto.randomUUID()}`),
+      );
+    }
     prepared.push(
       db
-        .prepare(
-          "INSERT OR REPLACE INTO term_index_dirty (term_id, queued_at) " +
-            "VALUES (?, ?)",
-        )
-        // queued_at carries `iso#uuid`: two approvals of the same term can
-        // share a millisecond timestamp, and the reconcile drains marks by
-        // exact value — a unique token keeps an in-flight re-mark safe.
-        .bind(termId, `${now}#${crypto.randomUUID()}`),
+        .prepare(`UPDATE proposals SET status = 'applied' WHERE id = ?`)
+        .bind(id),
     );
+  } catch (e) {
+    await releaseClaim();
+    throw e;
   }
-  prepared.push(
-    db
-      .prepare(
-        `UPDATE proposals SET status = 'applied', decided_at = ?, ` +
-          `decided_by = ?, decision_note = ? WHERE id = ?`,
-      )
-      .bind(now, input.decided_by, input.note ?? null, id),
-  );
 
   try {
     await db.batch(prepared);
   } catch (e) {
+    await releaseClaim();
     return fail("apply_failed", e instanceof Error ? e.message : String(e));
   }
   return { ok: true as const, status: "applied" };
