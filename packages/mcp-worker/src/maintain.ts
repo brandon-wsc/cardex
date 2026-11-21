@@ -615,7 +615,14 @@ export async function decideProposal(
       .bind(id)
       .run()
       .then(() => undefined)
-      .catch(() => undefined);
+      // audit-allow(ERR-01): the caller reports the real failure —
+      // invalid_patch, apply_failed, or a rethrow — release is cleanup,
+      // not the operation being reported on.
+      // audit-allow(ERR-03): best-effort cleanup; a failed release is the
+      // wedged-claim case above, and the log line is the alert channel.
+      .catch((e) => {
+        console.error(`proposal ${id}: claim release failed`, e);
+      });
 
   // Re-validate after the claim, against the newest facts: another
   // proposal may have applied while this one waited to be decided.
