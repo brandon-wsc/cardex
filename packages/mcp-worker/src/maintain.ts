@@ -375,8 +375,7 @@ export async function listReports(
   input: {
     limit?: number;
     offset?: number;
-    before?: string;
-    beforeId?: string;
+    cursor?: { before: string; beforeId: string };
   },
 ) {
   const limit = Math.min(Math.max(input.limit ?? 50, 1), 100);
@@ -384,13 +383,15 @@ export async function listReports(
   const count = await db
     .prepare(`SELECT COUNT(*) AS n FROM reports`)
     .first<{ n: number }>();
-  const keyset = input.before
-    ? input.beforeId
-      ? {
-          where: `WHERE reported_at < ? OR (reported_at = ? AND id < ?) `,
-          binds: [input.before, input.before, input.beforeId],
-        }
-      : { where: `WHERE reported_at < ? `, binds: [input.before] }
+  const keyset = input.cursor
+    ? {
+        where: `WHERE reported_at < ? OR (reported_at = ? AND id < ?) `,
+        binds: [
+          input.cursor.before,
+          input.cursor.before,
+          input.cursor.beforeId,
+        ],
+      }
     : { where: ``, binds: [] as string[] };
   const { results } = await db
     .prepare(

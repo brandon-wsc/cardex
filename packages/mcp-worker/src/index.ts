@@ -203,14 +203,27 @@ async function handleAdminApi(
       const n = Number(raw);
       return Number.isFinite(n) ? n : undefined;
     };
-    return json(
-      await listReports(env.DB, {
-        limit: num("limit"),
-        offset: num("offset"),
-        before: url.searchParams.get("before") ?? undefined,
-        beforeId: url.searchParams.get("before_id") ?? undefined,
-      }),
-    );
+    const before = url.searchParams.get("before");
+    const beforeId = url.searchParams.get("before_id");
+    if ((before === null) !== (beforeId === null)) {
+      return json(
+        {
+          ok: false,
+          error: "invalid_cursor",
+          detail: "before and before_id must be given together",
+        },
+        400,
+      );
+    }
+    const res = await listReports(env.DB, {
+      limit: num("limit"),
+      offset: num("offset"),
+      cursor:
+        before !== null && beforeId !== null
+          ? { before, beforeId }
+          : undefined,
+    });
+    return json(res, res.ok ? 200 : 400);
   }
   if (path.startsWith("/proposals")) {
     return handleProposalRoutes(request, env, url, email, path);
