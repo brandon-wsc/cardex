@@ -2,11 +2,12 @@
 \* Fixed version of ProposalLifecycle. The fix: the guard moves into the
 \* write itself — every decide write is a conditional UPDATE matching
 \* WHERE id = ? AND status = 'pending'. A zero-row result is reported as
-\* already_decided. The JS guard on the stale SELECT disappears.
+\* already_decided. The JS guard on the stale SELECT stays only as a
+\* fast path — safety no longer reads it.
 \*
 \* Approve becomes two atomic steps (D1 batch cannot roll back on a
 \* zero-row UPDATE, so the claim is its own statement):
-\*   Claim:  UPDATE ... SET status='applying' WHERE id=? AND status='pending'
+\*   Claim:  UPDATE ... SET status='approved' WHERE id=? AND status='pending'
 \*   Apply:  revalidate, then batch(patches + UPDATE ... SET status='applied')
 \* Reject stays one step, now conditional:
 \*   UPDATE ... SET status='rejected' WHERE id=? AND status='pending'
@@ -20,7 +21,8 @@ CONSTANTS Proposals, Approvers, MaxPending
 \* See ProposalLifecycle.tla — worst case, all distinct pairs conflict.
 Conflict == {<<p, q>> \in Proposals \X Proposals : p # q}
 
-VARIABLES status,     \* status[p] adds "applying": the claim is held
+VARIABLES status,     \* status[p] adds "approved": the claim is held
+                      \*   ('approved' is the schema's claim state)
           applied,
           decision,
           stale,
@@ -63,7 +65,7 @@ Claim(a) ==
   /\ pc[a] = "decide"
   /\ LET p == target[a] IN
        IF status[p] = "pending" THEN            \* LIVE status, not observed[a]
-         /\ status' = [status EXCEPT ![p] = "applying"]
+         /\ status' = [status EXCEPT ![p] = "approved"]
          /\ pc'     = [pc EXCEPT ![a] = "apply"]
        ELSE                                     \* zero rows => already_decided
          /\ pc' = [pc EXCEPT ![a] = "idle"]
@@ -88,17 +90,18 @@ Apply(a) ==
   /\ pc' = [pc EXCEPT ![a] = "idle"]
   /\ UNCHANGED <<target, observed>>
 
-\* A failed batch leaves the claim held — nothing in the code releases
-\* 'applying'. Keep this action to see the recovery obligation the fix
-\* creates (a wedged 'applying' needs a sweeper or manual reset).
-\* Delete it from Next to model "batches never fail".
+\* A failed batch triggers a best-effort release back to 'pending';
+\* this action covers the case where no release runs — a crash before
+\* it, or the release itself failing. Keep it to see the recovery
+\* obligation a wedged 'approved' creates (a sweeper or manual reset).
+\* Delete it from Next to model "the release never fails".
 ApplyFail(a) ==
   /\ pc[a] = "apply"
   /\ pc' = [pc EXCEPT ![a] = "idle"]
   /\ UNCHANGED <<status, applied, decision, stale, target, observed>>
 
 \* FIX: reject's UPDATE is now conditional — one atomic conditional write.
-\* If an approve claimed the proposal first (status='applying'), this
+\* If an approve claimed the proposal first (status='approved'), this
 \* matches zero rows and returns already_decided instead of overwriting.
 RejectFixed(a) ==
   /\ pc[a] = "decide"
@@ -130,12 +133,12 @@ DecisionsFinal ==
 \*   PROPERTY EventuallyTerminal
 \*   and fairness on the progress actions, e.g.
 \*   Spec == Init /\ [][Next]_vars /\ WF_vars(Apply) ...
-\* With ApplyFail enabled it fails: a crashed apply wedges 'applying'
+\* With ApplyFail enabled it fails: a crashed apply wedges 'approved'
 \* forever. That failure is the recovery obligation — a sweeper that
-\* reverts stale 'applying' rows, or an owner-visible reset.
+\* reverts stale 'approved' rows, or an owner-visible reset.
 EventuallyTerminal ==
   \A p \in Proposals :
-    (status[p] \in {"pending", "applying"}) ~>
+    (status[p] \in {"pending", "approved"}) ~>
       (status[p] \in {"applied", "rejected"})
 
 =============================================================================

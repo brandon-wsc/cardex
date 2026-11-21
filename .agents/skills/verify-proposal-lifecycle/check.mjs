@@ -28,18 +28,31 @@ const end = source.indexOf("\nexport ", start + 1);
 const body = source.slice(start, end === -1 ? source.length : end);
 
 const guard = body.includes('if (row.status !== "pending")');
+// The approve guard is the claim UPDATE ('pending' -> 'approved'), an
+// atomic CAS. The final 'applied' UPDATE inside the patch batch runs only
+// after the claim won — a status clause there would not gate the patches,
+// which land in the same batch.
+const claimUpdate = body.match(
+  /UPDATE proposals SET status = 'approved'[\s\S]*?WHERE [^`]+/,
+);
 const appliedUpdate = body.match(
   /UPDATE proposals SET status = 'applied'[\s\S]*?WHERE [^`]+/,
 );
 const rejectedUpdate = body.match(
   /UPDATE proposals SET status = 'rejected'[\s\S]*?WHERE [^`]+/,
 );
+const releaseUpdate = body.match(
+  /UPDATE proposals SET status = 'pending'[\s\S]*?WHERE [^`]+/,
+);
 if (!appliedUpdate || !rejectedUpdate) {
   console.error("an applied/rejected UPDATE was not found in decideProposal");
   process.exit(2);
 }
-const conditionalApprove = /status\s*=\s*'pending'/.test(appliedUpdate[0]);
+const conditionalApprove =
+  !!claimUpdate && /status\s*=\s*'pending'/.test(claimUpdate[0]);
 const conditionalReject = /status\s*=\s*'pending'/.test(rejectedUpdate[0]);
+const releasableClaim =
+  !!releaseUpdate && /status\s*=\s*'approved'/.test(releaseUpdate[0]);
 
 // The invariant a finding comes from names the harm in the code's terms.
 const FINDING_OF = {
@@ -114,10 +127,10 @@ function describeStep(prev, next) {
         return `approve batch commits: patches apply, ${p} status -> 'applied' (WHERE id = ?)`;
       if (next.status[p] === "rejected")
         return `reject UPDATE commits: ${p} status -> 'rejected' (WHERE id = ?)`;
-      if (next.status[p] === "applying")
-        return `conditional UPDATE claims ${p} (status -> 'applying')`;
+      if (next.status[p] === "approved")
+        return `claim UPDATE wins: ${p} status -> 'approved'`;
       if (next.status[p] === "pending")
-        return `${p} returns to 'pending'`;
+        return `claim released: ${p} status -> 'pending'`;
       return `${p} status ${prev.status[p]} -> ${next.status[p]}`;
     }
   }
@@ -135,8 +148,8 @@ function describeStep(prev, next) {
 }
 
 console.log(`source: ${maintainPath}`);
-console.log(`pending guard: ${guard}`);
-console.log(`approve UPDATE conditional on pending: ${conditionalApprove}`);
+console.log(`pending fast-path guard: ${guard}`);
+console.log(`approve claim UPDATE conditional on pending: ${conditionalApprove}`);
 console.log(`reject UPDATE conditional on pending: ${conditionalReject}`);
 console.log("properties: patches apply at most once; the first decision is final");
 
@@ -151,7 +164,18 @@ if (conditionalApprove !== conditionalReject) {
 
 if (conditionalApprove) {
   // Both decide writes are conditional — the code claims the fixed shape.
-  // The fixed model has to prove it actually holds.
+  // That shape includes a way to release a held claim; without one a
+  // failed apply wedges the row at 'approved' with no path the spec
+  // models back out.
+  if (!releasableClaim) {
+    console.error(
+      "the decide writes are conditional but no claim-release UPDATE " +
+        "('approved' -> 'pending') was found — re-read decideProposal " +
+        "before moving the sync commit",
+    );
+    process.exit(2);
+  }
+  // The fixed model has to prove the conditional writes actually hold.
   const fixed = check(fixedSpecPath, Object.keys(FINDING_OF));
   if (fixed.success) {
     console.log("result: pass");

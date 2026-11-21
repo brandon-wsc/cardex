@@ -14,11 +14,16 @@ if (start < 0) {
 const body = source.slice(start, end === -1 ? source.length : end);
 const guard = body.includes('if (row.status !== "pending")');
 const applied = body.match(/UPDATE proposals SET status = 'applied'[\s\S]*?WHERE [^`]+/);
+const claim = body.match(/UPDATE proposals SET status = 'approved'[\s\S]*?WHERE [^`]+/);
 if (!applied) {
   console.error("applied UPDATE not found in decideProposal");
   process.exit(2);
 }
-const conditionalApprove = /status\s*=\s*'pending'/.test(applied[0]);
+// The approve guard is the claim UPDATE ('pending' -> 'approved'), an
+// atomic CAS — not the final 'applied' UPDATE inside the batch, which
+// runs after the claim won. No claim means the batch itself decides,
+// the pre-fix shape.
+const conditionalApprove = !!claim && /status\s*=\s*'pending'/.test(claim[0]);
 
 const broken = (state) => state.applies > 1;
 
@@ -40,7 +45,7 @@ function write(state, actor, trace) {
       state: { ...state, [actor]: "idle" },
       trace: [
         ...trace,
-        `${actor} UPDATE ... WHERE id = ? AND status = 'pending' matches 0 rows`,
+        `${actor} claim UPDATE ... WHERE id = ? AND status = 'pending' matches 0 rows`,
       ],
     };
   }
@@ -48,7 +53,9 @@ function write(state, actor, trace) {
     state: { ...state, status: "applied", applies: state.applies + 1, [actor]: "idle" },
     trace: [
       ...trace,
-      `${actor} runs the patch batch and sets status = 'applied' with WHERE id = ?`,
+      conditionalApprove
+        ? `${actor}'s claim wins; the batch applies patches and sets status = 'applied'`
+        : `${actor} runs the patch batch and sets status = 'applied' with WHERE id = ?`,
     ],
   };
 }
@@ -86,8 +93,8 @@ while (queue.length > 0) {
 }
 
 console.log(`source: ${maintainPath}`);
-console.log(`pending guard: ${guard}`);
-console.log(`approve update conditional on pending: ${conditionalApprove}`);
+console.log(`pending fast-path guard: ${guard}`);
+console.log(`approve claim conditional on pending: ${conditionalApprove}`);
 console.log("property: a proposal's patches are applied at most once");
 if (classes.size === 0) {
   console.log("result: pass");
