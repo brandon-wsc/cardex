@@ -17,6 +17,9 @@ importers:
       jscpd:
         specifier: 5.4.2
         version: 5.4.2
+      tla-checker:
+        specifier: 0.24.11
+        version: 0.24.11
       typescript-eslint:
         specifier: 8.72.1
         version: 8.72.1(eslint@10.13.0(supports-color@10.2.2))(supports-color@10.2.2)(typescript@6.0.3)
@@ -3252,6 +3255,9 @@ packages:
   tinyrainbow@3.2.0:
     resolution: {integrity: sha512-LgO3D9yZJjApUiuUfl9iFAwrtaX4+lok3wJIqttGoKCHlWUqHqbQpnxCf82L8FjgKsh4iGo78hqJwgL8F6To2A==}
     engines: {node: '>=14.0.0'}
+
+  tla-checker@0.24.11:
+    resolution: {integrity: sha512-Q1gBwiY9swGoTL6GQph3yRCwBWjwHHDbOeYMzE/VI925/nKRDz8toTaeDlDxeV8R/HGrlHiJmZTuY0yBDGJiqQ==}
 
   toidentifier@1.0.1:
     resolution: {integrity: sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA==}
@@ -6883,6 +6889,8 @@ snapshots:
   tinyps@0.5.2: {}
 
   tinyrainbow@3.2.0: {}
+
+  tla-checker@0.24.11: {}
 
   toidentifier@1.0.1: {}
 
